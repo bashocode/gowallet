@@ -4,6 +4,7 @@ import (
 	"github.com/bashocode/gowallet/monolith/internal/config"
 	"github.com/bashocode/gowallet/monolith/internal/database"
 	"github.com/bashocode/gowallet/monolith/internal/logger"
+	"github.com/bashocode/gowallet/monolith/internal/middleware"
 	userHandler "github.com/bashocode/gowallet/monolith/internal/user/handler"
 	userRepository "github.com/bashocode/gowallet/monolith/internal/user/repository"
 	userService "github.com/bashocode/gowallet/monolith/internal/user/service"
@@ -33,10 +34,26 @@ func main() {
 	// 2. setup gin router
 	r := gin.Default()
 
-	// routes
-	r.POST("/api/v1/users", uHandler.Register)
-	r.GET("/api/v1/users/:id", uHandler.GetProfile)
-	r.PUT("/api/v1/users/:id", uHandler.UpdateProfile)
+	// Register global error handling middleware
+	r.Use(middleware.ErrorHandler())
+
+	// Route grouping
+	v1 := r.Group("/api/v1")
+	{
+		// Public routes
+		v1.POST("/users/register", uHandler.Register)
+		v1.POST("/users/login", uHandler.Login)
+		v1.POST("/users", uHandler.Register)
+		v1.GET("/users/:id", uHandler.GetProfile)
+		v1.PUT("/users/:id", uHandler.UpdateProfile)
+
+		// Protected routes (requires valid JWT token)
+		protected := v1.Group("")
+		protected.Use(middleware.AuthMiddleware())
+		{
+			protected.GET("/users/me", uHandler.GetProfileMe)
+		}
+	}
 
 	// start server
 	logger.Log.Info("Server running on port 8080....")
