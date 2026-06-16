@@ -1,9 +1,9 @@
 package config
 
 import (
-	"log"
 	"os"
 
+	"github.com/bashocode/gowallet/monolith/internal/logger"
 	"github.com/joho/godotenv"
 )
 
@@ -14,7 +14,7 @@ type Config struct {
 func LoadConfig() *Config {
 	// load file .env if there is any
 	if err := godotenv.Load(); err != nil {
-		log.Println("Warning: .env file not found, using environment variables")
+		logger.Log.Info("Warning: .env file not found, using environment variables")
 	}
 
 	dsn := os.Getenv("DB_USER") + ":" +
