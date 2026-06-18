@@ -8,6 +8,9 @@ import (
 	userHandler "github.com/bashocode/gowallet/monolith/internal/user/handler"
 	userRepository "github.com/bashocode/gowallet/monolith/internal/user/repository"
 	userService "github.com/bashocode/gowallet/monolith/internal/user/service"
+	walletHandler "github.com/bashocode/gowallet/monolith/internal/wallet/handler"
+	walletRepository "github.com/bashocode/gowallet/monolith/internal/wallet/repository"
+	walletService "github.com/bashocode/gowallet/monolith/internal/wallet/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -28,12 +31,18 @@ func main() {
 
 	// 1. initiate layer
 	uRepo := userRepository.NewMySQLUserRepository(db)
-	uSvc := userService.NewUserService(uRepo)
+	wRepo := walletRepository.NewMySQLWalletRepository(db)
+
+	// inject db to user service for transaction
+	uSvc := userService.NewUserService(db, uRepo, wRepo)
+	wSvc := walletService.NewWalletService(wRepo)
+
 	uHandler := userHandler.NewUserHandler(uSvc)
+	wHandler := walletHandler.NewWalletHandler(wSvc)
 
 	// 2. setup gin router
-	r := gin.Default()
-
+	r := gin.New()
+	r.Use(gin.Recovery())
 	// Register global error handling middleware
 	r.Use(middleware.ErrorHandler())
 
@@ -43,15 +52,16 @@ func main() {
 		// Public routes
 		v1.POST("/users/register", uHandler.Register)
 		v1.POST("/users/login", uHandler.Login)
-		v1.POST("/users", uHandler.Register)
-		v1.GET("/users/:id", uHandler.GetProfile)
-		v1.PUT("/users/:id", uHandler.UpdateProfile)
+		// v1.POST("/users", uHandler.Register)
+		// v1.GET("/users/:id", uHandler.GetProfile)
+		// v1.PUT("/users/:id", uHandler.UpdateProfile)
 
 		// Protected routes (requires valid JWT token)
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware())
 		{
 			protected.GET("/users/me", uHandler.GetProfileMe)
+			protected.GET("/wallets/me", wHandler.GetMyWallet)
 		}
 	}
 
