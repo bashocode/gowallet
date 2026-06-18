@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"time"
 
@@ -9,6 +10,9 @@ import (
 	customError "github.com/bashocode/gowallet/monolith/internal/errors"
 	"github.com/bashocode/gowallet/monolith/internal/user/model"
 	"github.com/bashocode/gowallet/monolith/internal/user/repository"
+	userRepo "github.com/bashocode/gowallet/monolith/internal/user/repository"
+	walletModel "github.com/bashocode/gowallet/monolith/internal/wallet/model"
+	walletRepo "github.com/bashocode/gowallet/monolith/internal/wallet/repository"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -21,16 +25,22 @@ type UserService interface {
 }
 
 type userService struct {
-	repo repository.UserRepository
+	db         *sql.DB
+	userRepo   userRepo.UserRepository
+	walletRepo walletRepo.WalletRepository
 }
 
-func NewUserService(repo repository.UserRepository) UserService {
-	return &userService{repo: repo}
+func NewUserService(db *sql.DB, uRepo repository.UserRepository, wRepo walletRepo.WalletRepository) UserService {
+	return &userService{
+		db:         db,
+		userRepo:   uRepo,
+		walletRepo: wRepo,
+	}
 }
 
 func (s *userService) Register(ctx context.Context, req model.CreateUserRequest) (*model.User, error) {
 	// 1. check if the email is already registered
-	existing, _ := s.repo.GetByEmail(ctx, req.Email)
+	existing, _ := s.userRepo.GetByEmail(ctx, req.Email)
 	if existing != nil {
 		// return custom AppError
 		return nil, customError.NewAppError(http.StatusConflict, "EMAIL_ALREADY_REGISTERED", "this email already registered.")
@@ -51,17 +61,43 @@ func (s *userService) Register(ctx context.Context, req model.CreateUserRequest)
 		PasswordHash: string(hashedBytes),
 	}
 
-	// 3. store it to the database
-	if err := s.repo.Create(ctx, user); err != nil {
-		// return internal server error
+	// begin transaction database
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return nil, customError.ErrInternalServer
 	}
 
-	return s.repo.GetByID(ctx, user.ID)
+	// we should rollback if anything error or panic in the middle
+	defer tx.Rollback()
+
+	// store user to db with a tx connection
+	if err := s.userRepo.CreateTx(ctx, tx, user); err != nil {
+		return nil, customError.ErrInternalServer
+	}
+
+	// create wallet for the user
+	wallet := &walletModel.Wallet{
+		ID:       uuid.New().String(),
+		UserID:   user.ID,
+		Balance:  0.0,
+		Currency: "IDR",
+		Status:   "active",
+	}
+
+	if err := s.walletRepo.CreateTx(ctx, tx, wallet); err != nil {
+		return nil, customError.ErrInternalServer
+	}
+
+	// commit the transaction if all of the step is success
+	if err := tx.Commit(); err != nil {
+		return nil, customError.ErrInternalServer
+	}
+
+	return s.userRepo.GetByID(ctx, user.ID)
 }
 
 func (s *userService) GetProfile(ctx context.Context, id string) (*model.User, error) {
-	u, err := s.repo.GetByID(ctx, id)
+	u, err := s.userRepo.GetByID(ctx, id)
 
 	if err != nil {
 		return nil, customError.NewAppError(http.StatusNotFound, "USER_NOT_FOUND", "user not found")
@@ -71,22 +107,22 @@ func (s *userService) GetProfile(ctx context.Context, id string) (*model.User, e
 }
 
 func (s *userService) UpdateProfile(ctx context.Context, id string, req model.UpdateUserRequest) (*model.User, error) {
-	user, err := s.repo.GetByID(ctx, id)
+	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, customError.NewAppError(http.StatusNotFound, "USER_NOT_FOUND", "user not found")
 	}
 
 	user.FullName = req.FullName
-	if err := s.repo.Update(ctx, user); err != nil {
+	if err := s.userRepo.Update(ctx, user); err != nil {
 		return nil, customError.ErrInternalServer
 	}
 
-	return s.repo.GetByID(ctx, id)
+	return s.userRepo.GetByID(ctx, id)
 }
 
 func (s *userService) Login(ctx context.Context, req model.LoginRequest) (*model.LoginResponse, error) {
 	// find by email
-	user, err := s.repo.GetByEmail(ctx, req.Email)
+	user, err := s.userRepo.GetByEmail(ctx, req.Email)
 	if err != nil {
 		return nil, customError.NewAppError(http.StatusUnauthorized, "INVALID_CREDENTIALS", "wrong email or password.")
 	}
