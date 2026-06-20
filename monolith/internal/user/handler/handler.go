@@ -96,3 +96,16 @@ func (h *UserHandler) GetProfileMe(c *gin.Context) {
 		"data":    user,
 	})
 }
+
+func (h *UserHandler) DeleteAccount(c *gin.Context) {
+	id, _ := c.Get("user_id")
+	if err := h.svc.DeleteAccount(c.Request.Context(), id.(string)); err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusNoContent, gin.H{
+		"success": true,
+		"message": "Account deleted successfully",
+	})
+}
