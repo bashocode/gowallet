@@ -32,7 +32,7 @@ func (r *mysqlTransactionRepository) GetByIdempotencyKey(ctx context.Context, ke
 	var sender sql.NullString
 	err := r.db.QueryRowContext(ctx, query, key).Scan(
 		&t.ID,
-		&t.SenderWalletID,
+		&sender,
 		&t.ReceiverWalletID,
 		&t.Amount,
 		&t.Description,
