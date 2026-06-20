@@ -22,6 +22,7 @@ type UserService interface {
 	GetProfile(ctx context.Context, id string) (*model.User, error)
 	UpdateProfile(ctx context.Context, id string, req model.UpdateUserRequest) (*model.User, error)
 	Login(ctx context.Context, req model.LoginRequest) (*model.LoginResponse, error)
+	UpdateAvatar(ctx context.Context, id string, path string) error
 	DeleteAccount(ctx context.Context, id string) error
 }
 
@@ -151,6 +152,10 @@ func (s *userService) Login(ctx context.Context, req model.LoginRequest) (*model
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	}, nil
+}
+
+func (s *userService) UpdateAvatar(ctx context.Context, id string, path string) error {
+	return s.userRepo.UpdateAvatar(ctx, id, path)
 }
 
 func (s *userService) DeleteAccount(ctx context.Context, id string) error {

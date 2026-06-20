@@ -14,6 +14,7 @@ type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
 	Update(ctx context.Context, u *model.User) error
 	CreateTx(ctx context.Context, tx *sql.Tx, u *model.User) error
+	UpdateAvatar(ctx context.Context, id string, path string) error
 	SoftDelete(ctx context.Context, id string) error
 }
 
@@ -72,6 +73,12 @@ func (r *mysqlUserRepository) Update(ctx context.Context, u *model.User) error {
 func (r *mysqlUserRepository) CreateTx(ctx context.Context, tx *sql.Tx, u *model.User) error {
 	query := `INSERT INTO users (id, full_name, email, password_hash) VALUES (?, ?, ?, ?)`
 	_, err := tx.ExecContext(ctx, query, u.ID, u.FullName, u.Email, u.PasswordHash)
+	return err
+}
+
+func (r *mysqlUserRepository) UpdateAvatar(ctx context.Context, id string, path string) error {
+	query := `UPDATE users SET avatar_url = ? WHERE id = ? AND deleted_at IS NULL`
+	_, err := r.db.ExecContext(ctx, query, path, id)
 	return err
 }
 

@@ -2,6 +2,8 @@ package handler
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 
 	customError "github.com/bashocode/gowallet/monolith/internal/errors"
 	"github.com/bashocode/gowallet/monolith/internal/user/model"
@@ -94,6 +96,57 @@ func (h *UserHandler) GetProfileMe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    user,
+	})
+}
+
+func (h *UserHandler) UploadAvatar(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+
+	// get the file from request multipart
+	file, err := c.FormFile("avatar")
+	if err != nil {
+		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Please upload an avatar."))
+		return
+	}
+
+	// validate file format
+	if file.Size > 2*1024*1024 {
+		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_FILE", "File size must be less than 2MB."))
+		return
+	}
+
+	// validate file content type
+	ext := filepath.Ext(file.Filename)
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Invalid file format. Please upload a JPG, JPEG, or PNG image."))
+		return
+	}
+
+	// folder for saving
+	uploadDir := "./uploads"
+	_ = os.MkdirAll(uploadDir, os.ModePerm)
+
+	// rename file based on user id
+	filename := userID.(string) + ext
+	dst := filepath.Join(uploadDir, filename)
+
+	// save the file
+	if err := c.SaveUploadedFile(file, dst); err != nil {
+		c.Error(customError.ErrInternalServer)
+		return
+	}
+
+	// update user's avatar
+	avatarURL := "/uploads/" + filename
+	if err := h.svc.UpdateAvatar(c.Request.Context(), userID.(string), avatarURL); err != nil {
+		c.Error(customError.ErrInternalServer)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":    true,
+		"message":    "Avatar updated successfully",
+		"avatar_url": avatarURL,
 	})
 }
 
