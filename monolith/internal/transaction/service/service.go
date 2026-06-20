@@ -17,6 +17,7 @@ import (
 
 type TransactionService interface {
 	Transfer(ctx context.Context, senderUserID string, req model.TransferRequest) (*model.Transaction, error)
+	GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error)
 }
 
 type transactionService struct {
@@ -144,4 +145,35 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 	}
 
 	return transaction, nil
+}
+
+func (s *transactionService) GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error) {
+	wallet, err := s.walletRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		return nil, nil, customErr.NewAppError(http.StatusNotFound, "WALLET_NOT_FOUND", "Wallet not found")
+	}
+
+	// max limit
+	if params.Limit > 100 {
+		params.Limit = 100
+	}
+
+	txs, total, err := s.txRepo.GetHistory(ctx, wallet.ID, params)
+	if err != nil {
+		return nil, nil, customErr.ErrInternalServer
+	}
+
+	totalPages := int(total / int64(params.Limit))
+	if total%int64(params.Limit) != 0 {
+		totalPages++
+	}
+
+	meta := &model.PaginationMeta{
+		Page:      params.Page,
+		Limit:     params.Limit,
+		Total:     total,
+		TotalPage: totalPages,
+	}
+
+	return txs, meta, nil
 }

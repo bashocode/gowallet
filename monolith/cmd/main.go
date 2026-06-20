@@ -69,8 +69,13 @@ func main() {
 		protected.Use(middleware.AuthMiddleware())
 		{
 			protected.GET("/users/me", uHandler.GetProfileMe)
+			protected.POST("/users/avatar", uHandler.UploadAvatar)
+			protected.DELETE("/users/me", uHandler.DeleteAccount)
+
 			protected.GET("/wallets/me", wHandler.GetMyWallet)
+
 			protected.POST("/transactions/transfer", tHandler.Transfer)
+			protected.GET("/transactions/history", tHandler.GetHistory)
 		}
 	}
 

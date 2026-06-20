@@ -43,3 +43,29 @@ func (h *TransactionHandler) Transfer(c *gin.Context) {
 		"data":    tx,
 	})
 }
+
+func (h *TransactionHandler) GetHistory(c *gin.Context) {
+	userID, exist := c.Get("user_id")
+	if !exist {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "User context not found"))
+		return
+	}
+
+	var params model.PaginationParams
+	if err := c.ShouldBindQuery(&params); err != nil {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		return
+	}
+
+	txs, meta, err := h.svc.GetHistory(c.Request.Context(), userID.(string), params)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, model.PaginatedResponse{
+		Success: true,
+		Data:    txs,
+		Meta:    *meta,
+	})
+}
