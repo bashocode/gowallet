@@ -13,9 +13,9 @@ type User struct {
 }
 
 type CreateUserRequest struct {
-	FullName string `json:"full_name" binding:"required"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"` // more long, better
+	FullName string `json:"full_name" binding:"required" example="John Doe"`
+	Email    string `json:"email" binding:"required,email" example="john.doe@example.com"`
+	Password string `json:"password" binding:"required,min=6" example="secretpassword"` // more long, better
 }
 
 type UpdateUserRequest struct {
