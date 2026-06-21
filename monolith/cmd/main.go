@@ -31,6 +31,11 @@ import (
 
 // @host			localhost:8080
 // @basepath		/api/v1
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer <your_token>" to authenticate.
 func main() {
 	// initialize the log
 	logger.InitLogger()

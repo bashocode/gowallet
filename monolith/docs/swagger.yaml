@@ -10,17 +10,77 @@ definitions:
   model.CreateUserRequest:
     properties:
       email:
+        example: john.doe@example.com
         type: string
       full_name:
+        example: John Doe
         type: string
       password:
         description: more long, better
+        example: secretpassword
         minLength: 6
         type: string
     required:
     - email
     - full_name
     - password
+    type: object
+  model.LoginRequest:
+    properties:
+      email:
+        example: john.doe@example.com
+        type: string
+      password:
+        example: secretpassword
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  model.PaginatedResponse:
+    properties:
+      data: {}
+      meta:
+        $ref: '#/definitions/model.PaginationMeta'
+      success:
+        type: boolean
+    type: object
+  model.PaginationMeta:
+    properties:
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+      total_page:
+        type: integer
+    type: object
+  model.TransferRequest:
+    properties:
+      amount:
+        example: 50000
+        type: number
+      description:
+        example: Dinner split
+        type: string
+      idempotency_key:
+        example: unique-uuid-key-123
+        type: string
+      receiver_email:
+        example: receiver@example.com
+        type: string
+    required:
+    - amount
+    - idempotency_key
+    - receiver_email
+    type: object
+  model.UpdateUserRequest:
+    properties:
+      full_name:
+        type: string
+    required:
+    - full_name
     type: object
   model.User:
     properties:
@@ -46,6 +106,90 @@ info:
   title: GoWallet Monolith API
   version: "1.0"
 paths:
+  /transactions/history:
+    get:
+      consumes:
+      - application/json
+      description: Get paginated list of transactions involving the authenticated
+        user
+      parameters:
+      - description: 'page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'page limit (default: 10)'
+        in: query
+        name: limit
+        type: integer
+      - description: 'sort column (default: created_at)'
+        in: query
+        name: sort
+        type: string
+      - description: 'sort order (default: desc)'
+        in: query
+        name: order
+        type: string
+      - description: filter by status (success/failed)
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.PaginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Get Transaction History
+      tags:
+      - Transactions
+  /transactions/transfer:
+    post:
+      consumes:
+      - application/json
+      description: Transfer money to another user's wallet using email
+      parameters:
+      - description: transfer payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/model.TransferRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns success: true, message: Success, and data: model.Transaction'
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Transfer Balance
+      tags:
+      - Transactions
   /users/{id}:
     get:
       consumes:
@@ -69,6 +213,139 @@ paths:
           schema:
             $ref: '#/definitions/errors.AppError'
       summary: Get User Profile
+      tags:
+      - Users
+    put:
+      consumes:
+      - application/json
+      description: Update the authenticated user profile details
+      parameters:
+      - description: user id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: update profile payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/model.UpdateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.User'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      summary: Update User Profile
+      tags:
+      - Users
+  /users/avatar:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload profile picture avatar (JPG, JPEG, PNG, max 2MB)
+      parameters:
+      - description: Avatar image file
+        in: formData
+        name: avatar
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns success: true, message: Success, and avatar_url: string'
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Upload Avatar
+      tags:
+      - Users
+  /users/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate user with email and password, returning JWT access
+        and refresh tokens
+      parameters:
+      - description: login payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/model.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns a payload with success: true and data: model.LoginResponse'
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      summary: User Login
+      tags:
+      - Users
+  /users/me:
+    delete:
+      description: Soft delete user account
+      responses:
+        "204":
+          description: No Content
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Delete User Account
+      tags:
+      - Users
+    get:
+      consumes:
+      - application/json
+      description: Get current authenticated user profile using token
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns success: true and data: model.User'
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Get My Profile
       tags:
       - Users
   /users/register:
@@ -101,4 +378,37 @@ paths:
       summary: Register New User
       tags:
       - Users
+  /wallets/me:
+    get:
+      consumes:
+      - application/json
+      description: Get current authenticated user's wallet info (balance, currency,
+        etc.)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns success: true and data: model.Wallet'
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Get My Wallet
+      tags:
+      - Wallets
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer <your_token>" to authenticate.
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"
