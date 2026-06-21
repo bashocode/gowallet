@@ -15,6 +15,17 @@ func NewWalletHandler(s service.WalletService) *WalletHandler {
 	return &WalletHandler{svc: s}
 }
 
+// GetMyWallet godoc
+// @Summary		Get My Wallet
+// @Description	Get current authenticated user's wallet info (balance, currency, etc.)
+// @Tags		Wallets
+// @Accept		json
+// @Produce		json
+// @Success		200 {object} map[string]interface{} "Returns success: true and data: model.Wallet"
+// @Failure		401 {object} errors.AppError
+// @Failure		404 {object} errors.AppError
+// @Router		/wallets/me [get]
+// @Security	BearerAuth
 func (h *WalletHandler) GetMyWallet(c *gin.Context) {
 	// user_id from jwt context
 	userID, _ := c.Get("user_id")

@@ -14,8 +14,8 @@ type Transaction struct {
 }
 
 type TransferRequest struct {
-	ReceiverEmail  string  `json:"receiver_email" binding:"required,email"`
-	Amount         float64 `json:"amount" binding:"required,gt=0"`
-	Description    string  `json:"description"`
-	IdempotencyKey string  `json:"idempotency_key" binding:"required"`
+	ReceiverEmail  string  `json:"receiver_email" binding:"required,email" example:"receiver@example.com"`
+	Amount         float64 `json:"amount" binding:"required,gt=0" example:"50000"`
+	Description    string  `json:"description" example:"Dinner split"`
+	IdempotencyKey string  `json:"idempotency_key" binding:"required" example:"unique-uuid-key-123"`
 }

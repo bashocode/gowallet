@@ -19,6 +19,17 @@ func NewUserHandler(svc service.UserService) *UserHandler {
 	return &UserHandler{svc: svc}
 }
 
+// Register godoc
+// @Summary		Register New User
+// @Description	Create new User with default wallet
+// @Tags		Users
+// @Accept		json
+// @Produce		json
+// @Param		request	body model.CreateUserRequest true "register user payload"
+// @Success		201 {object} model.User
+// @Failure		400 {object} errors.AppError
+// @Failure		409 {object} errors.AppError
+// @Router		/users/register [post]
 func (h *UserHandler) Register(c *gin.Context) {
 	var req model.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -37,6 +48,16 @@ func (h *UserHandler) Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, user)
 }
 
+// GetProfile godoc
+// @Summary		Get User Profile
+// @Description	Get user profile by user ID
+// @Tags		Users
+// @Accept		json
+// @Produce		json
+// @Param		id path string true "user id (uuid)"
+// @Success		200 {object} model.User
+// @Failure		404 {object} errors.AppError
+// @Router		/users/{id} [get]
 func (h *UserHandler) GetProfile(c *gin.Context) {
 	id := c.Param("id")
 	user, err := h.svc.GetProfile(c.Request.Context(), id)
@@ -48,6 +69,18 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
+// UpdateProfile godoc
+// @Summary		Update User Profile
+// @Description	Update the authenticated user profile details
+// @Tags		Users
+// @Accept		json
+// @Produce		json
+// @Param		id path string true "user id"
+// @Param		request body model.UpdateUserRequest true "update profile payload"
+// @Success		200 {object} model.User
+// @Failure		400 {object} errors.AppError
+// @Failure		404 {object} errors.AppError
+// @Router		/users/{id} [put]
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	id := c.Param("id")
 	var req model.UpdateUserRequest
@@ -65,6 +98,17 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
+// Login godoc
+// @Summary		User Login
+// @Description	Authenticate user with email and password, returning JWT access and refresh tokens
+// @Tags		Users
+// @Accept		json
+// @Produce		json
+// @Param		request body model.LoginRequest true "login payload"
+// @Success		200 {object} map[string]interface{} "Returns a payload with success: true and data: model.LoginResponse"
+// @Failure		400 {object} errors.AppError
+// @Failure		401 {object} errors.AppError
+// @Router		/users/login [post]
 func (h *UserHandler) Login(c *gin.Context) {
 	var req model.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -84,6 +128,16 @@ func (h *UserHandler) Login(c *gin.Context) {
 	})
 }
 
+// GetProfileMe godoc
+// @Summary		Get My Profile
+// @Description	Get current authenticated user profile using token
+// @Tags		Users
+// @Accept		json
+// @Produce		json
+// @Success		200 {object} map[string]interface{} "Returns success: true and data: model.User"
+// @Failure		401 {object} errors.AppError
+// @Router		/users/me [get]
+// @Security	BearerAuth
 func (h *UserHandler) GetProfileMe(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
@@ -99,6 +153,17 @@ func (h *UserHandler) GetProfileMe(c *gin.Context) {
 	})
 }
 
+// UploadAvatar godoc
+// @Summary		Upload Avatar
+// @Description	Upload profile picture avatar (JPG, JPEG, PNG, max 2MB)
+// @Tags		Users
+// @Accept		multipart/form-data
+// @Produce		json
+// @Param		avatar formData file true "Avatar image file"
+// @Success		200 {object} map[string]interface{} "Returns success: true, message: Success, and avatar_url: string"
+// @Failure		400 {object} errors.AppError
+// @Router		/users/avatar [post]
+// @Security	BearerAuth
 func (h *UserHandler) UploadAvatar(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
@@ -150,6 +215,14 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 	})
 }
 
+// DeleteAccount godoc
+// @Summary		Delete User Account
+// @Description	Soft delete user account
+// @Tags		Users
+// @Success		204 {object} map[string]interface{}
+// @Failure		404 {object} errors.AppError
+// @Router		/users/me [delete]
+// @Security	BearerAuth
 func (h *UserHandler) DeleteAccount(c *gin.Context) {
 	id, _ := c.Get("user_id")
 	if err := h.svc.DeleteAccount(c.Request.Context(), id.(string)); err != nil {
