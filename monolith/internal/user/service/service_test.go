@@ -11,6 +11,7 @@ import (
 	walletRepo "github.com/bashocode/gowallet/monolith/internal/wallet/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestRegister_Success(t *testing.T) {
@@ -95,5 +96,333 @@ func TestRegister_EmailAlreadyExists(t *testing.T) {
 	assert.Equal(t, "this email already registered.", err.Error())
 
 	// make sure all mock if called and expected
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestGetProfile_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+	expectedUser := &userModel.User{
+		ID:       userID,
+		FullName: "John Doe",
+		Email:    "john.doe@example.com",
+	}
+
+	mockUserRepo.On("GetByID", ctx, userID).Return(expectedUser, nil)
+
+	user, err := svc.GetProfile(ctx, userID)
+
+	assert.NoError(t, err)
+	assert.Equal(t, expectedUser, user)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestGetProfile_NotFound(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "non-existent"
+
+	mockUserRepo.On("GetByID", ctx, userID).Return(nil, errors.New("not found"))
+
+	user, err := svc.GetProfile(ctx, userID)
+
+	assert.Error(t, err)
+	assert.Nil(t, user)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestUpdateProfile_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+	req := userModel.UpdateUserRequest{
+		FullName: "Jane Doe",
+	}
+	existingUser := &userModel.User{
+		ID:       userID,
+		FullName: "John Doe",
+		Email:    "john.doe@example.com",
+	}
+	updatedUser := &userModel.User{
+		ID:       userID,
+		FullName: "Jane Doe",
+		Email:    "john.doe@example.com",
+	}
+
+	mockUserRepo.On("GetByID", ctx, userID).Return(existingUser, nil).Once()
+	mockUserRepo.On("Update", ctx, mock.Anything).Return(nil)
+	mockUserRepo.On("GetByID", ctx, userID).Return(updatedUser, nil).Once()
+
+	user, err := svc.UpdateProfile(ctx, userID, req)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "Jane Doe", user.FullName)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestUpdateProfile_NotFound(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "non-existent"
+	req := userModel.UpdateUserRequest{
+		FullName: "Jane Doe",
+	}
+
+	mockUserRepo.On("GetByID", ctx, userID).Return(nil, errors.New("not found"))
+
+	user, err := svc.UpdateProfile(ctx, userID, req)
+
+	assert.Error(t, err)
+	assert.Nil(t, user)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestUpdateProfile_UpdateFailure(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+	req := userModel.UpdateUserRequest{
+		FullName: "Jane Doe",
+	}
+	existingUser := &userModel.User{
+		ID:       userID,
+		FullName: "John Doe",
+		Email:    "john.doe@example.com",
+	}
+
+	mockUserRepo.On("GetByID", ctx, userID).Return(existingUser, nil)
+	mockUserRepo.On("Update", ctx, mock.Anything).Return(errors.New("db error"))
+
+	user, err := svc.UpdateProfile(ctx, userID, req)
+
+	assert.Error(t, err)
+	assert.Nil(t, user)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestLogin_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	req := userModel.LoginRequest{
+		Email:    "john.doe@example.com",
+		Password: "secretpassword",
+	}
+
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("secretpassword"), bcrypt.DefaultCost)
+	existingUser := &userModel.User{
+		ID:           "user-123",
+		FullName:     "John Doe",
+		Email:        "john.doe@example.com",
+		PasswordHash: string(hashedPassword),
+	}
+
+	mockUserRepo.On("GetByEmail", ctx, req.Email).Return(existingUser, nil)
+
+	resp, err := svc.Login(ctx, req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.NotEmpty(t, resp.AccessToken)
+	assert.NotEmpty(t, resp.RefreshToken)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestLogin_InvalidCredentials_EmailNotFound(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	req := userModel.LoginRequest{
+		Email:    "john.doe@example.com",
+		Password: "secretpassword",
+	}
+
+	mockUserRepo.On("GetByEmail", ctx, req.Email).Return(nil, errors.New("not found"))
+
+	resp, err := svc.Login(ctx, req)
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestLogin_InvalidCredentials_WrongPassword(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	req := userModel.LoginRequest{
+		Email:    "john.doe@example.com",
+		Password: "wrongpassword",
+	}
+
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("secretpassword"), bcrypt.DefaultCost)
+	existingUser := &userModel.User{
+		ID:           "user-123",
+		FullName:     "John Doe",
+		Email:        "john.doe@example.com",
+		PasswordHash: string(hashedPassword),
+	}
+
+	mockUserRepo.On("GetByEmail", ctx, req.Email).Return(existingUser, nil)
+
+	resp, err := svc.Login(ctx, req)
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestUpdateAvatar_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+	path := "/uploads/avatar.png"
+
+	mockUserRepo.On("UpdateAvatar", ctx, userID, path).Return(nil)
+
+	err := svc.UpdateAvatar(ctx, userID, path)
+
+	assert.NoError(t, err)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestUpdateAvatar_Failure(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+	path := "/uploads/avatar.png"
+
+	mockUserRepo.On("UpdateAvatar", ctx, userID, path).Return(errors.New("db error"))
+
+	err := svc.UpdateAvatar(ctx, userID, path)
+
+	assert.Error(t, err)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestDeleteAccount_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+	existingUser := &userModel.User{
+		ID:       userID,
+		FullName: "John Doe",
+		Email:    "john.doe@example.com",
+	}
+
+	mockUserRepo.On("GetByID", ctx, userID).Return(existingUser, nil)
+	mockUserRepo.On("SoftDelete", ctx, userID).Return(nil)
+
+	err := svc.DeleteAccount(ctx, userID)
+
+	assert.NoError(t, err)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestDeleteAccount_NotFound(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+
+	mockUserRepo.On("GetByID", ctx, userID).Return(nil, errors.New("not found"))
+
+	err := svc.DeleteAccount(ctx, userID)
+
+	assert.Error(t, err)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestDeleteAccount_SoftDeleteFailure(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+	existingUser := &userModel.User{
+		ID:       userID,
+		FullName: "John Doe",
+		Email:    "john.doe@example.com",
+	}
+
+	mockUserRepo.On("GetByID", ctx, userID).Return(existingUser, nil)
+	mockUserRepo.On("SoftDelete", ctx, userID).Return(errors.New("db error"))
+
+	err := svc.DeleteAccount(ctx, userID)
+
+	assert.Error(t, err)
 	mockUserRepo.AssertExpectations(t)
 }
