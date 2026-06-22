@@ -3,9 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/bashocode/gowallet/monolith/internal/auth"
 	userModel "github.com/bashocode/gowallet/monolith/internal/user/model"
 	userRepo "github.com/bashocode/gowallet/monolith/internal/user/repository"
 	walletRepo "github.com/bashocode/gowallet/monolith/internal/wallet/repository"
@@ -473,3 +476,86 @@ func TestDeleteAccount_SoftDeleteFailure(t *testing.T) {
 	assert.Error(t, err)
 	mockUserRepo.AssertExpectations(t)
 }
+
+func TestLogout_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, mockRedis := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+	email := "test@example.com"
+
+	token, err := auth.GenerateToken(userID, email, 15*time.Minute)
+	assert.NoError(t, err)
+
+	blacklistKey := fmt.Sprintf("blacklist:%s", token)
+	mockRedis.CustomMatch(func(expected, actual []interface{}) error {
+		if len(actual) >= 3 && actual[0] == "set" && actual[1] == blacklistKey && actual[2] == "logged_out" {
+			return nil
+		}
+		return fmt.Errorf("expected set for key %s, got %v", blacklistKey, actual)
+	}).ExpectSet(blacklistKey, "logged_out", 15*time.Minute).SetVal("OK")
+
+	err = svc.Logout(ctx, token)
+	assert.NoError(t, err)
+	assert.NoError(t, mockRedis.ExpectationsWereMet())
+}
+
+func TestLogout_InvalidToken(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	invalidToken := "invalid.token.here"
+
+	err := svc.Logout(ctx, invalidToken)
+	assert.Error(t, err)
+	assert.Equal(t, "token is invalid or expired.", err.Error())
+}
+
+func TestLogout_RedisError(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, mockRedis := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+	email := "test@example.com"
+
+	token, err := auth.GenerateToken(userID, email, 15*time.Minute)
+	assert.NoError(t, err)
+
+	blacklistKey := fmt.Sprintf("blacklist:%s", token)
+	mockRedis.CustomMatch(func(expected, actual []interface{}) error {
+		if len(actual) >= 3 && actual[0] == "set" && actual[1] == blacklistKey && actual[2] == "logged_out" {
+			return nil
+		}
+		return fmt.Errorf("expected set for key %s, got %v", blacklistKey, actual)
+	}).ExpectSet(blacklistKey, "logged_out", 15*time.Minute).SetErr(errors.New("redis failure"))
+
+	err = svc.Logout(ctx, token)
+	assert.Error(t, err)
+	assert.Equal(t, "Something went wrong on the server, please try again later.", err.Error())
+	assert.NoError(t, mockRedis.ExpectationsWereMet())
+}
+
