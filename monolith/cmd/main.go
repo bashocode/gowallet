@@ -51,6 +51,13 @@ func main() {
 	}
 	defer db.Close()
 
+	// connect to redis
+	rdb, err := database.ConnectRedis(cfg.RedisAddr)
+	if err != nil {
+		logger.Log.Error("Critical Error: Could not connect to Redis", "error", err)
+	}
+	defer rdb.Close()
+
 	// 1. initiate layer
 	uRepo := userRepository.NewMySQLUserRepository(db)
 	wRepo := walletRepository.NewMySQLWalletRepository(db)
@@ -59,8 +66,8 @@ func main() {
 
 	// inject db to user service for transaction
 	uSvc := userService.NewUserService(db, uRepo, wRepo)
-	wSvc := walletService.NewWalletService(wRepo)
-	tSvc := txService.NewTransactionService(db, tRepo, uRepo, wRepo, lRepo)
+	wSvc := walletService.NewWalletService(wRepo, rdb)
+	tSvc := txService.NewTransactionService(db, rdb, tRepo, uRepo, wRepo, lRepo)
 
 	uHandler := userHandler.NewUserHandler(uSvc)
 	wHandler := walletHandler.NewWalletHandler(wSvc)
@@ -81,9 +88,6 @@ func main() {
 		// Public routes
 		v1.POST("/users/register", uHandler.Register)
 		v1.POST("/users/login", uHandler.Login)
-		// v1.POST("/users", uHandler.Register)
-		// v1.GET("/users/:id", uHandler.GetProfile)
-		// v1.PUT("/users/:id", uHandler.UpdateProfile)
 
 		// Protected routes (requires valid JWT token)
 		protected := v1.Group("")
@@ -91,6 +95,8 @@ func main() {
 		{
 			protected.GET("/users/me", uHandler.GetProfileMe)
 			protected.POST("/users/avatar", uHandler.UploadAvatar)
+			protected.PUT("/users/:id", uHandler.UpdateProfile)
+			protected.GET("/users/:id", uHandler.GetProfile)
 			protected.DELETE("/users/me", uHandler.DeleteAccount)
 
 			protected.GET("/wallets/me", wHandler.GetMyWallet)
