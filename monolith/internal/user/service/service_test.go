@@ -9,6 +9,7 @@ import (
 	userModel "github.com/bashocode/gowallet/monolith/internal/user/model"
 	userRepo "github.com/bashocode/gowallet/monolith/internal/user/repository"
 	walletRepo "github.com/bashocode/gowallet/monolith/internal/wallet/repository"
+	"github.com/go-redis/redismock/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/crypto/bcrypt"
@@ -22,10 +23,14 @@ func TestRegister_Success(t *testing.T) {
 	}
 	defer db.Close()
 
+	// redis mock
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	// initiate mock repositories
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	req := userModel.CreateUserRequest{
@@ -69,9 +74,12 @@ func TestRegister_EmailAlreadyExists(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	req := userModel.CreateUserRequest{
@@ -103,9 +111,12 @@ func TestGetProfile_Success(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -128,9 +139,12 @@ func TestGetProfile_NotFound(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	userID := "non-existent"
@@ -148,9 +162,12 @@ func TestUpdateProfile_Success(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -183,9 +200,12 @@ func TestUpdateProfile_NotFound(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	userID := "non-existent"
@@ -206,9 +226,12 @@ func TestUpdateProfile_UpdateFailure(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -235,9 +258,12 @@ func TestLogin_Success(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	req := userModel.LoginRequest{
@@ -268,9 +294,12 @@ func TestLogin_InvalidCredentials_EmailNotFound(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	req := userModel.LoginRequest{
@@ -291,9 +320,12 @@ func TestLogin_InvalidCredentials_WrongPassword(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	req := userModel.LoginRequest{
@@ -322,9 +354,12 @@ func TestUpdateAvatar_Success(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -342,9 +377,12 @@ func TestUpdateAvatar_Failure(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -362,9 +400,12 @@ func TestDeleteAccount_Success(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -387,9 +428,12 @@ func TestDeleteAccount_NotFound(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -406,9 +450,12 @@ func TestDeleteAccount_SoftDeleteFailure(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
 	mockUserRepo := new(userRepo.MockUserRepository)
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
-	svc := NewUserService(db, mockUserRepo, mockWalletRepo)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo)
 
 	ctx := context.TODO()
 	userID := "user-123"

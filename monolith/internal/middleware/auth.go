@@ -1,15 +1,17 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/bashocode/gowallet/monolith/internal/auth"
 	customError "github.com/bashocode/gowallet/monolith/internal/errors"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
-func AuthMiddleware() gin.HandlerFunc {
+func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -28,6 +30,20 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		tokenString := parts[1]
 
+		// check if token is in redis blacklist
+		blacklistKey := fmt.Sprintf("blacklist:%s", tokenString)
+		exists, err := rdb.Exists(c.Request.Context(), blacklistKey).Result()
+		if err == nil && exists > 0 {
+			c.Error(customError.NewAppError(
+				http.StatusUnauthorized,
+				"TOKEN_REVOKED",
+				"Login session has ended. Please login again.",
+			))
+			c.Abort()
+			return
+		}
+
+		// validate token
 		claims, err := auth.ValidateToken(tokenString)
 		if err != nil {
 			c.Error(customError.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN", "token is invalid or expired."))
@@ -38,6 +54,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// save to context
 		c.Set("user_id", claims.UserID)
 		c.Set("email", claims.Email)
+		c.Set("token_string", tokenString) // store for logout needs
 
 		c.Next()
 	}
