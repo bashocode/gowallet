@@ -21,6 +21,7 @@ func init() {
 func TestGetWalletByUserID_Success(t *testing.T) {
 	mockRepo := new(repository.MockWalletRepository)
 	rdb, mockRedis := redismock.NewClientMock()
+	defer rdb.Close()
 	svc := NewWalletService(mockRepo, rdb)
 
 	ctx := context.TODO()
@@ -54,6 +55,7 @@ func TestGetWalletByUserID_Success(t *testing.T) {
 func TestGetWalletByUserID_NotFound(t *testing.T) {
 	mockRepo := new(repository.MockWalletRepository)
 	rdb, mockRedis := redismock.NewClientMock()
+	defer rdb.Close()
 	svc := NewWalletService(mockRepo, rdb)
 
 	ctx := context.TODO()
@@ -76,6 +78,7 @@ func TestGetWalletByUserID_NotFound(t *testing.T) {
 func TestGetWalletByUserID_CacheHit(t *testing.T) {
 	mockRepo := new(repository.MockWalletRepository)
 	rdb, mockRedis := redismock.NewClientMock()
+	defer rdb.Close()
 	svc := NewWalletService(mockRepo, rdb)
 
 	ctx := context.TODO()

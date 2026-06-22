@@ -235,3 +235,29 @@ func (h *UserHandler) DeleteAccount(c *gin.Context) {
 		"message": "Account deleted successfully",
 	})
 }
+
+// Logout godoc
+// @Summary Logout
+// @Description Logout user and invalidate current session
+// @Tags Users
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Returns success and message"
+// @Failure 400 {object} errors.AppError
+// @Failure 401 {object} errors.AppError
+// @Failure 500 {object} errors.AppError
+// @Router /users/logout [post]
+// @Security BearerAuth
+func (h *UserHandler) Logout(c *gin.Context) {
+	tokenString, _ := c.Get("token_string")
+
+	err := h.svc.Logout(c.Request.Context(), tokenString.(string))
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Logout successful. Token session has been deactivated",
+	})
+}

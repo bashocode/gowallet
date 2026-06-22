@@ -309,6 +309,34 @@ paths:
       summary: User Login
       tags:
       - Users
+  /users/logout:
+    post:
+      description: Logout user and invalidate current session
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Returns success and message
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Logout
+      tags:
+      - Users
   /users/me:
     delete:
       description: Soft delete user account
