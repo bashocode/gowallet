@@ -15,5 +15,12 @@ services:
       - mysql_data:/var/lib/mysql
     restart: always
 
+  redis:
+    image: redis:7-alpine
+    container_name: gowallet-redis
+    ports:
+      - "6379:6379"
+    restart: always
+
 volumes:
   mysql_data:
