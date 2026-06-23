@@ -73,6 +73,11 @@ func (m *MockUserService) Logout(ctx context.Context, tokenString string) error 
 	return args.Error(0)
 }
 
+func (m *MockUserService) VerifyEmail(ctx context.Context, userID string, code string) error {
+	args := m.Called(ctx, userID, code)
+	return args.Error(0)
+}
+
 // ErrorHandler is copied from middleware for unit tests simplicity in this package
 func testErrorHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {

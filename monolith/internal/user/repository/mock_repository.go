@@ -52,3 +52,13 @@ func (m *MockUserRepository) SoftDelete(ctx context.Context, id string) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
 }
+
+func (m *MockUserRepository) UpdateVerificationStatus(ctx context.Context, id string, verified bool) error {
+	args := m.Called(ctx, id, verified)
+	return args.Error(0)
+}
+
+func (m *MockUserRepository) UpdateVerificationStatusTx(ctx context.Context, tx *sql.Tx, id string, verified bool) error {
+	args := m.Called(ctx, tx, id, verified)
+	return args.Error(0)
+}

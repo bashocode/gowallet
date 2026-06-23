@@ -22,5 +22,12 @@ services:
       - "6379:6379"
     restart: always
 
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025" # SMTP port
+      - "8025:8025" # Web UI dashboard port
+    restart: always
+
 volumes:
   mysql_data:

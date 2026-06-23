@@ -2,13 +2,19 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"math/big"
 	"net/http"
 	"time"
 
 	"github.com/bashocode/gowallet/monolith/internal/auth"
+	"github.com/bashocode/gowallet/monolith/internal/email"
 	customError "github.com/bashocode/gowallet/monolith/internal/errors"
+	"github.com/bashocode/gowallet/monolith/internal/logger"
+	otpModel "github.com/bashocode/gowallet/monolith/internal/otp/model"
+	otpRepository "github.com/bashocode/gowallet/monolith/internal/otp/repository"
 	"github.com/bashocode/gowallet/monolith/internal/user/model"
 	"github.com/bashocode/gowallet/monolith/internal/user/repository"
 	userRepo "github.com/bashocode/gowallet/monolith/internal/user/repository"
@@ -27,21 +33,26 @@ type UserService interface {
 	UpdateAvatar(ctx context.Context, id string, path string) error
 	DeleteAccount(ctx context.Context, id string) error
 	Logout(ctx context.Context, tokenString string) error
+	VerifyEmail(ctx context.Context, userID string, code string) error
 }
 
 type userService struct {
-	db         *sql.DB
-	rdb        *redis.Client
-	userRepo   userRepo.UserRepository
-	walletRepo walletRepo.WalletRepository
+	db          *sql.DB
+	rdb         *redis.Client
+	userRepo    userRepo.UserRepository
+	walletRepo  walletRepo.WalletRepository
+	otpRepo     otpRepository.OTPRepository
+	emailSender email.EmailSender
 }
 
-func NewUserService(db *sql.DB, rdb *redis.Client, uRepo repository.UserRepository, wRepo walletRepo.WalletRepository) UserService {
+func NewUserService(db *sql.DB, rdb *redis.Client, uRepo repository.UserRepository, wRepo walletRepo.WalletRepository, otpRepo otpRepository.OTPRepository, emailSender email.EmailSender) UserService {
 	return &userService{
-		db:         db,
-		rdb:        rdb,
-		userRepo:   uRepo,
-		walletRepo: wRepo,
+		db:          db,
+		rdb:         rdb,
+		userRepo:    uRepo,
+		walletRepo:  wRepo,
+		otpRepo:     otpRepo,
+		emailSender: emailSender,
 	}
 }
 
@@ -99,6 +110,38 @@ func (s *userService) Register(ctx context.Context, req model.CreateUserRequest)
 	if err := tx.Commit(); err != nil {
 		return nil, customError.ErrInternalServer
 	}
+
+	// Generate OTP
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return nil, customError.ErrInternalServer
+	}
+	otpCode := fmt.Sprintf("%06d", n.Int64())
+	fmt.Println("otp codes", otpCode)
+
+	otpModel := &otpModel.OTP{
+		ID:        uuid.New().String(),
+		UserID:    user.ID,
+		Code:      otpCode,
+		Type:      "email_verification",
+		ExpiresAt: time.Now().Add(15 * time.Minute),
+		Used:      false,
+	}
+
+	// save to db
+	if err := s.otpRepo.Create(ctx, otpModel); err != nil {
+		logger.Log.Error("failed to save otp", "error", err)
+	}
+
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		subject := "GoWallet - Verify Your Email"
+		body := fmt.Sprintf("Hello %s,\n\nYour verification code is %s\n\nThis code will expire in 15 minutes.\n\nThank you!", user.FullName, otpCode)
+
+		s.emailSender.SendEmail(bgCtx, user.Email, subject, body)
+	}()
 
 	return s.userRepo.GetByID(ctx, user.ID)
 }
@@ -195,6 +238,39 @@ func (s *userService) Logout(ctx context.Context, tokenString string) error {
 	blacklistKey := fmt.Sprintf("blacklist:%s", tokenString)
 	err = s.rdb.Set(ctx, blacklistKey, "logged_out", timeLeft).Err()
 	if err != nil {
+		return customError.ErrInternalServer
+	}
+
+	return nil
+}
+
+func (s *userService) VerifyEmail(ctx context.Context, userID string, code string) error {
+	// 1. Get active OTP
+	otp, err := s.otpRepo.GetActiveOTP(ctx, userID, code, "email_verification")
+	if err != nil {
+		// Custom AppError: OTP not found or expired
+		return customError.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
+	}
+
+	// 2. Begin transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return customError.ErrInternalServer
+	}
+	defer tx.Rollback()
+
+	// 3. Mark user as verified
+	if err := s.userRepo.UpdateVerificationStatusTx(ctx, tx, userID, true); err != nil {
+		return customError.ErrInternalServer
+	}
+
+	// 4. Mark OTP as used
+	if err := s.otpRepo.MarkAsUsedTx(ctx, tx, otp.ID); err != nil {
+		return customError.ErrInternalServer
+	}
+
+	// 5. Commit transaction
+	if err := tx.Commit(); err != nil {
 		return customError.ErrInternalServer
 	}
 

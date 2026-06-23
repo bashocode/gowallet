@@ -18,7 +18,6 @@ func (s *Scheduler) CleanupExpiredOTPs() {
 	// delete otp that expired more than 1 hour ago
 	query := `DELETE FROM otp_codes WHERE expires_at < NOW()`
 
-	// TODO: create otp_codes table
 	// for now we log and bypass query if the table doesnt exist
 	result, err := s.db.ExecContext(ctx, query)
 	if err != nil {
@@ -156,8 +155,4 @@ func (s *Scheduler) ExportDailyTransactions() {
 	}
 
 	logger.Log.InfoContext(ctx, "[Cron Job] Daily transaction report generation finished successfully", "rows_written", rowCount, "file", filename)
-}
-
-func (s *Scheduler) TestingOnly() {
-	logger.Log.Info("[Cron Job] Testing Only")
 }

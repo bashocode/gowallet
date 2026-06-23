@@ -10,6 +10,9 @@ import (
 type Config struct {
 	DBDSN     string
 	RedisAddr string
+	SMTPHost  string
+	SMTPPort  string
+	SMTPFrom  string
 }
 
 func LoadConfig() *Config {
@@ -26,8 +29,24 @@ func LoadConfig() *Config {
 
 	redisAddr := os.Getenv("REDIS_HOST") + ":" + os.Getenv("REDIS_PORT")
 
+	smtpHost := os.Getenv("SMTP_HOST")
+	if smtpHost == "" {
+		smtpHost = "localhost"
+	}
+	smtpPort := os.Getenv("SMTP_PORT")
+	if smtpPort == "" {
+		smtpPort = "1025"
+	}
+	smtpFrom := os.Getenv("SMTP_FROM")
+	if smtpFrom == "" {
+		smtpFrom = "no-reply@gowallet.com"
+	}
+
 	return &Config{
 		DBDSN:     dsn,
 		RedisAddr: redisAddr,
+		SMTPHost:  smtpHost,
+		SMTPPort:  smtpPort,
+		SMTPFrom:  smtpFrom,
 	}
 }
