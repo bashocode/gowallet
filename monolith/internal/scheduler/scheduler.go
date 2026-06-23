@@ -43,9 +43,6 @@ func (s *Scheduler) Start() {
 	// export daily transaction to csv at 23.59 PM
 	s.cron.AddFunc("0 59 23 * * *", s.ExportDailyTransactions)
 
-	// debug: testing every 10 seconds
-	s.cron.AddFunc("*/10 * * * * *", s.TestingOnly)
-
 	s.cron.Start()
 	logger.Log.Info("Background scheduler successfully started!")
 }

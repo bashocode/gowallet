@@ -261,3 +261,40 @@ func (h *UserHandler) Logout(c *gin.Context) {
 		"message": "Logout successful. Token session has been deactivated",
 	})
 }
+
+type VerifyOTPRequest struct {
+	Code string `json:"code" binding:"required,len=6"`
+}
+
+// VerifyEmail godoc
+// @Summary Verify Email
+// @Description Verify user email using OTP code
+// @Tags Users
+// @Produce json
+// @Param request body VerifyOTPRequest true "otp code"
+// @Success 200 {object} map[string]interface{} "Returns success and message"
+// @Failure 400 {object} errors.AppError
+// @Failure 401 {object} errors.AppError
+// @Failure 500 {object} errors.AppError
+// @Router /users/verify-email [post]
+// @Security BearerAuth
+func (h *UserHandler) VerifyEmail(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+
+	var req VerifyOTPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		return
+	}
+
+	err := h.svc.VerifyEmail(c.Request.Context(), userID.(string), req.Code)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Email verified successfully",
+	})
+}
