@@ -98,6 +98,19 @@ func (m *MockUserService) ResetPassword(ctx context.Context, email string, newPa
 	return args.Error(0)
 }
 
+func (m *MockUserService) GetGoogleLoginURL() string {
+	args := m.Called()
+	return args.String(0)
+}
+
+func (m *MockUserService) HandleGoogleCallback(ctx context.Context, code string) (*model.LoginResponse, error) {
+	args := m.Called(ctx, code)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.LoginResponse), args.Error(1)
+}
+
 // ErrorHandler is copied from middleware for unit tests simplicity in this package
 func testErrorHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {

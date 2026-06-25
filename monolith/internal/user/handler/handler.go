@@ -376,3 +376,51 @@ func (h *UserHandler) VerifyPasswordReset(c *gin.Context) {
 		"message": "Password reset successfully",
 	})
 }
+
+// GoogleLogin godoc
+// @Summary Google Login
+// @Description Redirect to Google OAuth login page
+// @Tags Users
+// @Produce json
+// @Success 302 {object} map[string]interface{} "Redirect to Google OAuth page"
+// @Failure 400 {object} errors.AppError
+// @Failure 500 {object} errors.AppError
+// @Router /users/google/login [get]
+func (h *UserHandler) GoogleLogin(c *gin.Context) {
+	loginURL := h.svc.GetGoogleLoginURL()
+	c.Redirect(http.StatusTemporaryRedirect, loginURL)
+}
+
+// GoogleCallback godoc
+// @Summary Google Callback
+// @Description Handle callback from Google OAuth
+// @Tags Users
+// @Produce json
+// @Param code query string true "OAuth code"
+// @Param state query string true "OAuth state"
+// @Success 200 {object} map[string]interface{} "Returns login response"
+// @Failure 400 {object} errors.AppError
+// @Failure 500 {object} errors.AppError
+// @Router /users/google/callback [get]
+func (h *UserHandler) GoogleCallback(c *gin.Context) {
+	code := c.Query("code")
+	state := c.Query("state")
+
+	if state == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "state token is invalid"})
+		return
+	}
+
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "authorization code is empty"})
+		return
+	}
+
+	resp, err := h.svc.HandleGoogleCallback(c.Request.Context(), code)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}

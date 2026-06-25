@@ -75,3 +75,11 @@ func (m *MockUserRepository) UpdatePassword(ctx context.Context, id string, pass
 	args := m.Called(ctx, id, passwordHash)
 	return args.Error(0)
 }
+
+func (m *MockUserRepository) GetByOAuth(ctx context.Context, provider, oauthID string) (*model.User, error) {
+	args := m.Called(ctx, provider, oauthID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.User), args.Error(1)
+}
