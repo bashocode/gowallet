@@ -78,6 +78,26 @@ func (m *MockUserService) VerifyEmail(ctx context.Context, userID string, code s
 	return args.Error(0)
 }
 
+func (m *MockUserService) GenerateAndSendOTP(ctx context.Context, userID string, email string, otpType string) error {
+	args := m.Called(ctx, userID, email, otpType)
+	return args.Error(0)
+}
+
+func (m *MockUserService) RequestPasswordReset(ctx context.Context, email string) error {
+	args := m.Called(ctx, email)
+	return args.Error(0)
+}
+
+func (m *MockUserService) VerifyPasswordReset(ctx context.Context, email string, code string) (string, error) {
+	args := m.Called(ctx, email, code)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockUserService) ResetPassword(ctx context.Context, email string, newPassword string) error {
+	args := m.Called(ctx, email, newPassword)
+	return args.Error(0)
+}
+
 // ErrorHandler is copied from middleware for unit tests simplicity in this package
 func testErrorHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -327,6 +347,123 @@ func TestLogout(t *testing.T) {
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		mockSvc.AssertExpectations(t)
+	})
+}
+
+func TestForgotPassword(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("success", func(t *testing.T) {
+		mockSvc := new(MockUserService)
+		h := NewUserHandler(mockSvc)
+
+		r := gin.New()
+		r.Use(testErrorHandler())
+		r.POST("/forgot-password", h.ForgotPassword)
+
+		reqPayload := PasswordResetRequest{
+			Email: "test@example.com",
+		}
+		mockSvc.On("RequestPasswordReset", mock.Anything, "test@example.com").Return(nil)
+
+		body, _ := json.Marshal(reqPayload)
+		req, _ := http.NewRequest(http.MethodPost, "/forgot-password", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		assert.True(t, resp["success"].(bool))
+		assert.Contains(t, resp["message"], "If the email is registered")
+		mockSvc.AssertExpectations(t)
+	})
+
+	t.Run("invalid payload", func(t *testing.T) {
+		mockSvc := new(MockUserService)
+		h := NewUserHandler(mockSvc)
+
+		r := gin.New()
+		r.Use(testErrorHandler())
+		r.POST("/forgot-password", h.ForgotPassword)
+
+		reqPayload := PasswordResetRequest{
+			Email: "invalid-email",
+		}
+
+		body, _ := json.Marshal(reqPayload)
+		req, _ := http.NewRequest(http.MethodPost, "/forgot-password", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		mockSvc.AssertExpectations(t)
+	})
+}
+
+func TestVerifyPasswordReset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("success", func(t *testing.T) {
+		mockSvc := new(MockUserService)
+		h := NewUserHandler(mockSvc)
+
+		r := gin.New()
+		r.Use(testErrorHandler())
+		r.POST("/verify-password-reset", h.VerifyPasswordReset)
+
+		reqPayload := VerifyPasswordResetRequest{
+			Email:              "test@example.com",
+			Code:               "123456",
+			NewPassword:        "newpassword123",
+			NewConfirmPassword: "newpassword123",
+		}
+		mockSvc.On("VerifyPasswordReset", mock.Anything, "test@example.com", "123456").Return("user-uuid", nil)
+		mockSvc.On("ResetPassword", mock.Anything, "user-uuid", "newpassword123").Return(nil)
+
+		body, _ := json.Marshal(reqPayload)
+		req, _ := http.NewRequest(http.MethodPost, "/verify-password-reset", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		assert.True(t, resp["success"].(bool))
+		assert.Contains(t, resp["message"], "Password reset successfully")
+		mockSvc.AssertExpectations(t)
+	})
+
+	t.Run("invalid payload - password mismatch", func(t *testing.T) {
+		mockSvc := new(MockUserService)
+		h := NewUserHandler(mockSvc)
+
+		r := gin.New()
+		r.Use(testErrorHandler())
+		r.POST("/verify-password-reset", h.VerifyPasswordReset)
+
+		reqPayload := VerifyPasswordResetRequest{
+			Email:              "test@example.com",
+			Code:               "123456",
+			NewPassword:        "newpassword123",
+			NewConfirmPassword: "differentpassword",
+		}
+
+		body, _ := json.Marshal(reqPayload)
+		req, _ := http.NewRequest(http.MethodPost, "/verify-password-reset", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
 		mockSvc.AssertExpectations(t)
 	})
 }

@@ -298,3 +298,81 @@ func (h *UserHandler) VerifyEmail(c *gin.Context) {
 		"message": "Email verified successfully",
 	})
 }
+
+type PasswordResetRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// ForgotPassword godoc
+// @Summary Forgot Password
+// @Description Send OTP code to user's email for password reset
+// @Tags Users
+// @Produce json
+// @Param request body PasswordResetRequest true "email"
+// @Success 200 {object} map[string]interface{} "Returns success and message"
+// @Failure 400 {object} errors.AppError
+// @Failure 401 {object} errors.AppError
+// @Failure 500 {object} errors.AppError
+// @Router /users/forgot-password [post]
+func (h *UserHandler) ForgotPassword(c *gin.Context) {
+	var req PasswordResetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		return
+	}
+
+	// always return success
+	_ = h.svc.RequestPasswordReset(c.Request.Context(), req.Email)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "If the email is registered, you will receive an OTP code",
+	})
+}
+
+type VerifyPasswordResetRequest struct {
+	Email              string `json:"email" binding:"required,email"`
+	Code               string `json:"code" binding:"required,len=6"`
+	NewPassword        string `json:"new_password" binding:"required,min=6"`
+	NewConfirmPassword string `json:"new_confirm_password" binding:"required,eqfield=NewPassword"`
+}
+
+// VerifyPasswordReset godoc
+// @Summary Verify Password Reset
+// @Description Verify user password reset using OTP code
+// @Tags Users
+// @Produce json
+// @Param request body VerifyPasswordResetRequest true "email, code, new_password, new_confirm_password"
+// @Success 200 {object} map[string]interface{} "Returns success and message"
+// @Failure 400 {object} errors.AppError
+// @Failure 401 {object} errors.AppError
+// @Failure 500 {object} errors.AppError
+// @Router /users/verify-password-reset [post]
+func (h *UserHandler) VerifyPasswordReset(c *gin.Context) {
+	var req VerifyPasswordResetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if req.NewPassword != req.NewConfirmPassword {
+			c.Error(customError.NewAppError(http.StatusBadRequest, "PASSWORD_MISMATCH", "new password and confirm password do not match."))
+			return
+		}
+
+		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		return
+	}
+
+	userID, err := h.svc.VerifyPasswordReset(c.Request.Context(), req.Email, req.Code)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	if err := h.svc.ResetPassword(c.Request.Context(), userID, req.NewPassword); err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Password reset successfully",
+	})
+}
