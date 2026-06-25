@@ -7,6 +7,37 @@ definitions:
       message:
         type: string
     type: object
+  handler.PasswordResetRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
+  handler.VerifyOTPRequest:
+    properties:
+      code:
+        type: string
+    required:
+    - code
+    type: object
+  handler.VerifyPasswordResetRequest:
+    properties:
+      code:
+        type: string
+      email:
+        type: string
+      new_confirm_password:
+        type: string
+      new_password:
+        minLength: 6
+        type: string
+    required:
+    - code
+    - email
+    - new_confirm_password
+    - new_password
+    type: object
   model.CreateUserRequest:
     properties:
       email:
@@ -84,6 +115,8 @@ definitions:
     type: object
   model.User:
     properties:
+      avatar_url:
+        type: string
       created_at:
         type: string
       deleted_at:
@@ -94,6 +127,8 @@ definitions:
         type: string
       id:
         type: string
+      is_verified:
+        type: boolean
       updated_at:
         type: string
     type: object
@@ -277,6 +312,39 @@ paths:
       summary: Upload Avatar
       tags:
       - Users
+  /users/forgot-password:
+    post:
+      description: Send OTP code to user's email for password reset
+      parameters:
+      - description: email
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.PasswordResetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Returns success and message
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      summary: Forgot Password
+      tags:
+      - Users
   /users/login:
     post:
       consumes:
@@ -404,6 +472,74 @@ paths:
           schema:
             $ref: '#/definitions/errors.AppError'
       summary: Register New User
+      tags:
+      - Users
+  /users/verify-email:
+    post:
+      description: Verify user email using OTP code
+      parameters:
+      - description: otp code
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.VerifyOTPRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Returns success and message
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Verify Email
+      tags:
+      - Users
+  /users/verify-password-reset:
+    post:
+      description: Verify user password reset using OTP code
+      parameters:
+      - description: email, code, new_password, new_confirm_password
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.VerifyPasswordResetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Returns success and message
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/errors.AppError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/errors.AppError'
+      summary: Verify Password Reset
       tags:
       - Users
   /wallets/me:

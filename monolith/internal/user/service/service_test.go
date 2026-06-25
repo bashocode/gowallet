@@ -673,3 +673,119 @@ func TestVerifyEmail_InvalidOTP(t *testing.T) {
 	mockOTPRepo.AssertExpectations(t)
 }
 
+func TestRequestPasswordReset_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	mockOTPRepo := new(otpRepo.MockOTPRepository)
+	mockEmailSender := new(email.MockEmailSender)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+
+	ctx := context.TODO()
+	emailAddr := "test@example.com"
+	u := &userModel.User{
+		ID:    "user-uuid",
+		Email: emailAddr,
+	}
+
+	mockUserRepo.On("GetByEmailNoErrorNotFound", ctx, emailAddr).Return(u, nil)
+	mockOTPRepo.On("Create", ctx, mock.Anything).Return(nil)
+	mockEmailSender.On("SendEmail", mock.Anything, emailAddr, mock.Anything, mock.Anything).Return(nil)
+
+	err := svc.RequestPasswordReset(ctx, emailAddr)
+	assert.NoError(t, err)
+	time.Sleep(50 * time.Millisecond) // Wait for email goroutine
+	mockUserRepo.AssertExpectations(t)
+	mockOTPRepo.AssertExpectations(t)
+}
+
+func TestRequestPasswordReset_UserNotFound(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	mockOTPRepo := new(otpRepo.MockOTPRepository)
+	mockEmailSender := new(email.MockEmailSender)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+
+	ctx := context.TODO()
+	emailAddr := "nonexistent@example.com"
+
+	mockUserRepo.On("GetByEmailNoErrorNotFound", ctx, emailAddr).Return(nil, nil)
+
+	err := svc.RequestPasswordReset(ctx, emailAddr)
+	assert.NoError(t, err) // Should return nil (no-op) to prevent email enumeration
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestVerifyPasswordReset_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	mockOTPRepo := new(otpRepo.MockOTPRepository)
+	mockEmailSender := new(email.MockEmailSender)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+
+	ctx := context.TODO()
+	emailAddr := "test@example.com"
+	code := "123456"
+	u := &userModel.User{
+		ID:    "user-uuid",
+		Email: emailAddr,
+	}
+	otpData := &otpModel.OTP{
+		ID:     "otp-uuid",
+		UserID: "user-uuid",
+		Code:   code,
+		Type:   "password_reset",
+	}
+
+	mockUserRepo.On("GetByEmailNoErrorNotFound", ctx, emailAddr).Return(u, nil)
+	mockOTPRepo.On("GetActiveOTP", ctx, "user-uuid", code, "password_reset").Return(otpData, nil)
+	mockOTPRepo.On("MarkAsUsed", ctx, "otp-uuid").Return(nil)
+
+	userID, err := svc.VerifyPasswordReset(ctx, emailAddr, code)
+	assert.NoError(t, err)
+	assert.Equal(t, "user-uuid", userID)
+	mockUserRepo.AssertExpectations(t)
+	mockOTPRepo.AssertExpectations(t)
+}
+
+func TestResetPassword_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	mockOTPRepo := new(otpRepo.MockOTPRepository)
+	mockEmailSender := new(email.MockEmailSender)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+
+	ctx := context.TODO()
+	userID := "user-uuid"
+	newPassword := "newsecurepass"
+
+	mockUserRepo.On("UpdatePassword", ctx, userID, mock.Anything).Return(nil)
+
+	err := svc.ResetPassword(ctx, userID, newPassword)
+	assert.NoError(t, err)
+	mockUserRepo.AssertExpectations(t)
+}
+

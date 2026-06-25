@@ -108,6 +108,8 @@ func main() {
 		// Public routes
 		v1.POST("/users/register", uHandler.Register)
 		v1.POST("/users/login", uHandler.Login)
+		v1.POST("/users/forgot-password", uHandler.ForgotPassword)
+		v1.POST("/users/verify-password-reset", uHandler.VerifyPasswordReset)
 
 		// Protected routes (requires valid JWT token)
 		protected := v1.Group("")
