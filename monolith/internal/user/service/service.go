@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/bashocode/gowallet/monolith/internal/auth"
@@ -22,6 +24,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 type UserService interface {
@@ -37,6 +41,8 @@ type UserService interface {
 	RequestPasswordReset(ctx context.Context, email string) error
 	VerifyPasswordReset(ctx context.Context, email string, code string) (string, error)
 	ResetPassword(ctx context.Context, email string, newPassword string) error
+	GetGoogleLoginURL() string
+	HandleGoogleCallback(ctx context.Context, code string) (*model.LoginResponse, error)
 }
 
 type userService struct {
@@ -346,4 +352,132 @@ func (s *userService) ResetPassword(ctx context.Context, id string, newPassword 
 	}
 
 	return nil
+}
+
+// Helper struct for Google UserInfo API response
+type GoogleUserInfo struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	VerifiedEmail bool   `json:"verified_email"`
+	Name          string `json:"name"`
+	Picture       string `json:"picture"`
+}
+
+func (s *userService) getOAuthConfig() *oauth2.Config {
+	return &oauth2.Config{
+		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
+		Scopes: []string{
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		},
+		Endpoint: google.Endpoint,
+	}
+}
+
+func (s *userService) GetGoogleLoginURL() string {
+	oauthStateString := "random-state-string" // In production, use a secure random token stored in Redis/session to prevent CSRF
+	return s.getOAuthConfig().AuthCodeURL(oauthStateString)
+}
+
+func (s *userService) HandleGoogleCallback(ctx context.Context, code string) (*model.LoginResponse, error) {
+	config := s.getOAuthConfig()
+
+	// 1. Exchange the auth code for a token
+	token, err := config.Exchange(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("failed to exchange code: %w", err)
+	}
+
+	// 2. Fetch userinfo using access token
+	client := config.Client(ctx, token)
+	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user info: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var googleUser GoogleUserInfo
+	if err := json.NewDecoder(resp.Body).Decode(&googleUser); err != nil {
+		return nil, fmt.Errorf("failed to decode user info: %w", err)
+	}
+
+	// 3. Find or Create user in database
+	var user *model.User
+	user, err = s.userRepo.GetByOAuth(ctx, "google", googleUser.ID)
+	if err != nil {
+		// If user not found, register new user
+		if err.Error() == "user not found" {
+			// Check if email already registered via normal email/password
+			existingUser, _ := s.userRepo.GetByEmail(ctx, googleUser.Email)
+			if existingUser != nil {
+				return nil, customError.NewAppError(http.StatusConflict, "EMAIL_ALREADY_REGISTERED", "This email is registered using password credentials. Please sign in with email and password.")
+			}
+
+			// Begin database transaction to guarantee user & wallet creation consistency
+			tx, err := s.db.BeginTx(ctx, nil)
+			if err != nil {
+				return nil, customError.ErrInternalServer
+			}
+			defer tx.Rollback()
+
+			provider := "google"
+			user = &model.User{
+				ID:            uuid.New().String(),
+				FullName:      googleUser.Name,
+				Email:         googleUser.Email,
+				OAuthProvider: &provider,
+				OAuthID:       &googleUser.ID,
+				PasswordHash:  "", // Null password
+				AvatarURL:     &googleUser.Picture,
+				IsVerified:    true, // Google verified the email
+			}
+
+			// Save user
+			if err := s.userRepo.CreateTx(ctx, tx, user); err != nil {
+				return nil, customError.ErrInternalServer
+			}
+
+			// Create wallet for the new user
+			wallet := &walletModel.Wallet{
+				ID:       uuid.New().String(),
+				UserID:   user.ID,
+				Balance:  0.0,
+				Currency: "IDR",
+				Status:   "active",
+				Version:  1,
+			}
+			if err := s.walletRepo.CreateTx(ctx, tx, wallet); err != nil {
+				return nil, customError.ErrInternalServer
+			}
+
+			if err := tx.Commit(); err != nil {
+				return nil, customError.ErrInternalServer
+			}
+		} else {
+			return nil, customError.ErrInternalServer
+		}
+	}
+
+	// 4. Generate JWT token
+	accessToken, err := auth.GenerateToken(user.ID, user.Email, 15*time.Minute)
+	if err != nil {
+		return nil, customError.ErrInternalServer
+	}
+
+	refreshToken, err := auth.GenerateToken(user.ID, user.Email, 7*24*time.Hour)
+	if err != nil {
+		return nil, customError.ErrInternalServer
+	}
+
+	err = s.rdb.Set(ctx, "refresh_token:"+user.ID, refreshToken, 7*24*time.Hour).Err()
+	if err != nil {
+		return nil, customError.ErrInternalServer
+	}
+
+	return &model.LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
 }
