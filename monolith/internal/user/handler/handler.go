@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	customError "github.com/bashocode/gowallet/monolith/internal/errors"
+	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
 	"github.com/bashocode/gowallet/monolith/internal/user/model"
 	"github.com/bashocode/gowallet/monolith/internal/user/service"
 	"github.com/gin-gonic/gin"
@@ -34,7 +34,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 	var req model.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// register the error input to gin context
-		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
 		return
 	}
 
@@ -85,7 +85,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	id := c.Param("id")
 	var req model.UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
 		return
 	}
 
@@ -112,7 +112,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 func (h *UserHandler) Login(c *gin.Context) {
 	var req model.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
 		return
 	}
 
@@ -170,20 +170,20 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 	// get the file from request multipart
 	file, err := c.FormFile("avatar")
 	if err != nil {
-		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Please upload an avatar."))
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Please upload an avatar."))
 		return
 	}
 
 	// validate file format
 	if file.Size > 2*1024*1024 {
-		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_FILE", "File size must be less than 2MB."))
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_FILE", "File size must be less than 2MB."))
 		return
 	}
 
 	// validate file content type
 	ext := filepath.Ext(file.Filename)
 	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
-		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Invalid file format. Please upload a JPG, JPEG, or PNG image."))
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Invalid file format. Please upload a JPG, JPEG, or PNG image."))
 		return
 	}
 
@@ -197,14 +197,14 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 
 	// save the file
 	if err := c.SaveUploadedFile(file, dst); err != nil {
-		c.Error(customError.ErrInternalServer)
+		c.Error(customErr.ErrInternalServer)
 		return
 	}
 
 	// update user's avatar
 	avatarURL := "/uploads/" + filename
 	if err := h.svc.UpdateAvatar(c.Request.Context(), userID.(string), avatarURL); err != nil {
-		c.Error(customError.ErrInternalServer)
+		c.Error(customErr.ErrInternalServer)
 		return
 	}
 
@@ -283,7 +283,7 @@ func (h *UserHandler) VerifyEmail(c *gin.Context) {
 
 	var req VerifyOTPRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
 		return
 	}
 
@@ -317,7 +317,7 @@ type PasswordResetRequest struct {
 func (h *UserHandler) ForgotPassword(c *gin.Context) {
 	var req PasswordResetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
 		return
 	}
 
@@ -352,11 +352,11 @@ func (h *UserHandler) VerifyPasswordReset(c *gin.Context) {
 	var req VerifyPasswordResetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		if req.NewPassword != req.NewConfirmPassword {
-			c.Error(customError.NewAppError(http.StatusBadRequest, "PASSWORD_MISMATCH", "new password and confirm password do not match."))
+			c.Error(customErr.NewAppError(http.StatusBadRequest, "PASSWORD_MISMATCH", "new password and confirm password do not match."))
 			return
 		}
 
-		c.Error(customError.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
 		return
 	}
 
@@ -423,4 +423,34 @@ func (h *UserHandler) GoogleCallback(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+// RefreshToken godoc
+// @Summary Refresh Token
+// @Description Refresh token
+// @Tags Users
+// @Produce json
+// @Param request body model.RefreshTokenRequest true "refresh token"
+// @Success 200 {object} map[string]interface{} "Returns success and message"
+// @Failure 400 {object} errors.AppError
+// @Failure 401 {object} errors.AppError
+// @Failure 500 {object} errors.AppError
+// @Router /users/refresh-token [post]
+func (h *UserHandler) RefreshToken(c *gin.Context) {
+	var req model.RefreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
+		return
+	}
+
+	resp, err := h.svc.RefreshToken(c.Request.Context(), req.RefreshToken)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    resp,
+	})
 }

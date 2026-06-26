@@ -83,3 +83,31 @@ func (m *MockUserRepository) GetByOAuth(ctx context.Context, provider, oauthID s
 	}
 	return args.Get(0).(*model.User), args.Error(1)
 }
+
+type MockRefreshTokenRepository struct {
+	mock.Mock
+}
+
+func (m *MockRefreshTokenRepository) Create(ctx context.Context, rt *model.RefreshToken) error {
+	args := m.Called(ctx, rt)
+	return args.Error(0)
+}
+
+func (m *MockRefreshTokenRepository) GetByToken(ctx context.Context, token string) (*model.RefreshToken, error) {
+	args := m.Called(ctx, token)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.RefreshToken), args.Error(1)
+}
+
+func (m *MockRefreshTokenRepository) Revoke(ctx context.Context, token string) error {
+	args := m.Called(ctx, token)
+	return args.Error(0)
+}
+
+func (m *MockRefreshTokenRepository) RevokeAllByUserID(ctx context.Context, userID string) error {
+	args := m.Called(ctx, userID)
+	return args.Error(0)
+}
+

@@ -124,6 +124,7 @@ func main() {
 			protected.DELETE("/users/me", uHandler.DeleteAccount)
 			protected.POST("/users/logout", uHandler.Logout)
 			protected.POST("/users/verify-email", uHandler.VerifyEmail)
+			protected.POST("/auth/refresh", uHandler.RefreshToken)
 
 			protected.GET("/wallets/me", wHandler.GetMyWallet)
 

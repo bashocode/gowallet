@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	customError "github.com/bashocode/gowallet/monolith/internal/errors"
+	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
 	"github.com/bashocode/gowallet/monolith/internal/logger"
 	"github.com/bashocode/gowallet/monolith/internal/user/model"
 	"github.com/gin-gonic/gin"
@@ -111,17 +111,25 @@ func (m *MockUserService) HandleGoogleCallback(ctx context.Context, code string)
 	return args.Get(0).(*model.LoginResponse), args.Error(1)
 }
 
+func (m *MockUserService) RefreshToken(ctx context.Context, oldTokenString string) (*model.LoginResponse, error) {
+	args := m.Called(ctx, oldTokenString)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.LoginResponse), args.Error(1)
+}
+
 // ErrorHandler is copied from middleware for unit tests simplicity in this package
 func testErrorHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 		if len(c.Errors) > 0 {
 			err := c.Errors.Last().Err
-			if appErr, ok := err.(*customError.AppError); ok {
+			if appErr, ok := err.(*customErr.AppError); ok {
 				c.JSON(appErr.StatusCode, gin.H{"success": false, "error": appErr})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": customError.ErrInternalServer})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": customErr.ErrInternalServer})
 		}
 	}
 }
@@ -198,7 +206,7 @@ func TestRegister(t *testing.T) {
 			Password: "password123",
 		}
 
-		mockSvc.On("Register", mock.Anything, reqPayload).Return(nil, customError.NewAppError(http.StatusConflict, "EMAIL_EXISTS", "email exists"))
+		mockSvc.On("Register", mock.Anything, reqPayload).Return(nil, customErr.NewAppError(http.StatusConflict, "EMAIL_EXISTS", "email exists"))
 
 		body, _ := json.Marshal(reqPayload)
 		req, _ := http.NewRequest(http.MethodPost, "/register", bytes.NewBuffer(body))
@@ -264,7 +272,7 @@ func TestLogin(t *testing.T) {
 			Password: "wrongpassword",
 		}
 
-		mockSvc.On("Login", mock.Anything, reqPayload).Return(nil, customError.NewAppError(http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid credentials"))
+		mockSvc.On("Login", mock.Anything, reqPayload).Return(nil, customErr.NewAppError(http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid credentials"))
 
 		body, _ := json.Marshal(reqPayload)
 		req, _ := http.NewRequest(http.MethodPost, "/login", bytes.NewBuffer(body))
