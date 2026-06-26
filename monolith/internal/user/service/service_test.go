@@ -292,7 +292,9 @@ func TestLogin_Success(t *testing.T) {
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
 	mockOTPRepo := new(otpRepo.MockOTPRepository)
 	mockEmailSender := new(email.MockEmailSender)
+	mockRtRepo := new(userRepo.MockRefreshTokenRepository)
 	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+	svc.(*userService).rtRepo = mockRtRepo
 
 	ctx := context.TODO()
 	req := userModel.LoginRequest{
@@ -309,6 +311,7 @@ func TestLogin_Success(t *testing.T) {
 	}
 
 	mockUserRepo.On("GetByEmail", ctx, req.Email).Return(existingUser, nil)
+	mockRtRepo.On("Create", ctx, mock.Anything).Return(nil)
 
 	resp, err := svc.Login(ctx, req)
 
@@ -317,6 +320,7 @@ func TestLogin_Success(t *testing.T) {
 	assert.NotEmpty(t, resp.AccessToken)
 	assert.NotEmpty(t, resp.RefreshToken)
 	mockUserRepo.AssertExpectations(t)
+	mockRtRepo.AssertExpectations(t)
 }
 
 func TestLogin_InvalidCredentials_EmailNotFound(t *testing.T) {
@@ -528,7 +532,9 @@ func TestLogout_Success(t *testing.T) {
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
 	mockOTPRepo := new(otpRepo.MockOTPRepository)
 	mockEmailSender := new(email.MockEmailSender)
+	mockRtRepo := new(userRepo.MockRefreshTokenRepository)
 	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+	svc.(*userService).rtRepo = mockRtRepo
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -545,9 +551,12 @@ func TestLogout_Success(t *testing.T) {
 		return fmt.Errorf("expected set for key %s, got %v", blacklistKey, actual)
 	}).ExpectSet(blacklistKey, "logged_out", 15*time.Minute).SetVal("OK")
 
+	mockRtRepo.On("RevokeAllByUserID", ctx, userID).Return(nil)
+
 	err = svc.Logout(ctx, token)
 	assert.NoError(t, err)
 	assert.NoError(t, mockRedis.ExpectationsWereMet())
+	mockRtRepo.AssertExpectations(t)
 }
 
 func TestLogout_InvalidToken(t *testing.T) {
@@ -582,7 +591,9 @@ func TestLogout_RedisError(t *testing.T) {
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
 	mockOTPRepo := new(otpRepo.MockOTPRepository)
 	mockEmailSender := new(email.MockEmailSender)
+	mockRtRepo := new(userRepo.MockRefreshTokenRepository)
 	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+	svc.(*userService).rtRepo = mockRtRepo
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -599,10 +610,13 @@ func TestLogout_RedisError(t *testing.T) {
 		return fmt.Errorf("expected set for key %s, got %v", blacklistKey, actual)
 	}).ExpectSet(blacklistKey, "logged_out", 15*time.Minute).SetErr(errors.New("redis failure"))
 
+	mockRtRepo.On("RevokeAllByUserID", ctx, userID).Return(nil)
+
 	err = svc.Logout(ctx, token)
 	assert.Error(t, err)
 	assert.Equal(t, "Something went wrong on the server, please try again later.", err.Error())
 	assert.NoError(t, mockRedis.ExpectationsWereMet())
+	mockRtRepo.AssertExpectations(t)
 }
 
 func TestVerifyEmail_Success(t *testing.T) {
@@ -776,16 +790,20 @@ func TestResetPassword_Success(t *testing.T) {
 	mockWalletRepo := new(walletRepo.MockWalletRepository)
 	mockOTPRepo := new(otpRepo.MockOTPRepository)
 	mockEmailSender := new(email.MockEmailSender)
+	mockRtRepo := new(userRepo.MockRefreshTokenRepository)
 	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+	svc.(*userService).rtRepo = mockRtRepo
 
 	ctx := context.TODO()
 	userID := "user-uuid"
 	newPassword := "newsecurepass"
 
 	mockUserRepo.On("UpdatePassword", ctx, userID, mock.Anything).Return(nil)
+	mockRtRepo.On("RevokeAllByUserID", ctx, userID).Return(nil)
 
 	err := svc.ResetPassword(ctx, userID, newPassword)
 	assert.NoError(t, err)
 	mockUserRepo.AssertExpectations(t)
+	mockRtRepo.AssertExpectations(t)
 }
 

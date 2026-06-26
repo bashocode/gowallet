@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	customError "github.com/bashocode/gowallet/monolith/internal/errors"
+	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
 	"github.com/bashocode/gowallet/monolith/internal/logger"
 	"github.com/bashocode/gowallet/monolith/internal/wallet/model"
 	"github.com/bashocode/gowallet/monolith/internal/wallet/repository"
@@ -72,7 +72,7 @@ func (s *walletService) GetWalletByUserID(ctx context.Context, userID string) (*
 
 	wallet, err := s.repo.GetByUserID(ctx, userID)
 	if err != nil {
-		return nil, customError.NewAppError(http.StatusNotFound, "WALLET_NOT_FOUND", "wallet not found")
+		return nil, customErr.NewAppError(http.StatusNotFound, "WALLET_NOT_FOUND", "wallet not found")
 	}
 
 	// save to redis for 5 minutes TTL

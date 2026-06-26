@@ -11,13 +11,14 @@ import (
 
 	"github.com/bashocode/gowallet/monolith/internal/auth"
 	"github.com/bashocode/gowallet/monolith/internal/email"
-	customError "github.com/bashocode/gowallet/monolith/internal/errors"
+	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
 	"github.com/bashocode/gowallet/monolith/internal/logger"
 	"github.com/bashocode/gowallet/monolith/internal/otp/generator"
 	otpModel "github.com/bashocode/gowallet/monolith/internal/otp/model"
 	otpRepository "github.com/bashocode/gowallet/monolith/internal/otp/repository"
 	"github.com/bashocode/gowallet/monolith/internal/user/model"
 	"github.com/bashocode/gowallet/monolith/internal/user/repository"
+	refreshRepository "github.com/bashocode/gowallet/monolith/internal/user/repository"
 	userRepo "github.com/bashocode/gowallet/monolith/internal/user/repository"
 	walletModel "github.com/bashocode/gowallet/monolith/internal/wallet/model"
 	walletRepo "github.com/bashocode/gowallet/monolith/internal/wallet/repository"
@@ -43,6 +44,7 @@ type UserService interface {
 	ResetPassword(ctx context.Context, email string, newPassword string) error
 	GetGoogleLoginURL() string
 	HandleGoogleCallback(ctx context.Context, code string) (*model.LoginResponse, error)
+	RefreshToken(ctx context.Context, oldTokenString string) (*model.LoginResponse, error)
 }
 
 type userService struct {
@@ -51,16 +53,25 @@ type userService struct {
 	userRepo    userRepo.UserRepository
 	walletRepo  walletRepo.WalletRepository
 	otpRepo     otpRepository.OTPRepository
+	rtRepo      refreshRepository.RefreshTokenRepository
 	emailSender email.EmailSender
 }
 
-func NewUserService(db *sql.DB, rdb *redis.Client, uRepo repository.UserRepository, wRepo walletRepo.WalletRepository, otpRepo otpRepository.OTPRepository, emailSender email.EmailSender) UserService {
+func NewUserService(
+	db *sql.DB,
+	rdb *redis.Client,
+	uRepo repository.UserRepository,
+	wRepo walletRepo.WalletRepository,
+	otpRepo otpRepository.OTPRepository,
+	emailSender email.EmailSender,
+) UserService {
 	return &userService{
 		db:          db,
 		rdb:         rdb,
 		userRepo:    uRepo,
 		walletRepo:  wRepo,
 		otpRepo:     otpRepo,
+		rtRepo:      repository.NewMySQLRefreshTokenRepository(db),
 		emailSender: emailSender,
 	}
 }
@@ -70,14 +81,14 @@ func (s *userService) Register(ctx context.Context, req model.CreateUserRequest)
 	existing, _ := s.userRepo.GetByEmail(ctx, req.Email)
 	if existing != nil {
 		// return custom AppError
-		return nil, customError.NewAppError(http.StatusConflict, "EMAIL_ALREADY_REGISTERED", "this email already registered.")
+		return nil, customErr.NewAppError(http.StatusConflict, "EMAIL_ALREADY_REGISTERED", "this email already registered.")
 	}
 
 	// hash the password with bcrypt
 	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		// return internal server error
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	// 2. create new user object
@@ -91,7 +102,7 @@ func (s *userService) Register(ctx context.Context, req model.CreateUserRequest)
 	// begin transaction database
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	// we should rollback if anything error or panic in the middle
@@ -99,7 +110,7 @@ func (s *userService) Register(ctx context.Context, req model.CreateUserRequest)
 
 	// store user to db with a tx connection
 	if err := s.userRepo.CreateTx(ctx, tx, user); err != nil {
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	// create wallet for the user
@@ -112,12 +123,12 @@ func (s *userService) Register(ctx context.Context, req model.CreateUserRequest)
 	}
 
 	if err := s.walletRepo.CreateTx(ctx, tx, wallet); err != nil {
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	// commit the transaction if all of the step is success
 	if err := tx.Commit(); err != nil {
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	// Generate and send OTP
@@ -132,7 +143,7 @@ func (s *userService) GetProfile(ctx context.Context, id string) (*model.User, e
 	u, err := s.userRepo.GetByID(ctx, id)
 
 	if err != nil {
-		return nil, customError.NewAppError(http.StatusNotFound, "USER_NOT_FOUND", "user not found")
+		return nil, customErr.NewAppError(http.StatusNotFound, "USER_NOT_FOUND", "user not found")
 	}
 
 	return u, nil
@@ -141,12 +152,12 @@ func (s *userService) GetProfile(ctx context.Context, id string) (*model.User, e
 func (s *userService) UpdateProfile(ctx context.Context, id string, req model.UpdateUserRequest) (*model.User, error) {
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
-		return nil, customError.NewAppError(http.StatusNotFound, "USER_NOT_FOUND", "user not found")
+		return nil, customErr.NewAppError(http.StatusNotFound, "USER_NOT_FOUND", "user not found")
 	}
 
 	user.FullName = req.FullName
 	if err := s.userRepo.Update(ctx, user); err != nil {
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	return s.userRepo.GetByID(ctx, id)
@@ -156,25 +167,37 @@ func (s *userService) Login(ctx context.Context, req model.LoginRequest) (*model
 	// find by email
 	user, err := s.userRepo.GetByEmail(ctx, req.Email)
 	if err != nil {
-		return nil, customError.NewAppError(http.StatusUnauthorized, "INVALID_CREDENTIALS", "wrong email or password.")
+		return nil, customErr.NewAppError(http.StatusUnauthorized, "INVALID_CREDENTIALS", "wrong email or password.")
 	}
 
 	// verify the hash password
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password))
 	if err != nil {
-		return nil, customError.NewAppError(http.StatusUnauthorized, "INVALID_CREDENTIALS", "wrong email or password.")
+		return nil, customErr.NewAppError(http.StatusUnauthorized, "INVALID_CREDENTIALS", "wrong email or password.")
 	}
 
 	// generate access token 15 minutes
 	accessToken, err := auth.GenerateToken(user.ID, user.Email, 15*time.Minute)
 	if err != nil {
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	// generate refresh token 7 days
 	refreshToken, err := auth.GenerateToken(user.ID, user.Email, 7*24*time.Hour)
 	if err != nil {
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
+	}
+
+	// save token to db
+	rt := &model.RefreshToken{
+		ID:        uuid.New().String(),
+		UserID:    user.ID,
+		Token:     refreshToken,
+		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+		Revoked:   false,
+	}
+	if err := s.rtRepo.Create(ctx, rt); err != nil {
+		return nil, customErr.ErrInternalServer
 	}
 
 	// return the tokens
@@ -191,11 +214,11 @@ func (s *userService) UpdateAvatar(ctx context.Context, id string, path string) 
 func (s *userService) DeleteAccount(ctx context.Context, id string) error {
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
-		return customError.NewAppError(http.StatusNotFound, "USER_NOT_FOUND", "user not found")
+		return customErr.NewAppError(http.StatusNotFound, "USER_NOT_FOUND", "user not found")
 	}
 
 	if err := s.userRepo.SoftDelete(ctx, user.ID); err != nil {
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 
 	return nil
@@ -205,7 +228,12 @@ func (s *userService) Logout(ctx context.Context, tokenString string) error {
 	// validate token
 	claims, err := auth.ValidateToken(tokenString)
 	if err != nil {
-		return customError.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN", "token is invalid or expired.")
+		return customErr.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN", "token is invalid or expired.")
+	}
+
+	// revoke all refresh token from users that logged out
+	if err := s.rtRepo.RevokeAllByUserID(ctx, claims.UserID); err != nil {
+		return customErr.NewAppError(http.StatusUnauthorized, "REVOKE_FAILED", "Failed to revoke refresh token.")
 	}
 
 	// calculate the remaining active token
@@ -220,7 +248,7 @@ func (s *userService) Logout(ctx context.Context, tokenString string) error {
 	blacklistKey := fmt.Sprintf("blacklist:%s", tokenString)
 	err = s.rdb.Set(ctx, blacklistKey, "logged_out", timeLeft).Err()
 	if err != nil {
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 
 	return nil
@@ -231,29 +259,29 @@ func (s *userService) VerifyEmail(ctx context.Context, userID string, code strin
 	otp, err := s.otpRepo.GetActiveOTP(ctx, userID, code, "email_verification")
 	if err != nil {
 		// Custom AppError: OTP not found or expired
-		return customError.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
+		return customErr.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
 	}
 
 	// 2. Begin transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 	defer tx.Rollback()
 
 	// 3. Mark user as verified
 	if err := s.userRepo.UpdateVerificationStatusTx(ctx, tx, userID, true); err != nil {
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 
 	// 4. Mark OTP as used
 	if err := s.otpRepo.MarkAsUsedTx(ctx, tx, otp.ID); err != nil {
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 
 	// 5. Commit transaction
 	if err := tx.Commit(); err != nil {
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 
 	return nil
@@ -262,7 +290,7 @@ func (s *userService) VerifyEmail(ctx context.Context, userID string, code strin
 func (s *userService) GenerateAndSendOTP(ctx context.Context, userID string, emailAddr string, otpType string) error {
 	otpCode, err := generator.GenerateOTP(6)
 	if err != nil {
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 
 	otpModel := &otpModel.OTP{
@@ -276,7 +304,7 @@ func (s *userService) GenerateAndSendOTP(ctx context.Context, userID string, ema
 
 	if err := s.otpRepo.Create(ctx, otpModel); err != nil {
 		logger.Log.Error("failed to save otp", "error", err)
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 
 	go func() {
@@ -308,7 +336,7 @@ func (s *userService) RequestPasswordReset(ctx context.Context, email string) er
 	// find by email
 	user, err := s.userRepo.GetByEmailNoErrorNotFound(ctx, email)
 	if err != nil {
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 	if user == nil {
 		// return nil to prevent email enumeration attacks
@@ -322,18 +350,18 @@ func (s *userService) VerifyPasswordReset(ctx context.Context, email string, cod
 	// 1. Get user by email
 	user, err := s.userRepo.GetByEmailNoErrorNotFound(ctx, email)
 	if err != nil || user == nil {
-		return "", customError.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
+		return "", customErr.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
 	}
 
 	// 2. Get active OTP
 	otp, err := s.otpRepo.GetActiveOTP(ctx, user.ID, code, "password_reset")
 	if err != nil {
-		return "", customError.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
+		return "", customErr.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
 	}
 
 	// 3. Mark OTP as used
 	if err := s.otpRepo.MarkAsUsed(ctx, otp.ID); err != nil {
-		return "", customError.ErrInternalServer
+		return "", customErr.ErrInternalServer
 	}
 
 	return user.ID, nil
@@ -343,12 +371,17 @@ func (s *userService) ResetPassword(ctx context.Context, id string, newPassword 
 	// hash password using bcrypt
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 
 	// update password
 	if err := s.userRepo.UpdatePassword(ctx, id, string(hashedPassword)); err != nil {
-		return customError.ErrInternalServer
+		return customErr.ErrInternalServer
+	}
+
+	// revoke all refresh token from user that reset the password
+	if err := s.rtRepo.RevokeAllByUserID(ctx, id); err != nil {
+		return customErr.ErrInternalServer
 	}
 
 	return nil
@@ -412,13 +445,13 @@ func (s *userService) HandleGoogleCallback(ctx context.Context, code string) (*m
 			// Check if email already registered via normal email/password
 			existingUser, _ := s.userRepo.GetByEmail(ctx, googleUser.Email)
 			if existingUser != nil {
-				return nil, customError.NewAppError(http.StatusConflict, "EMAIL_ALREADY_REGISTERED", "This email is registered using password credentials. Please sign in with email and password.")
+				return nil, customErr.NewAppError(http.StatusConflict, "EMAIL_ALREADY_REGISTERED", "This email is registered using password credentials. Please sign in with email and password.")
 			}
 
 			// Begin database transaction to guarantee user & wallet creation consistency
 			tx, err := s.db.BeginTx(ctx, nil)
 			if err != nil {
-				return nil, customError.ErrInternalServer
+				return nil, customErr.ErrInternalServer
 			}
 			defer tx.Rollback()
 
@@ -436,7 +469,7 @@ func (s *userService) HandleGoogleCallback(ctx context.Context, code string) (*m
 
 			// Save user
 			if err := s.userRepo.CreateTx(ctx, tx, user); err != nil {
-				return nil, customError.ErrInternalServer
+				return nil, customErr.ErrInternalServer
 			}
 
 			// Create wallet for the new user
@@ -449,35 +482,94 @@ func (s *userService) HandleGoogleCallback(ctx context.Context, code string) (*m
 				Version:  1,
 			}
 			if err := s.walletRepo.CreateTx(ctx, tx, wallet); err != nil {
-				return nil, customError.ErrInternalServer
+				return nil, customErr.ErrInternalServer
 			}
 
 			if err := tx.Commit(); err != nil {
-				return nil, customError.ErrInternalServer
+				return nil, customErr.ErrInternalServer
 			}
 		} else {
-			return nil, customError.ErrInternalServer
+			return nil, customErr.ErrInternalServer
 		}
 	}
 
 	// 4. Generate JWT token
 	accessToken, err := auth.GenerateToken(user.ID, user.Email, 15*time.Minute)
 	if err != nil {
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	refreshToken, err := auth.GenerateToken(user.ID, user.Email, 7*24*time.Hour)
 	if err != nil {
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	err = s.rdb.Set(ctx, "refresh_token:"+user.ID, refreshToken, 7*24*time.Hour).Err()
 	if err != nil {
-		return nil, customError.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	return &model.LoginResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
+	}, nil
+}
+
+func (s *userService) RefreshToken(ctx context.Context, oldTokenString string) (*model.LoginResponse, error) {
+	// 1. look token in db
+	rt, err := s.rtRepo.GetByToken(ctx, oldTokenString)
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusUnauthorized, "INVALID_REFRESH_TOKEN", "Refresh token invalid.")
+	}
+
+	// 2. TOKEN REUSE DETECTION: if revoked token reused -> HACKER DETECTED!
+	if rt.Revoked {
+		// revoke all active session for this user
+		_ = s.rtRepo.RevokeAllByUserID(ctx, rt.UserID)
+		return nil, customErr.NewAppError(http.StatusUnauthorized, "TOKEN_BREACH_DETECTED", "Token breach detected. Please login again.")
+	}
+
+	// 3. check if token is expired
+	if time.Now().After(rt.ExpiresAt) {
+		return nil, customErr.NewAppError(http.StatusUnauthorized, "EXPIRED_REFRESH_TOKEN", "Refresh token expired. Please login again.")
+	}
+
+	// 4. Revoke old token
+	if err := s.rtRepo.Revoke(ctx, oldTokenString); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	// 5. Get user detail to generate new JWT
+	user, err := s.userRepo.GetByID(ctx, rt.UserID)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	// 6. Generate Access Token & New Refresh Token (Rotation)
+	newAccessToken, err := auth.GenerateToken(user.ID, user.Email, 15*time.Minute)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	newRefreshTokenString, err := auth.GenerateToken(user.ID, user.Email, 7*24*time.Hour)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	// 7. Save new Refresh Token to Database
+	newRT := &model.RefreshToken{
+		ID:        uuid.New().String(),
+		UserID:    user.ID,
+		Token:     newRefreshTokenString,
+		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+		Revoked:   false,
+	}
+	if err := s.rtRepo.Create(ctx, newRT); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	return &model.LoginResponse{
+		AccessToken:  newAccessToken,
+		RefreshToken: newRefreshTokenString,
 	}, nil
 }

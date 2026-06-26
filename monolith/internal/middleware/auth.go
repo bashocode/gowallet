@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/bashocode/gowallet/monolith/internal/auth"
-	customError "github.com/bashocode/gowallet/monolith/internal/errors"
+	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
@@ -15,7 +15,7 @@ func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.Error(customError.NewAppError(http.StatusUnauthorized, "MISSING_TOKEN", "auth token is missing."))
+			c.Error(customErr.NewAppError(http.StatusUnauthorized, "MISSING_TOKEN", "auth token is missing."))
 			c.Abort()
 			return
 		}
@@ -23,7 +23,7 @@ func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 		// split Bearer token
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.Error(customError.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN", "token is invalid, should be Bearer <token>."))
+			c.Error(customErr.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN", "token is invalid, should be Bearer <token>."))
 			c.Abort()
 			return
 		}
@@ -34,7 +34,7 @@ func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 		blacklistKey := fmt.Sprintf("blacklist:%s", tokenString)
 		exists, err := rdb.Exists(c.Request.Context(), blacklistKey).Result()
 		if err == nil && exists > 0 {
-			c.Error(customError.NewAppError(
+			c.Error(customErr.NewAppError(
 				http.StatusUnauthorized,
 				"TOKEN_REVOKED",
 				"Login session has ended. Please login again.",
@@ -46,7 +46,7 @@ func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 		// validate token
 		claims, err := auth.ValidateToken(tokenString)
 		if err != nil {
-			c.Error(customError.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN", "token is invalid or expired."))
+			c.Error(customErr.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN", "token is invalid or expired."))
 			c.Abort()
 			return
 		}
