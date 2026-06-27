@@ -158,6 +158,17 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 }
 
 func (s *transactionService) GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error) {
+	// Validation - FIX: add minimum validation
+	if params.Page < 1 {
+		params.Page = 1
+	}
+	if params.Limit <= 0 {
+		params.Limit = 10 // default
+	}
+	if params.Limit > 100 {
+		params.Limit = 100
+	}
+
 	wallet, err := s.walletRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, nil, customErr.NewAppError(http.StatusNotFound, "WALLET_NOT_FOUND", "Wallet not found")
@@ -248,4 +259,3 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 
 	return transaction, nil
 }
-

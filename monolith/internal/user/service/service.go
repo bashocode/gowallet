@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -44,8 +46,8 @@ type UserService interface {
 	RequestPasswordReset(ctx context.Context, email string) error
 	VerifyPasswordReset(ctx context.Context, email string, code string) (string, error)
 	ResetPassword(ctx context.Context, email string, newPassword string) error
-	GetGoogleLoginURL() string
-	HandleGoogleCallback(ctx context.Context, code string) (*model.LoginResponse, error)
+	GetGoogleLoginURL(ctx context.Context) (string, error)
+	HandleGoogleCallback(ctx context.Context, code string, state string) (*model.LoginResponse, error)
 	RefreshToken(ctx context.Context, oldTokenString string) (*model.LoginResponse, error)
 	GetAllUsers(ctx context.Context, params model.PaginationParams) ([]*model.User, *model.PaginationMeta, error)
 }
@@ -424,12 +426,37 @@ func (s *userService) getOAuthConfig() *oauth2.Config {
 	}
 }
 
-func (s *userService) GetGoogleLoginURL() string {
-	oauthStateString := "random-state-string" // In production, use a secure random token stored in Redis/session to prevent CSRF
-	return s.getOAuthConfig().AuthCodeURL(oauthStateString)
+func (s *userService) GetGoogleLoginURL(ctx context.Context) (string, error) {
+	// Generate secure random state token
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	state := base64.URLEncoding.EncodeToString(b)
+
+	// Store state in Redis with 10 minute expiry
+	stateKey := fmt.Sprintf("oauth:state:%s", state)
+	err := s.rdb.Set(ctx, stateKey, "valid", 10*time.Minute).Err()
+	if err != nil {
+		return "", err
+	}
+
+	// Generate OAuth URL with random state
+	url := s.getOAuthConfig().AuthCodeURL(state)
+	return url, nil
 }
 
-func (s *userService) HandleGoogleCallback(ctx context.Context, code string) (*model.LoginResponse, error) {
+func (s *userService) HandleGoogleCallback(ctx context.Context, code string, state string) (*model.LoginResponse, error) {
+	// Validate state token exists in Redis
+	stateKey := fmt.Sprintf("oauth:state:%s", state)
+	val, err := s.rdb.Get(ctx, stateKey).Result()
+	if err != nil || val != "valid" {
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_STATE", "invalid or expired OAuth state - possible CSRF attack")
+	}
+
+	// Delete state token (one-time use)
+	s.rdb.Del(ctx, stateKey)
+
 	config := s.getOAuthConfig()
 
 	// 1. Exchange the auth code for a token
