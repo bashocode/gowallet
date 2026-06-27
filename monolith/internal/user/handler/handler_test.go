@@ -98,13 +98,13 @@ func (m *MockUserService) ResetPassword(ctx context.Context, email string, newPa
 	return args.Error(0)
 }
 
-func (m *MockUserService) GetGoogleLoginURL() string {
-	args := m.Called()
-	return args.String(0)
+func (m *MockUserService) GetGoogleLoginURL(ctx context.Context) (string, error) {
+	args := m.Called(ctx)
+	return args.String(0), args.Error(1)
 }
 
-func (m *MockUserService) HandleGoogleCallback(ctx context.Context, code string) (*model.LoginResponse, error) {
-	args := m.Called(ctx, code)
+func (m *MockUserService) HandleGoogleCallback(ctx context.Context, code string, state string) (*model.LoginResponse, error) {
+	args := m.Called(ctx, code, state)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

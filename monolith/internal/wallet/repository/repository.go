@@ -6,12 +6,13 @@ import (
 	"errors"
 
 	"github.com/bashocode/gowallet/monolith/internal/wallet/model"
+	"github.com/shopspring/decimal"
 )
 
 type WalletRepository interface {
 	CreateTx(ctx context.Context, tx *sql.Tx, w *model.Wallet) error
 	GetByUserID(ctx context.Context, userID string) (*model.Wallet, error)
-	UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, newBalance float64, currentVersion int) error
+	UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, amount decimal.Decimal, currentVersion int) error
 }
 
 type mysqlWalletRepository struct {
@@ -50,9 +51,11 @@ func (r *mysqlWalletRepository) GetByUserID(ctx context.Context, userID string) 
 	return w, nil
 }
 
-func (r *mysqlWalletRepository) UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, newBalance float64, currentVersion int) error {
-	query := `UPDATE wallets SET balance = ?, version = version + 1 WHERE id = ? AND version = ?`
-	result, err := tx.ExecContext(ctx, query, newBalance, walletID, currentVersion)
+func (r *mysqlWalletRepository) UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, amount decimal.Decimal, currentVersion int) error {
+	query := `UPDATE wallets
+              SET balance = balance - ?, version = version + 1
+              WHERE id = ? AND version = ? AND balance >= ?`
+	result, err := tx.ExecContext(ctx, query, amount, walletID, currentVersion, amount)
 	if err != nil {
 		return err
 	}
@@ -62,9 +65,9 @@ func (r *mysqlWalletRepository) UpdateBalanceTx(ctx context.Context, tx *sql.Tx,
 		return err
 	}
 
-	// if 0 rows affected, it means database version has changed (concurrency conflict)
+	// if 0 rows affected, it means concurrent update detected or insufficient balance
 	if rowsAffected == 0 {
-		return errors.New("concurrent update detected: version mismatch")
+		return errors.New("concurrent update detected or insufficient balance")
 	}
 
 	return nil

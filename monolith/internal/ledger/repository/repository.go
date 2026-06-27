@@ -5,11 +5,12 @@ import (
 	"database/sql"
 
 	"github.com/bashocode/gowallet/monolith/internal/ledger/model"
+	"github.com/shopspring/decimal"
 )
 
 type LedgerRepository interface {
 	CreateTx(ctx context.Context, tx *sql.Tx, entry *model.LedgerEntry) error
-	GetBalanceByWalletID(ctx context.Context, walletID string) (float64, error)
+	GetBalanceByWalletID(ctx context.Context, walletID string) (decimal.Decimal, error)
 	GetEntriesByWalletID(ctx context.Context, walletID string) ([]model.LedgerEntry, error)
 }
 
@@ -27,7 +28,7 @@ func (r *mysqlLedgerRepository) CreateTx(ctx context.Context, tx *sql.Tx, entry 
 	return err
 }
 
-func (r *mysqlLedgerRepository) GetBalanceByWalletID(ctx context.Context, walletID string) (float64, error) {
+func (r *mysqlLedgerRepository) GetBalanceByWalletID(ctx context.Context, walletID string) (decimal.Decimal, error) {
 	// balance = sum(credit) - sum(debit)
 	query := `
 		SELECT
@@ -36,10 +37,10 @@ func (r *mysqlLedgerRepository) GetBalanceByWalletID(ctx context.Context, wallet
 		FROM ledger_entries
 		WHERE wallet_id = ?`
 
-	var balance float64
+	var balance decimal.Decimal
 	err := r.db.QueryRowContext(ctx, query, walletID).Scan(&balance)
 	if err != nil {
-		return 0, err
+		return decimal.Zero, err
 	}
 	return balance, nil
 }

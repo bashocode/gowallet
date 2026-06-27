@@ -1,82 +1,21 @@
 basePath: /api/v1
 definitions:
-  errors.AppError:
+  github_com_bashocode_gowallet_monolith_internal_errors.AppError:
     properties:
       code:
         type: string
       message:
         type: string
     type: object
-  handler.PasswordResetRequest:
-    properties:
-      email:
-        type: string
-    required:
-    - email
-    type: object
-  handler.VerifyOTPRequest:
-    properties:
-      code:
-        type: string
-    required:
-    - code
-    type: object
-  handler.VerifyPasswordResetRequest:
-    properties:
-      code:
-        type: string
-      email:
-        type: string
-      new_confirm_password:
-        type: string
-      new_password:
-        minLength: 6
-        type: string
-    required:
-    - code
-    - email
-    - new_confirm_password
-    - new_password
-    type: object
-  model.CreateUserRequest:
-    properties:
-      email:
-        example: john.doe@example.com
-        type: string
-      full_name:
-        example: John Doe
-        type: string
-      password:
-        description: more long, better
-        example: secretpassword
-        minLength: 6
-        type: string
-    required:
-    - email
-    - full_name
-    - password
-    type: object
-  model.LoginRequest:
-    properties:
-      email:
-        example: john.doe@example.com
-        type: string
-      password:
-        example: secretpassword
-        type: string
-    required:
-    - email
-    - password
-    type: object
-  model.PaginatedResponse:
+  github_com_bashocode_gowallet_monolith_internal_transaction_model.PaginatedResponse:
     properties:
       data: {}
       meta:
-        $ref: '#/definitions/model.PaginationMeta'
+        $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_transaction_model.PaginationMeta'
       success:
         type: boolean
     type: object
-  model.PaginationMeta:
+  github_com_bashocode_gowallet_monolith_internal_transaction_model.PaginationMeta:
     properties:
       limit:
         type: integer
@@ -87,7 +26,19 @@ definitions:
       total_page:
         type: integer
     type: object
-  model.TransferRequest:
+  github_com_bashocode_gowallet_monolith_internal_transaction_model.TopUpRequest:
+    properties:
+      amount:
+        example: 100000
+        type: number
+      idempotency_key:
+        example: unique-uuid-key-abc
+        type: string
+    required:
+    - amount
+    - idempotency_key
+    type: object
+  github_com_bashocode_gowallet_monolith_internal_transaction_model.TransferRequest:
     properties:
       amount:
         example: 50000
@@ -106,14 +57,70 @@ definitions:
     - idempotency_key
     - receiver_email
     type: object
-  model.UpdateUserRequest:
+  github_com_bashocode_gowallet_monolith_internal_user_model.CreateUserRequest:
+    properties:
+      email:
+        example: john.doe@example.com
+        type: string
+      full_name:
+        example: John Doe
+        type: string
+      password:
+        description: more long, better
+        example: secretpassword
+        minLength: 6
+        type: string
+    required:
+    - email
+    - full_name
+    - password
+    type: object
+  github_com_bashocode_gowallet_monolith_internal_user_model.LoginRequest:
+    properties:
+      email:
+        example: john.doe@example.com
+        type: string
+      password:
+        example: secretpassword
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  github_com_bashocode_gowallet_monolith_internal_user_model.PaginatedResponse:
+    properties:
+      data: {}
+      meta:
+        $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.PaginationMeta'
+      success:
+        type: boolean
+    type: object
+  github_com_bashocode_gowallet_monolith_internal_user_model.PaginationMeta:
+    properties:
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+      total_page:
+        type: integer
+    type: object
+  github_com_bashocode_gowallet_monolith_internal_user_model.RefreshTokenRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  github_com_bashocode_gowallet_monolith_internal_user_model.UpdateUserRequest:
     properties:
       full_name:
         type: string
     required:
     - full_name
     type: object
-  model.User:
+  github_com_bashocode_gowallet_monolith_internal_user_model.User:
     properties:
       avatar_url:
         type: string
@@ -129,8 +136,46 @@ definitions:
         type: string
       is_verified:
         type: boolean
+      oauth_id:
+        type: string
+      oauth_provider:
+        type: string
+      role:
+        description: user, admin
+        type: string
       updated_at:
         type: string
+    type: object
+  internal_user_handler.PasswordResetRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
+  internal_user_handler.VerifyOTPRequest:
+    properties:
+      code:
+        type: string
+    required:
+    - code
+    type: object
+  internal_user_handler.VerifyPasswordResetRequest:
+    properties:
+      code:
+        type: string
+      email:
+        type: string
+      new_confirm_password:
+        type: string
+      new_password:
+        minLength: 6
+        type: string
+    required:
+    - code
+    - email
+    - new_confirm_password
+    - new_password
     type: object
 host: localhost:8080
 info:
@@ -141,6 +186,101 @@ info:
   title: GoWallet Monolith API
   version: "1.0"
 paths:
+  /admin/users:
+    get:
+      consumes:
+      - application/json
+      description: Get all users from database with pagination (Admin only)
+      parameters:
+      - description: 'page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'page limit (default: 10)'
+        in: query
+        name: limit
+        type: integer
+      - description: 'sort column (default: created_at)'
+        in: query
+        name: sort
+        type: string
+      - description: 'sort order (default: desc)'
+        in: query
+        name: order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.PaginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+      summary: Admin Get All Users
+      tags:
+      - Admin
+  /ledger/mutations:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of all mutations (credit/debit ledger entries) for the
+        authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns success: true and data: []model.LedgerEntry'
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Get Mutation History
+      tags:
+      - Ledger
+  /ledger/reconcile:
+    get:
+      consumes:
+      - application/json
+      description: Verify if the current wallet balance matches the sum of ledger
+        mutations
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns success: true, is_consistent: bool, wallet_balance:
+            decimal.Decimal, calculated_balance: decimal.Decimal'
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Reconcile Wallet Balance
+      tags:
+      - Ledger
   /transactions/history:
     get:
       consumes:
@@ -174,18 +314,51 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/model.PaginatedResponse'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_transaction_model.PaginatedResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       security:
       - BearerAuth: []
       summary: Get Transaction History
+      tags:
+      - Transactions
+  /transactions/topup:
+    post:
+      consumes:
+      - application/json
+      description: Top up authenticated user's own wallet balance
+      parameters:
+      - description: topup payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_transaction_model.TopUpRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns success: true, message: Success, and data: model.Transaction'
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Top Up Wallet Balance
       tags:
       - Transactions
   /transactions/transfer:
@@ -199,7 +372,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/model.TransferRequest'
+          $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_transaction_model.TransferRequest'
       produces:
       - application/json
       responses:
@@ -211,15 +384,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       security:
       - BearerAuth: []
       summary: Transfer Balance
@@ -242,11 +415,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/model.User'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.User'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       summary: Get User Profile
       tags:
       - Users
@@ -265,22 +438,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/model.UpdateUserRequest'
+          $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.UpdateUserRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/model.User'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.User'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       summary: Update User Profile
       tags:
       - Users
@@ -306,7 +479,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       security:
       - BearerAuth: []
       summary: Upload Avatar
@@ -321,7 +494,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/handler.PasswordResetRequest'
+          $ref: '#/definitions/internal_user_handler.PasswordResetRequest'
       produces:
       - application/json
       responses:
@@ -333,16 +506,73 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       summary: Forgot Password
+      tags:
+      - Users
+  /users/google/callback:
+    get:
+      description: Handle callback from Google OAuth
+      parameters:
+      - description: OAuth code
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: OAuth state
+        in: query
+        name: state
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Returns login response
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+      security:
+      - BearerAuth: []
+      summary: Google Callback
+      tags:
+      - Users
+  /users/google/login:
+    get:
+      description: Redirect to Google OAuth login page
+      produces:
+      - application/json
+      responses:
+        "302":
+          description: Redirect to Google OAuth page
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+      summary: Google Login
       tags:
       - Users
   /users/login:
@@ -357,7 +587,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/model.LoginRequest'
+          $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.LoginRequest'
       produces:
       - application/json
       responses:
@@ -369,11 +599,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       summary: User Login
       tags:
       - Users
@@ -391,15 +621,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       security:
       - BearerAuth: []
       summary: Logout
@@ -417,7 +647,7 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       security:
       - BearerAuth: []
       summary: Delete User Account
@@ -438,10 +668,43 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       security:
       - BearerAuth: []
       summary: Get My Profile
+      tags:
+      - Users
+  /users/refresh-token:
+    post:
+      description: Refresh token
+      parameters:
+      - description: refresh token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.RefreshTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Returns success and message
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
+      summary: Refresh Token
       tags:
       - Users
   /users/register:
@@ -455,22 +718,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/model.CreateUserRequest'
+          $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.CreateUserRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/model.User'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.User'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       summary: Register New User
       tags:
       - Users
@@ -483,7 +746,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/handler.VerifyOTPRequest'
+          $ref: '#/definitions/internal_user_handler.VerifyOTPRequest'
       produces:
       - application/json
       responses:
@@ -495,15 +758,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       security:
       - BearerAuth: []
       summary: Verify Email
@@ -518,7 +781,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/handler.VerifyPasswordResetRequest'
+          $ref: '#/definitions/internal_user_handler.VerifyPasswordResetRequest'
       produces:
       - application/json
       responses:
@@ -530,15 +793,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       summary: Verify Password Reset
       tags:
       - Users
@@ -559,11 +822,11 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/errors.AppError'
+            $ref: '#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError'
       security:
       - BearerAuth: []
       summary: Get My Wallet

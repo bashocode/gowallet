@@ -11,6 +11,7 @@ import (
 	"github.com/bashocode/gowallet/monolith/internal/wallet/model"
 	"github.com/bashocode/gowallet/monolith/internal/wallet/repository"
 	"github.com/go-redis/redismock/v9"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -29,7 +30,7 @@ func TestGetWalletByUserID_Success(t *testing.T) {
 	expectedWallet := &model.Wallet{
 		ID:       "wallet-123",
 		UserID:   userID,
-		Balance:  1000.0,
+		Balance:  decimal.NewFromInt(1000),
 		Currency: "IDR",
 		Status:   "active",
 	}
@@ -86,7 +87,7 @@ func TestGetWalletByUserID_CacheHit(t *testing.T) {
 	expectedWallet := &model.Wallet{
 		ID:       "wallet-123",
 		UserID:   userID,
-		Balance:  1000.0,
+		Balance:  decimal.NewFromInt(1000),
 		Currency: "IDR",
 		Status:   "active",
 	}

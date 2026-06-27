@@ -18,6 +18,149 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/admin/users": {
+            "get": {
+                "description": "Get all users from database with pagination (Admin only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Admin Get All Users",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "page number (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page limit (default: 10)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sort column (default: created_at)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sort order (default: desc)",
+                        "name": "order",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.PaginatedResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/ledger/mutations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a list of all mutations (credit/debit ledger entries) for the authenticated user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Ledger"
+                ],
+                "summary": "Get Mutation History",
+                "responses": {
+                    "200": {
+                        "description": "Returns success: true and data: []model.LedgerEntry",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/ledger/reconcile": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Verify if the current wallet balance matches the sum of ledger mutations",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Ledger"
+                ],
+                "summary": "Reconcile Wallet Balance",
+                "responses": {
+                    "200": {
+                        "description": "Returns success: true, is_consistent: bool, wallet_balance: decimal.Decimal, calculated_balance: decimal.Decimal",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/transactions/history": {
             "get": {
                 "security": [
@@ -72,19 +215,71 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/model.PaginatedResponse"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_transaction_model.PaginatedResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/transactions/topup": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Top up authenticated user's own wallet balance",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transactions"
+                ],
+                "summary": "Top Up Wallet Balance",
+                "parameters": [
+                    {
+                        "description": "topup payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_transaction_model.TopUpRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Returns success: true, message: Success, and data: model.Transaction",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -115,7 +310,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/model.TransferRequest"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_transaction_model.TransferRequest"
                         }
                     }
                 ],
@@ -130,19 +325,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -186,7 +381,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -209,7 +404,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handler.PasswordResetRequest"
+                            "$ref": "#/definitions/internal_user_handler.PasswordResetRequest"
                         }
                     }
                 ],
@@ -224,19 +419,106 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/google/callback": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Handle callback from Google OAuth",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Google Callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "OAuth code",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth state",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Returns login response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/google/login": {
+            "get": {
+                "description": "Redirect to Google OAuth login page",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Google Login",
+                "responses": {
+                    "302": {
+                        "description": "Redirect to Google OAuth page",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -262,7 +544,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/model.LoginRequest"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.LoginRequest"
                         }
                     }
                 ],
@@ -277,13 +559,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -315,19 +597,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -362,7 +644,7 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -389,7 +671,57 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/refresh-token": {
+            "post": {
+                "description": "Refresh token",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Refresh Token",
+                "parameters": [
+                    {
+                        "description": "refresh token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.RefreshTokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Returns success and message",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -415,7 +747,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/model.CreateUserRequest"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.CreateUserRequest"
                         }
                     }
                 ],
@@ -423,19 +755,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/model.User"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.User"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -463,7 +795,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handler.VerifyOTPRequest"
+                            "$ref": "#/definitions/internal_user_handler.VerifyOTPRequest"
                         }
                     }
                 ],
@@ -478,19 +810,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -513,7 +845,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handler.VerifyPasswordResetRequest"
+                            "$ref": "#/definitions/internal_user_handler.VerifyPasswordResetRequest"
                         }
                     }
                 ],
@@ -528,19 +860,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -572,13 +904,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/model.User"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.User"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -609,7 +941,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/model.UpdateUserRequest"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.UpdateUserRequest"
                         }
                     }
                 ],
@@ -617,19 +949,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/model.User"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.User"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -664,13 +996,13 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/errors.AppError"
+                            "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_errors.AppError"
                         }
                     }
                 }
@@ -678,7 +1010,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "errors.AppError": {
+        "github_com_bashocode_gowallet_monolith_internal_errors.AppError": {
             "type": "object",
             "properties": {
                 "code": {
@@ -689,106 +1021,19 @@ const docTemplate = `{
                 }
             }
         },
-        "handler.PasswordResetRequest": {
-            "type": "object",
-            "required": [
-                "email"
-            ],
-            "properties": {
-                "email": {
-                    "type": "string"
-                }
-            }
-        },
-        "handler.VerifyOTPRequest": {
-            "type": "object",
-            "required": [
-                "code"
-            ],
-            "properties": {
-                "code": {
-                    "type": "string"
-                }
-            }
-        },
-        "handler.VerifyPasswordResetRequest": {
-            "type": "object",
-            "required": [
-                "code",
-                "email",
-                "new_confirm_password",
-                "new_password"
-            ],
-            "properties": {
-                "code": {
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "new_confirm_password": {
-                    "type": "string"
-                },
-                "new_password": {
-                    "type": "string",
-                    "minLength": 6
-                }
-            }
-        },
-        "model.CreateUserRequest": {
-            "type": "object",
-            "required": [
-                "email",
-                "full_name",
-                "password"
-            ],
-            "properties": {
-                "email": {
-                    "type": "string",
-                    "example": "john.doe@example.com"
-                },
-                "full_name": {
-                    "type": "string",
-                    "example": "John Doe"
-                },
-                "password": {
-                    "description": "more long, better",
-                    "type": "string",
-                    "minLength": 6,
-                    "example": "secretpassword"
-                }
-            }
-        },
-        "model.LoginRequest": {
-            "type": "object",
-            "required": [
-                "email",
-                "password"
-            ],
-            "properties": {
-                "email": {
-                    "type": "string",
-                    "example": "john.doe@example.com"
-                },
-                "password": {
-                    "type": "string",
-                    "example": "secretpassword"
-                }
-            }
-        },
-        "model.PaginatedResponse": {
+        "github_com_bashocode_gowallet_monolith_internal_transaction_model.PaginatedResponse": {
             "type": "object",
             "properties": {
                 "data": {},
                 "meta": {
-                    "$ref": "#/definitions/model.PaginationMeta"
+                    "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_transaction_model.PaginationMeta"
                 },
                 "success": {
                     "type": "boolean"
                 }
             }
         },
-        "model.PaginationMeta": {
+        "github_com_bashocode_gowallet_monolith_internal_transaction_model.PaginationMeta": {
             "type": "object",
             "properties": {
                 "limit": {
@@ -805,7 +1050,24 @@ const docTemplate = `{
                 }
             }
         },
-        "model.TransferRequest": {
+        "github_com_bashocode_gowallet_monolith_internal_transaction_model.TopUpRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "idempotency_key"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "number",
+                    "example": 100000
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "example": "unique-uuid-key-abc"
+                }
+            }
+        },
+        "github_com_bashocode_gowallet_monolith_internal_transaction_model.TransferRequest": {
             "type": "object",
             "required": [
                 "amount",
@@ -831,7 +1093,88 @@ const docTemplate = `{
                 }
             }
         },
-        "model.UpdateUserRequest": {
+        "github_com_bashocode_gowallet_monolith_internal_user_model.CreateUserRequest": {
+            "type": "object",
+            "required": [
+                "email",
+                "full_name",
+                "password"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "john.doe@example.com"
+                },
+                "full_name": {
+                    "type": "string",
+                    "example": "John Doe"
+                },
+                "password": {
+                    "description": "more long, better",
+                    "type": "string",
+                    "minLength": 6,
+                    "example": "secretpassword"
+                }
+            }
+        },
+        "github_com_bashocode_gowallet_monolith_internal_user_model.LoginRequest": {
+            "type": "object",
+            "required": [
+                "email",
+                "password"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "john.doe@example.com"
+                },
+                "password": {
+                    "type": "string",
+                    "example": "secretpassword"
+                }
+            }
+        },
+        "github_com_bashocode_gowallet_monolith_internal_user_model.PaginatedResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "meta": {
+                    "$ref": "#/definitions/github_com_bashocode_gowallet_monolith_internal_user_model.PaginationMeta"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "github_com_bashocode_gowallet_monolith_internal_user_model.PaginationMeta": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_page": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_bashocode_gowallet_monolith_internal_user_model.RefreshTokenRequest": {
+            "type": "object",
+            "required": [
+                "refresh_token"
+            ],
+            "properties": {
+                "refresh_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_bashocode_gowallet_monolith_internal_user_model.UpdateUserRequest": {
             "type": "object",
             "required": [
                 "full_name"
@@ -842,7 +1185,7 @@ const docTemplate = `{
                 }
             }
         },
-        "model.User": {
+        "github_com_bashocode_gowallet_monolith_internal_user_model.User": {
             "type": "object",
             "properties": {
                 "avatar_url": {
@@ -866,8 +1209,64 @@ const docTemplate = `{
                 "is_verified": {
                     "type": "boolean"
                 },
+                "oauth_id": {
+                    "type": "string"
+                },
+                "oauth_provider": {
+                    "type": "string"
+                },
+                "role": {
+                    "description": "user, admin",
+                    "type": "string"
+                },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_user_handler.PasswordResetRequest": {
+            "type": "object",
+            "required": [
+                "email"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_user_handler.VerifyOTPRequest": {
+            "type": "object",
+            "required": [
+                "code"
+            ],
+            "properties": {
+                "code": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_user_handler.VerifyPasswordResetRequest": {
+            "type": "object",
+            "required": [
+                "code",
+                "email",
+                "new_confirm_password",
+                "new_password"
+            ],
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "new_confirm_password": {
+                    "type": "string"
+                },
+                "new_password": {
+                    "type": "string",
+                    "minLength": 6
                 }
             }
         }
