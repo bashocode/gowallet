@@ -41,6 +41,15 @@ func (m *MockTransactionService) GetHistory(ctx context.Context, userID string, 
 	return args.Get(0).([]model.Transaction), args.Get(1).(*model.PaginationMeta), args.Error(2)
 }
 
+func (m *MockTransactionService) TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error) {
+	args := m.Called(ctx, userID, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Transaction), args.Error(1)
+}
+
+
 func TestTransferHandler_Validation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -117,3 +126,76 @@ func TestTransferHandler_Validation(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 }
+
+func TestTopUpHandler_Validation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("Valid topup request should bind correctly", func(t *testing.T) {
+		mockSvc := new(MockTransactionService)
+		h := NewTransactionHandler(mockSvc)
+
+		router := gin.New()
+		router.Use(middleware.ErrorHandler())
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", "user-123")
+			c.Next()
+		})
+		router.POST("/topup", h.TopUp)
+
+		reqBody := map[string]interface{}{
+			"amount":          100000.0,
+			"idempotency_key": "unique-topup-123",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		expectedTx := &model.Transaction{
+			ID:               "tx-topup-123",
+			ReceiverWalletID: "wallet-123",
+			Amount:           decimal.NewFromFloat(100000.0),
+		}
+
+		mockSvc.On("TopUp", mock.Anything, "user-123", mock.MatchedBy(func(req model.TopUpRequest) bool {
+			return req.Amount.Equal(decimal.NewFromFloat(100000.0)) &&
+				req.IdempotencyKey == "unique-topup-123"
+		})).Return(expectedTx, nil)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/topup", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		mockSvc.AssertExpectations(t)
+	})
+
+	t.Run("Invalid negative topup amount should fail validation", func(t *testing.T) {
+		mockSvc := new(MockTransactionService)
+		h := NewTransactionHandler(mockSvc)
+
+		router := gin.New()
+		router.Use(middleware.ErrorHandler())
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", "user-123")
+			c.Next()
+		})
+		router.POST("/topup", h.TopUp)
+
+		reqBody := map[string]interface{}{
+			"amount":          -50.0,
+			"idempotency_key": "unique-topup-123",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/topup", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		assert.NotPanics(t, func() {
+			router.ServeHTTP(w, req)
+		})
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+

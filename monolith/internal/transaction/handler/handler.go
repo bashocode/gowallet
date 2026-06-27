@@ -115,3 +115,42 @@ func (h *TransactionHandler) GetHistory(c *gin.Context) {
 		Meta:    *meta,
 	})
 }
+
+// TopUp godoc
+// @Summary		Top Up Wallet Balance
+// @Description	Top up authenticated user's own wallet balance
+// @Tags		Transactions
+// @Accept		json
+// @Produce		json
+// @Param		request body model.TopUpRequest true "topup payload"
+// @Success		200 {object} map[string]interface{} "Returns success: true, message: Success, and data: model.Transaction"
+// @Failure		400 {object} errors.AppError
+// @Failure		401 {object} errors.AppError
+// @Router		/transactions/topup [post]
+// @Security	BearerAuth
+func (h *TransactionHandler) TopUp(c *gin.Context) {
+	userID, exist := c.Get("user_id")
+	if !exist {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "User context not found"))
+		return
+	}
+
+	var req model.TopUpRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", err.Error()))
+		return
+	}
+
+	tx, err := h.svc.TopUp(c.Request.Context(), userID.(string), req)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Top up successful",
+		"data":    tx,
+	})
+}
+

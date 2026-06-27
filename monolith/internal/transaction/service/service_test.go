@@ -285,3 +285,62 @@ func TestGetHistory_WalletNotFound(t *testing.T) {
 	assert.Nil(t, txs)
 	assert.Nil(t, meta)
 }
+
+func TestTopUp_Success(t *testing.T) {
+	db, dbMock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
+	defer db.Close()
+
+	mockTxRepo := new(txRepo.MockTransactionRepository)
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	mockLedgerRepo := new(ledgerRepo.MockLedgerRepository)
+	rdb, mockRedis := redismock.NewClientMock()
+	defer rdb.Close()
+
+	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo)
+
+	ctx := context.TODO()
+	userID := "user-123"
+	req := model.TopUpRequest{
+		Amount:         decimal.NewFromFloat(500.0),
+		IdempotencyKey: "unique-topup-key",
+	}
+
+	wallet := &walletModel.Wallet{ID: "wallet-123", UserID: userID, Balance: decimal.NewFromFloat(100.0), Version: 1}
+
+	mockWalletRepo.On("GetByUserID", ctx, userID).Return(wallet, nil)
+
+	dbMock.ExpectBegin()
+	dbMock.ExpectCommit()
+
+	// UpdateBalanceTx should be called with req.Amount.Neg() which is -500.0 to add balance
+	mockWalletRepo.On("UpdateBalanceTx", ctx, mock.Anything, wallet.ID, decimal.NewFromFloat(-500.0), wallet.Version).Return(nil)
+
+	// CreateTx for transaction
+	mockTxRepo.On("CreateTx", ctx, mock.Anything, mock.Anything).Return(nil)
+
+	// CreateTx for credit ledger entry
+	mockLedgerRepo.On("CreateTx", ctx, mock.Anything, mock.Anything).Return(nil)
+
+	cacheKey := "wallet:user:" + userID
+	mockRedis.ExpectDel(cacheKey).SetVal(1)
+
+	txRes, err := svc.TopUp(ctx, userID, req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, txRes)
+	assert.Equal(t, "success", txRes.Status)
+	assert.Equal(t, req.Amount, txRes.Amount)
+
+	time.Sleep(10 * time.Millisecond)
+
+	mockWalletRepo.AssertExpectations(t)
+	mockTxRepo.AssertExpectations(t)
+	mockLedgerRepo.AssertExpectations(t)
+	assert.NoError(t, dbMock.ExpectationsWereMet())
+	assert.NoError(t, mockRedis.ExpectationsWereMet())
+}
+

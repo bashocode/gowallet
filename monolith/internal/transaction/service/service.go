@@ -19,6 +19,7 @@ import (
 type TransactionService interface {
 	Transfer(ctx context.Context, senderUserID string, req model.TransferRequest) (*model.Transaction, error)
 	GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error)
+	TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error)
 }
 
 type transactionService struct {
@@ -186,3 +187,65 @@ func (s *transactionService) GetHistory(ctx context.Context, userID string, para
 
 	return txs, meta, nil
 }
+
+func (s *transactionService) TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error) {
+	// look for wallet
+	wallet, err := s.walletRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusNotFound, "WALLET_NOT_FOUND", "Wallet not found")
+	}
+
+	// start db transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+	defer tx.Rollback()
+
+	// Credit: amount NEGATIVE (adding balance)
+	err = s.walletRepo.UpdateBalanceTx(ctx, tx, wallet.ID, req.Amount.Neg(), wallet.Version)
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENCY_CONFLICT", "Transaksi sedang sibuk, silakan coba lagi nanti.")
+	}
+
+	// create data transaction record (sender_wallet_id is nil for top-up)
+	transactionID := uuid.New().String()
+	transaction := &model.Transaction{
+		ID:               transactionID,
+		SenderWalletID:   nil,
+		ReceiverWalletID: wallet.ID,
+		Amount:           req.Amount,
+		Description:      "Top Up",
+		IdempotencyKey:   req.IdempotencyKey,
+		Status:           "success",
+	}
+	if err = s.txRepo.CreateTx(ctx, tx, transaction); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	// create ledger row (credit for receiver)
+	creditEntry := &ledgerModel.LedgerEntry{
+		ID:            uuid.New().String(),
+		WalletID:      wallet.ID,
+		TransactionID: transactionID,
+		EntryType:     "credit",
+		Amount:        req.Amount,
+	}
+	if err := s.ledgerRepo.CreateTx(ctx, tx, creditEntry); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	// commit the db transaction
+	if err := tx.Commit(); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	// invalidate cache
+	cacheKey := "wallet:user:" + userID
+	go func() {
+		s.rdb.Del(context.Background(), cacheKey)
+	}()
+
+	return transaction, nil
+}
+

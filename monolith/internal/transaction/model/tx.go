@@ -23,3 +23,9 @@ type TransferRequest struct {
 	Description    string          `json:"description" example:"Dinner split"`
 	IdempotencyKey string          `json:"idempotency_key" binding:"required" example:"unique-uuid-key-123"`
 }
+
+type TopUpRequest struct {
+	Amount         decimal.Decimal `json:"amount" binding:"required,gt=0" example:"100000"`
+	IdempotencyKey string          `json:"idempotency_key" binding:"required" example:"unique-uuid-key-abc"`
+}
+

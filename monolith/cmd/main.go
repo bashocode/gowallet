@@ -135,6 +135,7 @@ func main() {
 			protected.GET("/wallets/me", wHandler.GetMyWallet)
 
 			protected.POST("/transactions/transfer", tHandler.Transfer)
+			protected.POST("/transactions/topup", tHandler.TopUp)
 			protected.GET("/transactions/history", tHandler.GetHistory)
 
 			protected.GET("/ledger/mutations", lHandler.GetMutations)
