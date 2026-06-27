@@ -63,8 +63,8 @@ func TestTransfer_Success(t *testing.T) {
 	mockWalletRepo.On("GetByUserID", ctx, "receiver-123").Return(receiverWallet, nil)
 
 	// 4. Update balances
-	mockWalletRepo.On("UpdateBalanceTx", ctx, mock.Anything, senderWallet.ID, 800.0, senderWallet.Version).Return(nil)
-	mockWalletRepo.On("UpdateBalanceTx", ctx, mock.Anything, receiverWallet.ID, 700.0, receiverWallet.Version).Return(nil)
+	mockWalletRepo.On("UpdateBalanceTx", ctx, mock.Anything, senderWallet.ID, 200.0, senderWallet.Version).Return(nil)
+	mockWalletRepo.On("UpdateBalanceTx", ctx, mock.Anything, receiverWallet.ID, -200.0, receiverWallet.Version).Return(nil)
 
 	// 5. Create transaction
 	mockTxRepo.On("CreateTx", ctx, mock.Anything, mock.Anything).Return(nil)

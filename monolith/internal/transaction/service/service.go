@@ -89,20 +89,16 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return nil, customErr.NewAppError(http.StatusBadRequest, "INSUFFICIENT_BALANCE", "Insufficient balance")
 	}
 
-	// OPTIMISTIC LOCKING
-	// ----------------------------------------------------------------------
-	// reduce sender wallet & add receiver wallet with tx and checking version
-	newSenderBalance := senderWallet.Balance - req.Amount
-	err = s.walletRepo.UpdateBalanceTx(ctx, tx, senderWallet.ID, newSenderBalance, senderWallet.Version)
+	// Debit: amount POSITIVE (reduce balance)
+	err = s.walletRepo.UpdateBalanceTx(ctx, tx, senderWallet.ID, req.Amount, senderWallet.Version)
 	if err != nil {
-		// if failed because version mismatch, return special error so client can retry
-		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENCY_CONFLICT", "Transaction is busy, please retry in the following minutes")
+		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENCY_CONFLICT", "Transaksi sedang sibuk, silakan coba lagi nanti.")
 	}
 
-	newReceiverBalance := receiverWallet.Balance + req.Amount
-	err = s.walletRepo.UpdateBalanceTx(ctx, tx, receiverWallet.ID, newReceiverBalance, receiverWallet.Version)
+	// Credit: amount NEGATIVE (adding balance)
+	err = s.walletRepo.UpdateBalanceTx(ctx, tx, receiverWallet.ID, -req.Amount, receiverWallet.Version)
 	if err != nil {
-		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENCY_CONFLICT", "Transaction is busy, please retry in the following minutes")
+		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENCY_CONFLICT", "Transaksi sedang sibuk, silakan coba lagi nanti.")
 	}
 
 	// create data transaction record
