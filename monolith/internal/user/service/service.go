@@ -177,13 +177,13 @@ func (s *userService) Login(ctx context.Context, req model.LoginRequest) (*model
 	}
 
 	// generate access token 15 minutes
-	accessToken, err := auth.GenerateToken(user.ID, user.Email, 15*time.Minute)
+	accessToken, err := auth.GenerateToken(user.ID, user.Email, user.Role, 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
 	// generate refresh token 7 days
-	refreshToken, err := auth.GenerateToken(user.ID, user.Email, 7*24*time.Hour)
+	refreshToken, err := auth.GenerateToken(user.ID, user.Email, user.Role, 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
@@ -494,12 +494,12 @@ func (s *userService) HandleGoogleCallback(ctx context.Context, code string) (*m
 	}
 
 	// 4. Generate JWT token
-	accessToken, err := auth.GenerateToken(user.ID, user.Email, 15*time.Minute)
+	accessToken, err := auth.GenerateToken(user.ID, user.Email, user.Role, 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
-	refreshToken, err := auth.GenerateToken(user.ID, user.Email, 7*24*time.Hour)
+	refreshToken, err := auth.GenerateToken(user.ID, user.Email, user.Role, 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
@@ -546,12 +546,12 @@ func (s *userService) RefreshToken(ctx context.Context, oldTokenString string) (
 	}
 
 	// 6. Generate Access Token & New Refresh Token (Rotation)
-	newAccessToken, err := auth.GenerateToken(user.ID, user.Email, 15*time.Minute)
+	newAccessToken, err := auth.GenerateToken(user.ID, user.Email, user.Role, 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
-	newRefreshTokenString, err := auth.GenerateToken(user.ID, user.Email, 7*24*time.Hour)
+	newRefreshTokenString, err := auth.GenerateToken(user.ID, user.Email, user.Role, 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}

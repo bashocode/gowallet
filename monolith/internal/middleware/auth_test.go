@@ -138,7 +138,9 @@ func TestAuthMiddleware(t *testing.T) {
 
 		expectedUserID := "user123"
 		expectedEmail := "test@example.com"
-		token, err := auth.GenerateToken(expectedUserID, expectedEmail, 15*time.Minute)
+		expectedRole := "user"
+
+		token, err := auth.GenerateToken(expectedUserID, expectedEmail, expectedRole, 15*time.Minute)
 		assert.NoError(t, err)
 
 		blacklistKey := fmt.Sprintf("blacklist:%s", token)

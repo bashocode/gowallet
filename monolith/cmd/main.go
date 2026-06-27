@@ -130,6 +130,19 @@ func main() {
 
 			protected.POST("/transactions/transfer", tHandler.Transfer)
 			protected.GET("/transactions/history", tHandler.GetHistory)
+
+			// only admin that can access
+			adminOnly := protected.Group("/admin")
+			adminOnly.Use(middleware.RequireRole("admin")) // RBAC Protection
+			{
+				adminOnly.GET("/users", func(c *gin.Context) {
+					// Simulation: Admin can see all user
+					c.JSON(http.StatusOK, gin.H{
+						"success": true,
+						"message": "Hello Admin! You have successfully accessed the control panel data.",
+					})
+				})
+			}
 		}
 	}
 
