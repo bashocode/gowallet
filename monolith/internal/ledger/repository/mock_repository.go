@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/bashocode/gowallet/monolith/internal/ledger/model"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -17,9 +18,9 @@ func (m *MockLedgerRepository) CreateTx(ctx context.Context, tx *sql.Tx, entry *
 	return args.Error(0)
 }
 
-func (m *MockLedgerRepository) GetBalanceByWalletID(ctx context.Context, walletID string) (float64, error) {
+func (m *MockLedgerRepository) GetBalanceByWalletID(ctx context.Context, walletID string) (decimal.Decimal, error) {
 	args := m.Called(ctx, walletID)
-	return args.Get(0).(float64), args.Error(1)
+	return args.Get(0).(decimal.Decimal), args.Error(1)
 }
 
 func (m *MockLedgerRepository) GetEntriesByWalletID(ctx context.Context, walletID string) ([]model.LedgerEntry, error) {

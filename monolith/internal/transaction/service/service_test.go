@@ -15,6 +15,7 @@ import (
 	walletModel "github.com/bashocode/gowallet/monolith/internal/wallet/model"
 	walletRepo "github.com/bashocode/gowallet/monolith/internal/wallet/repository"
 	"github.com/go-redis/redismock/v9"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -39,7 +40,7 @@ func TestTransfer_Success(t *testing.T) {
 	senderUserID := "sender-123"
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
-		Amount:         200.0,
+		Amount:         decimal.NewFromFloat(200.0),
 		Description:    "Gift",
 		IdempotencyKey: "unique-key",
 	}
@@ -56,15 +57,15 @@ func TestTransfer_Success(t *testing.T) {
 	dbMock.ExpectCommit()
 
 	// 3. get sender and receiver wallet
-	senderWallet := &walletModel.Wallet{ID: "wallet-sender", UserID: senderUserID, Balance: 1000.0, Version: 1}
-	receiverWallet := &walletModel.Wallet{ID: "wallet-receiver", UserID: "receiver-123", Balance: 500.0, Version: 2}
+	senderWallet := &walletModel.Wallet{ID: "wallet-sender", UserID: senderUserID, Balance: decimal.NewFromFloat(1000.0), Version: 1}
+	receiverWallet := &walletModel.Wallet{ID: "wallet-receiver", UserID: "receiver-123", Balance: decimal.NewFromFloat(500.0), Version: 2}
 
 	mockWalletRepo.On("GetByUserID", ctx, senderUserID).Return(senderWallet, nil)
 	mockWalletRepo.On("GetByUserID", ctx, "receiver-123").Return(receiverWallet, nil)
 
 	// 4. Update balances
-	mockWalletRepo.On("UpdateBalanceTx", ctx, mock.Anything, senderWallet.ID, 200.0, senderWallet.Version).Return(nil)
-	mockWalletRepo.On("UpdateBalanceTx", ctx, mock.Anything, receiverWallet.ID, -200.0, receiverWallet.Version).Return(nil)
+	mockWalletRepo.On("UpdateBalanceTx", ctx, mock.Anything, senderWallet.ID, decimal.NewFromFloat(200.0), senderWallet.Version).Return(nil)
+	mockWalletRepo.On("UpdateBalanceTx", ctx, mock.Anything, receiverWallet.ID, decimal.NewFromFloat(-200.0), receiverWallet.Version).Return(nil)
 
 	// 5. Create transaction
 	mockTxRepo.On("CreateTx", ctx, mock.Anything, mock.Anything).Return(nil)
@@ -111,12 +112,12 @@ func TestTransfer_IdempotencyCached(t *testing.T) {
 	senderUserID := "sender-123"
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
-		Amount:         200.0,
+		Amount:         decimal.NewFromFloat(200.0),
 		Description:    "Gift",
 		IdempotencyKey: "unique-key",
 	}
 
-	cachedTx := &model.Transaction{ID: "tx-existing", Status: "success", Amount: 200.0}
+	cachedTx := &model.Transaction{ID: "tx-existing", Status: "success", Amount: decimal.NewFromFloat(200.0)}
 	mockTxRepo.On("GetByIdempotencyKey", ctx, req.IdempotencyKey).Return(cachedTx, nil)
 
 	txRes, err := svc.Transfer(ctx, senderUserID, req)
@@ -171,7 +172,7 @@ func TestTransfer_SelfTransferNotAllowed(t *testing.T) {
 	senderUserID := "sender-123"
 	req := model.TransferRequest{
 		ReceiverEmail:  "sender@example.com",
-		Amount:         200.0,
+		Amount:         decimal.NewFromFloat(200.0),
 		IdempotencyKey: "unique-key",
 	}
 
@@ -209,7 +210,7 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 	senderUserID := "sender-123"
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
-		Amount:         1200.0, // more than balance
+		Amount:         decimal.NewFromFloat(1200.0), // more than balance
 		IdempotencyKey: "unique-key",
 	}
 
@@ -220,8 +221,8 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 
 	dbMock.ExpectBegin()
 
-	senderWallet := &walletModel.Wallet{ID: "wallet-sender", UserID: senderUserID, Balance: 1000.0}
-	receiverWallet := &walletModel.Wallet{ID: "wallet-receiver", UserID: "receiver-123", Balance: 500.0}
+	senderWallet := &walletModel.Wallet{ID: "wallet-sender", UserID: senderUserID, Balance: decimal.NewFromFloat(1000.0)}
+	receiverWallet := &walletModel.Wallet{ID: "wallet-receiver", UserID: "receiver-123", Balance: decimal.NewFromFloat(500.0)}
 
 	mockWalletRepo.On("GetByUserID", ctx, senderUserID).Return(senderWallet, nil)
 	mockWalletRepo.On("GetByUserID", ctx, "receiver-123").Return(receiverWallet, nil)
@@ -248,7 +249,7 @@ func TestGetHistory_Success(t *testing.T) {
 	params := model.PaginationParams{Page: 1, Limit: 10}
 
 	expectedHistory := []model.Transaction{
-		{ID: "tx-1", ReceiverWalletID: "wallet-123", Amount: 500.0},
+		{ID: "tx-1", ReceiverWalletID: "wallet-123", Amount: decimal.NewFromFloat(500.0)},
 	}
 
 	mockWalletRepo.On("GetByUserID", ctx, userID).Return(wallet, nil)

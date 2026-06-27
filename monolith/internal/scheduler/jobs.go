@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bashocode/gowallet/monolith/internal/logger"
+	"github.com/shopspring/decimal"
 )
 
 func (s *Scheduler) CleanupExpiredOTPs() {
@@ -47,7 +48,7 @@ func (s *Scheduler) ReconcileAllBalances() {
 	for rows.Next() {
 		var walletID string
 		var userID string
-		var currentBalance float64
+		var currentBalance decimal.Decimal
 
 		if err := rows.Scan(&walletID, &userID, &currentBalance); err != nil {
 			continue
@@ -70,7 +71,7 @@ func (s *Scheduler) ReconcileAllBalances() {
 				"user_id", userID,
 				"wallet_table_balance", currentBalance,
 				"ledger_calculated_balance", ledgerBalance,
-				"difference", currentBalance-ledgerBalance,
+				"difference", currentBalance.Sub(ledgerBalance),
 			)
 
 			// in production, we can add slack/telegram alert to dev team
@@ -146,10 +147,10 @@ func (s *Scheduler) ExportDailyTransactions() {
 	rowCount := 0
 	for rows.Next() {
 		var id, sender, receiver, status, createdAt string
-		var amount float64
+		var amount decimal.Decimal
 
 		_ = rows.Scan(&id, &sender, &receiver, &amount, &status, &createdAt)
-		_ = writer.Write([]string{id, sender, receiver, fmt.Sprintf("%.2f", amount), status, createdAt})
+		_ = writer.Write([]string{id, sender, receiver, amount.StringFixed(2), status, createdAt})
 
 		rowCount++
 	}

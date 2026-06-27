@@ -6,10 +6,11 @@ import (
 	"github.com/bashocode/gowallet/monolith/internal/ledger/model"
 	"github.com/bashocode/gowallet/monolith/internal/ledger/repository"
 	walletRepo "github.com/bashocode/gowallet/monolith/internal/wallet/repository"
+	"github.com/shopspring/decimal"
 )
 
 type LedgerService interface {
-	ReconcileWalletBalance(ctx context.Context, userID string) (bool, float64, float64, error)
+	ReconcileWalletBalance(ctx context.Context, userID string) (bool, decimal.Decimal, decimal.Decimal, error)
 	GetMutationHistory(ctx context.Context, userID string) ([]model.LedgerEntry, error)
 }
 
@@ -25,21 +26,21 @@ func NewLedgerService(lRepo repository.LedgerRepository, wRepo walletRepo.Wallet
 	}
 }
 
-func (s *ledgerService) ReconcileWalletBalance(ctx context.Context, userID string) (bool, float64, float64, error) {
+func (s *ledgerService) ReconcileWalletBalance(ctx context.Context, userID string) (bool, decimal.Decimal, decimal.Decimal, error) {
 	// get the user wallet data
 	wallet, err := s.walletRepo.GetByUserID(ctx, userID)
 	if err != nil {
-		return false, 0, 0, err
+		return false, decimal.Zero, decimal.Zero, err
 	}
 
 	// get the sum of all entries
 	calculatedBalance, err := s.ledgerRepo.GetBalanceByWalletID(ctx, wallet.ID)
 	if err != nil {
-		return false, 0, 0, err
+		return false, decimal.Zero, decimal.Zero, err
 	}
 
 	// check if there is a discrepancy
-	isConsistent := wallet.Balance == calculatedBalance
+	isConsistent := wallet.Balance.Equal(calculatedBalance)
 	return isConsistent, wallet.Balance, calculatedBalance, nil
 }
 

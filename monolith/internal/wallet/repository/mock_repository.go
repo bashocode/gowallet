@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/bashocode/gowallet/monolith/internal/wallet/model"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -25,7 +26,7 @@ func (m *MockWalletRepository) GetByUserID(ctx context.Context, userID string) (
 	return args.Get(0).(*model.Wallet), args.Error(1)
 }
 
-func (m *MockWalletRepository) UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, amount float64, currentVersion int) error {
+func (m *MockWalletRepository) UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, amount decimal.Decimal, currentVersion int) error {
 	args := m.Called(ctx, tx, walletID, amount, currentVersion)
 	return args.Error(0)
 }

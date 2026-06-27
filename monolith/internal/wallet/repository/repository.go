@@ -6,12 +6,13 @@ import (
 	"errors"
 
 	"github.com/bashocode/gowallet/monolith/internal/wallet/model"
+	"github.com/shopspring/decimal"
 )
 
 type WalletRepository interface {
 	CreateTx(ctx context.Context, tx *sql.Tx, w *model.Wallet) error
 	GetByUserID(ctx context.Context, userID string) (*model.Wallet, error)
-	UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, amount float64, currentVersion int) error
+	UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, amount decimal.Decimal, currentVersion int) error
 }
 
 type mysqlWalletRepository struct {
@@ -50,7 +51,7 @@ func (r *mysqlWalletRepository) GetByUserID(ctx context.Context, userID string) 
 	return w, nil
 }
 
-func (r *mysqlWalletRepository) UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, amount float64, currentVersion int) error {
+func (r *mysqlWalletRepository) UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, amount decimal.Decimal, currentVersion int) error {
 	query := `UPDATE wallets
               SET balance = balance - ?, version = version + 1
               WHERE id = ? AND version = ? AND balance >= ?`

@@ -137,13 +137,14 @@ func main() {
 			protected.POST("/transactions/transfer", tHandler.Transfer)
 			protected.GET("/transactions/history", tHandler.GetHistory)
 
+			protected.GET("/ledger/mutations", lHandler.GetMutations)
+			protected.GET("/ledger/reconcile", lHandler.Reconcile)
+
 			// only admin that can access
 			adminOnly := protected.Group("/admin")
 			adminOnly.Use(middleware.RequireRole("admin")) // RBAC Protection
 			{
 				adminOnly.GET("/users", uHandler.AdminGetUsers)
-				adminOnly.GET("/ledger/mutations", lHandler.GetMutations)
-				adminOnly.GET("/ledger/reconcile", lHandler.Reconcile)
 			}
 		}
 	}

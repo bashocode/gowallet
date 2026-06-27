@@ -85,7 +85,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 	}
 
 	// validate sender wallet balance is enough or not
-	if senderWallet.Balance < req.Amount {
+	if senderWallet.Balance.LessThan(req.Amount) {
 		return nil, customErr.NewAppError(http.StatusBadRequest, "INSUFFICIENT_BALANCE", "Insufficient balance")
 	}
 
@@ -96,7 +96,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 	}
 
 	// Credit: amount NEGATIVE (adding balance)
-	err = s.walletRepo.UpdateBalanceTx(ctx, tx, receiverWallet.ID, -req.Amount, receiverWallet.Version)
+	err = s.walletRepo.UpdateBalanceTx(ctx, tx, receiverWallet.ID, req.Amount.Neg(), receiverWallet.Version)
 	if err != nil {
 		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENCY_CONFLICT", "Transaksi sedang sibuk, silakan coba lagi nanti.")
 	}
