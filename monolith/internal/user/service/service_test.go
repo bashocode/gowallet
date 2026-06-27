@@ -654,7 +654,7 @@ func TestVerifyEmail_Success(t *testing.T) {
 		Type:   "email_verification",
 	}
 
-	mockOTPRepo.On("GetActiveOTP", ctx, userID, code, "email_verification").Return(otpData, nil)
+	mockOTPRepo.On("GetActiveOTPTx", ctx, mock.Anything, userID, code, "email_verification").Return(otpData, nil)
 
 	dbMock.ExpectBegin()
 	mockUserRepo.On("UpdateVerificationStatusTx", ctx, mock.Anything, userID, true).Return(nil)
@@ -670,7 +670,10 @@ func TestVerifyEmail_Success(t *testing.T) {
 }
 
 func TestVerifyEmail_InvalidOTP(t *testing.T) {
-	db, _, _ := sqlmock.New()
+	db, dbMock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
 	defer db.Close()
 
 	rdb, _ := redismock.NewClientMock()
@@ -686,13 +689,16 @@ func TestVerifyEmail_InvalidOTP(t *testing.T) {
 	userID := "user-123"
 	code := "111111"
 
-	mockOTPRepo.On("GetActiveOTP", ctx, userID, code, "email_verification").Return(nil, errors.New("otp not found"))
+	dbMock.ExpectBegin()
+	mockOTPRepo.On("GetActiveOTPTx", ctx, mock.Anything, userID, code, "email_verification").Return(nil, errors.New("otp not found"))
+	dbMock.ExpectRollback()
 
-	err := svc.VerifyEmail(ctx, userID, code)
+	err = svc.VerifyEmail(ctx, userID, code)
 
 	assert.Error(t, err)
 	assert.Equal(t, "invalid or expired verification code.", err.Error())
 	mockOTPRepo.AssertExpectations(t)
+	assert.NoError(t, dbMock.ExpectationsWereMet())
 }
 
 func TestRequestPasswordReset_Success(t *testing.T) {
@@ -750,7 +756,10 @@ func TestRequestPasswordReset_UserNotFound(t *testing.T) {
 }
 
 func TestVerifyPasswordReset_Success(t *testing.T) {
-	db, _, _ := sqlmock.New()
+	db, dbMock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
 	defer db.Close()
 
 	rdb, _ := redismock.NewClientMock()
@@ -777,14 +786,17 @@ func TestVerifyPasswordReset_Success(t *testing.T) {
 	}
 
 	mockUserRepo.On("GetByEmailNoErrorNotFound", ctx, emailAddr).Return(u, nil)
-	mockOTPRepo.On("GetActiveOTP", ctx, "user-uuid", code, "password_reset").Return(otpData, nil)
-	mockOTPRepo.On("MarkAsUsed", ctx, "otp-uuid").Return(nil)
+	dbMock.ExpectBegin()
+	mockOTPRepo.On("GetActiveOTPTx", ctx, mock.Anything, "user-uuid", code, "password_reset").Return(otpData, nil)
+	mockOTPRepo.On("MarkAsUsedTx", ctx, mock.Anything, "otp-uuid").Return(nil)
+	dbMock.ExpectCommit()
 
 	userID, err := svc.VerifyPasswordReset(ctx, emailAddr, code)
 	assert.NoError(t, err)
 	assert.Equal(t, "user-uuid", userID)
 	mockUserRepo.AssertExpectations(t)
 	mockOTPRepo.AssertExpectations(t)
+	assert.NoError(t, dbMock.ExpectationsWereMet())
 }
 
 func TestResetPassword_Success(t *testing.T) {

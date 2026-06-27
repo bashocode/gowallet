@@ -258,19 +258,19 @@ func (s *userService) Logout(ctx context.Context, tokenString string) error {
 }
 
 func (s *userService) VerifyEmail(ctx context.Context, userID string, code string) error {
-	// 1. Get active OTP
-	otp, err := s.otpRepo.GetActiveOTP(ctx, userID, code, "email_verification")
-	if err != nil {
-		// Custom AppError: OTP not found or expired
-		return customErr.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
-	}
-
-	// 2. Begin transaction
+	// 1. Begin transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return customErr.ErrInternalServer
 	}
 	defer tx.Rollback()
+
+	// 2. Get active OTP inside the transaction (acquires FOR UPDATE lock)
+	otp, err := s.otpRepo.GetActiveOTPTx(ctx, tx, userID, code, "email_verification")
+	if err != nil {
+		// Custom AppError: OTP not found or expired
+		return customErr.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
+	}
 
 	// 3. Mark user as verified
 	if err := s.userRepo.UpdateVerificationStatusTx(ctx, tx, userID, true); err != nil {
@@ -356,14 +356,26 @@ func (s *userService) VerifyPasswordReset(ctx context.Context, email string, cod
 		return "", customErr.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
 	}
 
-	// 2. Get active OTP
-	otp, err := s.otpRepo.GetActiveOTP(ctx, user.ID, code, "password_reset")
+	// 2. Begin transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", customErr.ErrInternalServer
+	}
+	defer tx.Rollback()
+
+	// 3. Get active OTP inside transaction (locks the row)
+	otp, err := s.otpRepo.GetActiveOTPTx(ctx, tx, user.ID, code, "password_reset")
 	if err != nil {
 		return "", customErr.NewAppError(http.StatusBadRequest, "INVALID_OTP", "invalid or expired verification code.")
 	}
 
-	// 3. Mark OTP as used
-	if err := s.otpRepo.MarkAsUsed(ctx, otp.ID); err != nil {
+	// 4. Mark OTP as used inside transaction
+	if err := s.otpRepo.MarkAsUsedTx(ctx, tx, otp.ID); err != nil {
+		return "", customErr.ErrInternalServer
+	}
+
+	// 5. Commit transaction
+	if err := tx.Commit(); err != nil {
 		return "", customErr.ErrInternalServer
 	}
 

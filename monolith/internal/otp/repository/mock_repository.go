@@ -25,6 +25,14 @@ func (m *MockOTPRepository) GetActiveOTP(ctx context.Context, userID string, cod
 	return args.Get(0).(*model.OTP), args.Error(1)
 }
 
+func (m *MockOTPRepository) GetActiveOTPTx(ctx context.Context, tx *sql.Tx, userID string, code string, otpType string) (*model.OTP, error) {
+	args := m.Called(ctx, tx, userID, code, otpType)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.OTP), args.Error(1)
+}
+
 func (m *MockOTPRepository) MarkAsUsed(ctx context.Context, id string) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
