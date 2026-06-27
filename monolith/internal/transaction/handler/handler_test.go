@@ -199,3 +199,89 @@ func TestTopUpHandler_Validation(t *testing.T) {
 	})
 }
 
+func TestHandler_InvalidUserIDType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("Transfer should return unauthorized if user_id is not string", func(t *testing.T) {
+		mockSvc := new(MockTransactionService)
+		h := NewTransactionHandler(mockSvc)
+
+		router := gin.New()
+		router.Use(middleware.ErrorHandler())
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", 123) // int, not string
+			c.Next()
+		})
+		router.POST("/transfer", h.Transfer)
+
+		reqBody := map[string]interface{}{
+			"receiver_email":  "receiver@example.com",
+			"amount":          50000.50,
+			"description":     "split bill",
+			"idempotency_key": "unique-key-123",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/transfer", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		assert.NotPanics(t, func() {
+			router.ServeHTTP(w, req)
+		})
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+
+	t.Run("GetHistory should return unauthorized if user_id is not string", func(t *testing.T) {
+		mockSvc := new(MockTransactionService)
+		h := NewTransactionHandler(mockSvc)
+
+		router := gin.New()
+		router.Use(middleware.ErrorHandler())
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", 123) // int, not string
+			c.Next()
+		})
+		router.GET("/history", h.GetHistory)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodGet, "/history", nil)
+
+		assert.NotPanics(t, func() {
+			router.ServeHTTP(w, req)
+		})
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+
+	t.Run("TopUp should return unauthorized if user_id is not string", func(t *testing.T) {
+		mockSvc := new(MockTransactionService)
+		h := NewTransactionHandler(mockSvc)
+
+		router := gin.New()
+		router.Use(middleware.ErrorHandler())
+		router.Use(func(c *gin.Context) {
+			c.Set("user_id", 123) // int, not string
+			c.Next()
+		})
+		router.POST("/topup", h.TopUp)
+
+		reqBody := map[string]interface{}{
+			"amount":          100000.0,
+			"idempotency_key": "unique-topup-123",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/topup", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		assert.NotPanics(t, func() {
+			router.ServeHTTP(w, req)
+		})
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+}
+

@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"os"
+
+	"github.com/bashocode/gowallet/monolith/internal/utils"
 )
 
 var Log *slog.Logger
@@ -22,7 +24,7 @@ func InitLogger() {
 // helper for log with context that automatically includes correlation id
 func getLogArgs(ctx context.Context, args []any) []any {
 	if ctx != nil {
-		if cid, ok := ctx.Value(CorrelationIDKey).(string); ok {
+		if cid, ok := utils.SafeString(ctx.Value(CorrelationIDKey)); ok {
 			return append(args, slog.String("correlation_id", cid))
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
+	"github.com/bashocode/gowallet/monolith/internal/utils"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,7 +20,12 @@ func RequireRole(allowedRoles ...string) gin.HandlerFunc {
 		}
 
 		// Check whether user role is registered in allowedRoles
-		roleStr := userRole.(string)
+		roleStr, ok := utils.SafeString(userRole)
+		if !ok {
+			c.Error(customErr.NewAppError(http.StatusForbidden, "ACCESS_DENIED", "Invalid user role format."))
+			c.Abort()
+			return
+		}
 		isAllowed := false
 		for _, role := range allowedRoles {
 			if roleStr == role {

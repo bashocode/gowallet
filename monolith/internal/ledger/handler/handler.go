@@ -3,7 +3,9 @@ package handler
 import (
 	"net/http"
 
+	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
 	"github.com/bashocode/gowallet/monolith/internal/ledger/service"
+	"github.com/bashocode/gowallet/monolith/internal/utils"
 	"github.com/gin-gonic/gin"
 )
 
@@ -16,9 +18,19 @@ func NewLedgerHandler(svc service.LedgerService) *LedgerHandler {
 }
 
 func (h *LedgerHandler) GetMutations(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, exist := c.Get("user_id")
+	if !exist {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "User context not found"))
+		return
+	}
 
-	entries, err := h.svc.GetMutationHistory(c.Request.Context(), userID.(string))
+	userIDStr, ok := utils.SafeString(userID)
+	if !ok {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "Invalid user context"))
+		return
+	}
+
+	entries, err := h.svc.GetMutationHistory(c.Request.Context(), userIDStr)
 	if err != nil {
 		c.Error(err)
 		return
@@ -31,9 +43,19 @@ func (h *LedgerHandler) GetMutations(c *gin.Context) {
 }
 
 func (h *LedgerHandler) Reconcile(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, exist := c.Get("user_id")
+	if !exist {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "User context not found"))
+		return
+	}
 
-	isConsistent, walletBalance, calculatedBalance, err := h.svc.ReconcileWalletBalance(c.Request.Context(), userID.(string))
+	userIDStr, ok := utils.SafeString(userID)
+	if !ok {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "Invalid user context"))
+		return
+	}
+
+	isConsistent, walletBalance, calculatedBalance, err := h.svc.ReconcileWalletBalance(c.Request.Context(), userIDStr)
 	if err != nil {
 		c.Error(err)
 		return

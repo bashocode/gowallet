@@ -3,6 +3,8 @@ package handler
 import (
 	"net/http"
 
+	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
+	"github.com/bashocode/gowallet/monolith/internal/utils"
 	"github.com/bashocode/gowallet/monolith/internal/wallet/service"
 	"github.com/gin-gonic/gin"
 )
@@ -26,11 +28,22 @@ func NewWalletHandler(s service.WalletService) *WalletHandler {
 // @Failure		404 {object} errors.AppError
 // @Router		/wallets/me [get]
 // @Security	BearerAuth
+// func (h *WalletHandler) GetMyWallet(c *gin.Context)
 func (h *WalletHandler) GetMyWallet(c *gin.Context) {
 	// user_id from jwt context
-	userID, _ := c.Get("user_id")
+	userID, exist := c.Get("user_id")
+	if !exist {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "User context not found"))
+		return
+	}
 
-	wallet, err := h.svc.GetWalletByUserID(c.Request.Context(), userID.(string))
+	userIDStr, ok := utils.SafeString(userID)
+	if !ok {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "Invalid user context"))
+		return
+	}
+
+	wallet, err := h.svc.GetWalletByUserID(c.Request.Context(), userIDStr)
 	if err != nil {
 		c.Error(err)
 		return
