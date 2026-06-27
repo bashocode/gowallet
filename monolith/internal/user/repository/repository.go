@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/bashocode/gowallet/monolith/internal/user/model"
 )
@@ -21,7 +22,7 @@ type UserRepository interface {
 	UpdateVerificationStatusTx(ctx context.Context, tx *sql.Tx, id string, verified bool) error
 	UpdatePassword(ctx context.Context, id string, passwordHash string) error
 	GetByOAuth(ctx context.Context, provider, oauthID string) (*model.User, error)
-	GetAll(ctx context.Context) ([]*model.User, error)
+	GetAll(ctx context.Context, params model.PaginationParams) ([]*model.User, int64, error)
 }
 
 type mysqlUserRepository struct {
@@ -148,11 +149,39 @@ func (r *mysqlUserRepository) GetByOAuth(ctx context.Context, provider, oauthID 
 	return u, nil
 }
 
-func (r *mysqlUserRepository) GetAll(ctx context.Context) ([]*model.User, error) {
-	query := `SELECT id, full_name, email, role, oauth_provider, oauth_id, avatar_url, is_verified, created_at, updated_at, deleted_at FROM users WHERE deleted_at IS NULL`
-	rows, err := r.db.QueryContext(ctx, query)
+func (r *mysqlUserRepository) GetAll(ctx context.Context, params model.PaginationParams) ([]*model.User, int64, error) {
+	// First get total count
+	var total int64
+	countQuery := `SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`
+	err := r.db.QueryRowContext(ctx, countQuery).Scan(&total)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	// Validate sort column to avoid SQL injection
+	allowedSortColumns := map[string]bool{
+		"id":         true,
+		"full_name":  true,
+		"email":      true,
+		"role":       true,
+		"created_at": true,
+		"updated_at": true,
+	}
+	sortCol := "created_at"
+	if allowedSortColumns[params.Sort] {
+		sortCol = params.Sort
+	}
+
+	// Validate order direction
+	orderDir := "DESC"
+	if params.Order == "asc" || params.Order == "ASC" {
+		orderDir = "ASC"
+	}
+
+	query := fmt.Sprintf(`SELECT id, full_name, email, role, oauth_provider, oauth_id, avatar_url, is_verified, created_at, updated_at, deleted_at FROM users WHERE deleted_at IS NULL ORDER BY %s %s LIMIT ? OFFSET ?`, sortCol, orderDir)
+	rows, err := r.db.QueryContext(ctx, query, params.Limit, params.Offset())
+	if err != nil {
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -163,14 +192,14 @@ func (r *mysqlUserRepository) GetAll(ctx context.Context) ([]*model.User, error)
 			&u.ID, &u.FullName, &u.Email, &u.Role, &u.OAuthProvider, &u.OAuthID, &u.AvatarURL, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 		)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		users = append(users, u)
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return users, nil
+	return users, total, nil
 }

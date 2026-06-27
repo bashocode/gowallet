@@ -834,12 +834,23 @@ func TestGetAllUsers_Success(t *testing.T) {
 		{ID: "user-2", FullName: "User Two", Email: "two@example.com"},
 	}
 
-	mockUserRepo.On("GetAll", ctx).Return(users, nil)
+	params := userModel.PaginationParams{
+		Page:  1,
+		Limit: 10,
+		Sort:  "created_at",
+		Order: "desc",
+	}
 
-	result, err := svc.GetAllUsers(ctx)
+	mockUserRepo.On("GetAll", ctx, params).Return(users, int64(2), nil)
+
+	result, meta, err := svc.GetAllUsers(ctx, params)
 	assert.NoError(t, err)
 	assert.Len(t, result, 2)
 	assert.Equal(t, "user-1", result[0].ID)
+	assert.Equal(t, 1, meta.Page)
+	assert.Equal(t, 10, meta.Limit)
+	assert.Equal(t, int64(2), meta.Total)
+	assert.Equal(t, 1, meta.TotalPage)
 	mockUserRepo.AssertExpectations(t)
 }
 
@@ -857,12 +868,19 @@ func TestGetAllUsers_Failure(t *testing.T) {
 	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
 
 	ctx := context.TODO()
+	params := userModel.PaginationParams{
+		Page:  1,
+		Limit: 10,
+		Sort:  "created_at",
+		Order: "desc",
+	}
 
-	mockUserRepo.On("GetAll", ctx).Return(nil, errors.New("db error"))
+	mockUserRepo.On("GetAll", ctx, params).Return(nil, int64(0), errors.New("db error"))
 
-	result, err := svc.GetAllUsers(ctx)
+	result, meta, err := svc.GetAllUsers(ctx, params)
 	assert.Error(t, err)
 	assert.Nil(t, result)
+	assert.Nil(t, meta)
 	mockUserRepo.AssertExpectations(t)
 }
 

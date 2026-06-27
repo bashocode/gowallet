@@ -119,12 +119,12 @@ func (m *MockUserService) RefreshToken(ctx context.Context, oldTokenString strin
 	return args.Get(0).(*model.LoginResponse), args.Error(1)
 }
 
-func (m *MockUserService) GetAllUsers(ctx context.Context) ([]*model.User, error) {
-	args := m.Called(ctx)
+func (m *MockUserService) GetAllUsers(ctx context.Context, params model.PaginationParams) ([]*model.User, *model.PaginationMeta, error) {
+	args := m.Called(ctx, params)
 	if args.Get(0) == nil {
-		return nil, args.Error(1)
+		return nil, nil, args.Error(2)
 	}
-	return args.Get(0).([]*model.User), args.Error(1)
+	return args.Get(0).([]*model.User), args.Get(1).(*model.PaginationMeta), args.Error(2)
 }
 
 // ErrorHandler is copied from middleware for unit tests simplicity in this package

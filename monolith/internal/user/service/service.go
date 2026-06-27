@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"math"
 	"os"
 	"time"
 
@@ -45,7 +46,7 @@ type UserService interface {
 	GetGoogleLoginURL() string
 	HandleGoogleCallback(ctx context.Context, code string) (*model.LoginResponse, error)
 	RefreshToken(ctx context.Context, oldTokenString string) (*model.LoginResponse, error)
-	GetAllUsers(ctx context.Context) ([]*model.User, error)
+	GetAllUsers(ctx context.Context, params model.PaginationParams) ([]*model.User, *model.PaginationMeta, error)
 }
 
 type userService struct {
@@ -575,11 +576,24 @@ func (s *userService) RefreshToken(ctx context.Context, oldTokenString string) (
 	}, nil
 }
 
-func (s *userService) GetAllUsers(ctx context.Context) ([]*model.User, error) {
-	users, err := s.userRepo.GetAll(ctx)
+func (s *userService) GetAllUsers(ctx context.Context, params model.PaginationParams) ([]*model.User, *model.PaginationMeta, error) {
+	users, total, err := s.userRepo.GetAll(ctx, params)
 	if err != nil {
 		logger.Log.Error("Failed to fetch all users", "error", err)
-		return nil, customErr.ErrInternalServer
+		return nil, nil, customErr.ErrInternalServer
 	}
-	return users, nil
+
+	totalPage := int(math.Ceil(float64(total) / float64(params.Limit)))
+	if totalPage == 0 {
+		totalPage = 1
+	}
+
+	meta := &model.PaginationMeta{
+		Page:      params.Page,
+		Limit:     params.Limit,
+		Total:     total,
+		TotalPage: totalPage,
+	}
+
+	return users, meta, nil
 }

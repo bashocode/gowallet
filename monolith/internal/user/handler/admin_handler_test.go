@@ -32,7 +32,21 @@ func TestAdminGetUsers_Success(t *testing.T) {
 		},
 	}
 
-	mockSvc.On("GetAllUsers", mock.Anything).Return(users, nil)
+	meta := &model.PaginationMeta{
+		Page:      1,
+		Limit:     10,
+		Total:     2,
+		TotalPage: 1,
+	}
+
+	defaultParams := model.PaginationParams{
+		Page:  1,
+		Limit: 10,
+		Sort:  "created_at",
+		Order: "desc",
+	}
+
+	mockSvc.On("GetAllUsers", mock.Anything, defaultParams).Return(users, meta, nil)
 
 	h := NewUserHandler(mockSvc)
 
@@ -46,13 +60,21 @@ func TestAdminGetUsers_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
+	var response model.PaginatedResponse
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+
+	assert.True(t, response.Success)
+
 	var responseUsers []*model.User
-	err := json.Unmarshal(w.Body.Bytes(), &responseUsers)
+	dataBytes, _ := json.Marshal(response.Data)
+	err = json.Unmarshal(dataBytes, &responseUsers)
 	assert.NoError(t, err)
 
 	assert.Len(t, responseUsers, 2)
 	assert.Equal(t, "user-1", responseUsers[0].ID)
 	assert.Equal(t, "user-2", responseUsers[1].ID)
+	assert.Equal(t, int64(2), response.Meta.Total)
 
 	mockSvc.AssertExpectations(t)
 }
@@ -61,7 +83,13 @@ func TestAdminGetUsers_Error(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockSvc := new(MockUserService)
-	mockSvc.On("GetAllUsers", mock.Anything).Return(nil, customErr.ErrInternalServer)
+	defaultParams := model.PaginationParams{
+		Page:  1,
+		Limit: 10,
+		Sort:  "created_at",
+		Order: "desc",
+	}
+	mockSvc.On("GetAllUsers", mock.Anything, defaultParams).Return(nil, nil, customErr.ErrInternalServer)
 
 	h := NewUserHandler(mockSvc)
 
