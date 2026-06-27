@@ -19,8 +19,8 @@ import (
 // @Param		sort query string false "sort column (default: created_at)"
 // @Param		order query string false "sort order (default: desc)"
 // @Success		200 {object} model.PaginatedResponse
-// @Failure		400 {object} errors.AppError
-// @Failure		500 {object} errors.AppError
+// @Failure		400 {object} customErr.AppError
+// @Failure		500 {object} customErr.AppError
 // @Router		/admin/users [get]
 func (h *UserHandler) AdminGetUsers(c *gin.Context) {
 	var params model.PaginationParams

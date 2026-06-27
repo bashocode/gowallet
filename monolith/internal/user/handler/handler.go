@@ -28,8 +28,8 @@ func NewUserHandler(svc service.UserService) *UserHandler {
 // @Produce		json
 // @Param		request	body model.CreateUserRequest true "register user payload"
 // @Success		201 {object} model.User
-// @Failure		400 {object} errors.AppError
-// @Failure		409 {object} errors.AppError
+// @Failure		400 {object} customErr.AppError
+// @Failure		409 {object} customErr.AppError
 // @Router		/users/register [post]
 func (h *UserHandler) Register(c *gin.Context) {
 	var req model.CreateUserRequest
@@ -57,7 +57,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 // @Produce		json
 // @Param		id path string true "user id (uuid)"
 // @Success		200 {object} model.User
-// @Failure		404 {object} errors.AppError
+// @Failure		404 {object} customErr.AppError
 // @Router		/users/{id} [get]
 func (h *UserHandler) GetProfile(c *gin.Context) {
 	id := c.Param("id")
@@ -79,8 +79,8 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 // @Param		id path string true "user id"
 // @Param		request body model.UpdateUserRequest true "update profile payload"
 // @Success		200 {object} model.User
-// @Failure		400 {object} errors.AppError
-// @Failure		404 {object} errors.AppError
+// @Failure		400 {object} customErr.AppError
+// @Failure		404 {object} customErr.AppError
 // @Router		/users/{id} [put]
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	id := c.Param("id")
@@ -107,8 +107,8 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 // @Produce		json
 // @Param		request body model.LoginRequest true "login payload"
 // @Success		200 {object} map[string]interface{} "Returns a payload with success: true and data: model.LoginResponse"
-// @Failure		400 {object} errors.AppError
-// @Failure		401 {object} errors.AppError
+// @Failure		400 {object} customErr.AppError
+// @Failure		401 {object} customErr.AppError
 // @Router		/users/login [post]
 func (h *UserHandler) Login(c *gin.Context) {
 	var req model.LoginRequest
@@ -136,7 +136,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 // @Accept		json
 // @Produce		json
 // @Success		200 {object} map[string]interface{} "Returns success: true and data: model.User"
-// @Failure		401 {object} errors.AppError
+// @Failure		401 {object} customErr.AppError
 // @Router		/users/me [get]
 // @Security	BearerAuth
 func (h *UserHandler) GetProfileMe(c *gin.Context) {
@@ -172,7 +172,7 @@ func (h *UserHandler) GetProfileMe(c *gin.Context) {
 // @Produce		json
 // @Param		avatar formData file true "Avatar image file"
 // @Success		200 {object} map[string]interface{} "Returns success: true, message: Success, and avatar_url: string"
-// @Failure		400 {object} errors.AppError
+// @Failure		400 {object} customErr.AppError
 // @Router		/users/avatar [post]
 // @Security	BearerAuth
 func (h *UserHandler) UploadAvatar(c *gin.Context) {
@@ -241,7 +241,7 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 // @Description	Soft delete user account
 // @Tags		Users
 // @Success		204 {object} map[string]interface{}
-// @Failure		404 {object} errors.AppError
+// @Failure		404 {object} customErr.AppError
 // @Router		/users/me [delete]
 // @Security	BearerAuth
 func (h *UserHandler) DeleteAccount(c *gin.Context) {
@@ -274,9 +274,9 @@ func (h *UserHandler) DeleteAccount(c *gin.Context) {
 // @Tags Users
 // @Produce json
 // @Success 200 {object} map[string]interface{} "Returns success and message"
-// @Failure 400 {object} errors.AppError
-// @Failure 401 {object} errors.AppError
-// @Failure 500 {object} errors.AppError
+// @Failure 400 {object} customErr.AppError
+// @Failure 401 {object} customErr.AppError
+// @Failure 500 {object} customErr.AppError
 // @Router /users/logout [post]
 // @Security BearerAuth
 func (h *UserHandler) Logout(c *gin.Context) {
@@ -315,9 +315,9 @@ type VerifyOTPRequest struct {
 // @Produce json
 // @Param request body VerifyOTPRequest true "otp code"
 // @Success 200 {object} map[string]interface{} "Returns success and message"
-// @Failure 400 {object} errors.AppError
-// @Failure 401 {object} errors.AppError
-// @Failure 500 {object} errors.AppError
+// @Failure 400 {object} customErr.AppError
+// @Failure 401 {object} customErr.AppError
+// @Failure 500 {object} customErr.AppError
 // @Router /users/verify-email [post]
 // @Security BearerAuth
 func (h *UserHandler) VerifyEmail(c *gin.Context) {
@@ -362,9 +362,9 @@ type PasswordResetRequest struct {
 // @Produce json
 // @Param request body PasswordResetRequest true "email"
 // @Success 200 {object} map[string]interface{} "Returns success and message"
-// @Failure 400 {object} errors.AppError
-// @Failure 401 {object} errors.AppError
-// @Failure 500 {object} errors.AppError
+// @Failure 400 {object} customErr.AppError
+// @Failure 401 {object} customErr.AppError
+// @Failure 500 {object} customErr.AppError
 // @Router /users/forgot-password [post]
 func (h *UserHandler) ForgotPassword(c *gin.Context) {
 	var req PasswordResetRequest
@@ -396,9 +396,9 @@ type VerifyPasswordResetRequest struct {
 // @Produce json
 // @Param request body VerifyPasswordResetRequest true "email, code, new_password, new_confirm_password"
 // @Success 200 {object} map[string]interface{} "Returns success and message"
-// @Failure 400 {object} errors.AppError
-// @Failure 401 {object} errors.AppError
-// @Failure 500 {object} errors.AppError
+// @Failure 400 {object} customErr.AppError
+// @Failure 401 {object} customErr.AppError
+// @Failure 500 {object} customErr.AppError
 // @Router /users/verify-password-reset [post]
 func (h *UserHandler) VerifyPasswordReset(c *gin.Context) {
 	var req VerifyPasswordResetRequest
@@ -435,8 +435,8 @@ func (h *UserHandler) VerifyPasswordReset(c *gin.Context) {
 // @Tags Users
 // @Produce json
 // @Success 302 {object} map[string]interface{} "Redirect to Google OAuth page"
-// @Failure 400 {object} errors.AppError
-// @Failure 500 {object} errors.AppError
+// @Failure 400 {object} customErr.AppError
+// @Failure 500 {object} customErr.AppError
 // @Router /users/google/login [get]
 func (h *UserHandler) GoogleLogin(c *gin.Context) {
 	loginURL, err := h.svc.GetGoogleLoginURL(c.Request.Context())
@@ -455,8 +455,8 @@ func (h *UserHandler) GoogleLogin(c *gin.Context) {
 // @Param code query string true "OAuth code"
 // @Param state query string true "OAuth state"
 // @Success 200 {object} map[string]interface{} "Returns login response"
-// @Failure 400 {object} errors.AppError
-// @Failure 500 {object} errors.AppError
+// @Failure 400 {object} customErr.AppError
+// @Failure 500 {object} customErr.AppError
 // @Router /users/google/callback [get]
 // @Security BearerAuth
 func (h *UserHandler) GoogleCallback(c *gin.Context) {
@@ -489,9 +489,9 @@ func (h *UserHandler) GoogleCallback(c *gin.Context) {
 // @Produce json
 // @Param request body model.RefreshTokenRequest true "refresh token"
 // @Success 200 {object} map[string]interface{} "Returns success and message"
-// @Failure 400 {object} errors.AppError
-// @Failure 401 {object} errors.AppError
-// @Failure 500 {object} errors.AppError
+// @Failure 400 {object} customErr.AppError
+// @Failure 401 {object} customErr.AppError
+// @Failure 500 {object} customErr.AppError
 // @Router /users/refresh-token [post]
 func (h *UserHandler) RefreshToken(c *gin.Context) {
 	var req model.RefreshTokenRequest

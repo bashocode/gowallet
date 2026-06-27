@@ -24,8 +24,8 @@ func NewWalletHandler(s service.WalletService) *WalletHandler {
 // @Accept		json
 // @Produce		json
 // @Success		200 {object} map[string]interface{} "Returns success: true and data: model.Wallet"
-// @Failure		401 {object} errors.AppError
-// @Failure		404 {object} errors.AppError
+// @Failure		401 {object} customErr.AppError
+// @Failure		404 {object} customErr.AppError
 // @Router		/wallets/me [get]
 // @Security	BearerAuth
 // func (h *WalletHandler) GetMyWallet(c *gin.Context)

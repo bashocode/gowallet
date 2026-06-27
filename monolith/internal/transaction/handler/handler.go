@@ -42,9 +42,9 @@ func NewTransactionHandler(s service.TransactionService) *TransactionHandler {
 // @Produce		json
 // @Param		request body model.TransferRequest true "transfer payload"
 // @Success		200 {object} map[string]interface{} "Returns success: true, message: Success, and data: model.Transaction"
-// @Failure		400 {object} errors.AppError
-// @Failure		401 {object} errors.AppError
-// @Failure		409 {object} errors.AppError
+// @Failure		400 {object} customErr.AppError
+// @Failure		401 {object} customErr.AppError
+// @Failure		409 {object} customErr.AppError
 // @Router		/transactions/transfer [post]
 // @Security	BearerAuth
 func (h *TransactionHandler) Transfer(c *gin.Context) {
@@ -92,8 +92,8 @@ func (h *TransactionHandler) Transfer(c *gin.Context) {
 // @Param		order query string false "sort order (default: desc)"
 // @Param		status query string false "filter by status (success/failed)"
 // @Success		200 {object} model.PaginatedResponse
-// @Failure		400 {object} errors.AppError
-// @Failure		401 {object} errors.AppError
+// @Failure		400 {object} customErr.AppError
+// @Failure		401 {object} customErr.AppError
 // @Router		/transactions/history [get]
 // @Security	BearerAuth
 func (h *TransactionHandler) GetHistory(c *gin.Context) {
@@ -136,8 +136,8 @@ func (h *TransactionHandler) GetHistory(c *gin.Context) {
 // @Produce		json
 // @Param		request body model.TopUpRequest true "topup payload"
 // @Success		200 {object} map[string]interface{} "Returns success: true, message: Success, and data: model.Transaction"
-// @Failure		400 {object} errors.AppError
-// @Failure		401 {object} errors.AppError
+// @Failure		400 {object} customErr.AppError
+// @Failure		401 {object} customErr.AppError
 // @Router		/transactions/topup [post]
 // @Security	BearerAuth
 func (h *TransactionHandler) TopUp(c *gin.Context) {
