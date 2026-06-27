@@ -21,6 +21,7 @@ type UserRepository interface {
 	UpdateVerificationStatusTx(ctx context.Context, tx *sql.Tx, id string, verified bool) error
 	UpdatePassword(ctx context.Context, id string, passwordHash string) error
 	GetByOAuth(ctx context.Context, provider, oauthID string) (*model.User, error)
+	GetAll(ctx context.Context) ([]*model.User, error)
 }
 
 type mysqlUserRepository struct {
@@ -145,4 +146,31 @@ func (r *mysqlUserRepository) GetByOAuth(ctx context.Context, provider, oauthID 
 		return nil, err
 	}
 	return u, nil
+}
+
+func (r *mysqlUserRepository) GetAll(ctx context.Context) ([]*model.User, error) {
+	query := `SELECT id, full_name, email, role, oauth_provider, oauth_id, avatar_url, is_verified, created_at, updated_at, deleted_at FROM users WHERE deleted_at IS NULL`
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*model.User
+	for rows.Next() {
+		u := &model.User{}
+		err := rows.Scan(
+			&u.ID, &u.FullName, &u.Email, &u.Role, &u.OAuthProvider, &u.OAuthID, &u.AvatarURL, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return users, nil
 }

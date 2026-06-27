@@ -84,6 +84,14 @@ func (m *MockUserRepository) GetByOAuth(ctx context.Context, provider, oauthID s
 	return args.Get(0).(*model.User), args.Error(1)
 }
 
+func (m *MockUserRepository) GetAll(ctx context.Context) ([]*model.User, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*model.User), args.Error(1)
+}
+
 type MockRefreshTokenRepository struct {
 	mock.Mock
 }

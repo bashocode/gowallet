@@ -45,6 +45,7 @@ type UserService interface {
 	GetGoogleLoginURL() string
 	HandleGoogleCallback(ctx context.Context, code string) (*model.LoginResponse, error)
 	RefreshToken(ctx context.Context, oldTokenString string) (*model.LoginResponse, error)
+	GetAllUsers(ctx context.Context) ([]*model.User, error)
 }
 
 type userService struct {
@@ -572,4 +573,13 @@ func (s *userService) RefreshToken(ctx context.Context, oldTokenString string) (
 		AccessToken:  newAccessToken,
 		RefreshToken: newRefreshTokenString,
 	}, nil
+}
+
+func (s *userService) GetAllUsers(ctx context.Context) ([]*model.User, error) {
+	users, err := s.userRepo.GetAll(ctx)
+	if err != nil {
+		logger.Log.Error("Failed to fetch all users", "error", err)
+		return nil, customErr.ErrInternalServer
+	}
+	return users, nil
 }

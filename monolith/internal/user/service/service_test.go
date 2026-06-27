@@ -12,6 +12,7 @@ import (
 	"github.com/bashocode/gowallet/monolith/internal/email"
 	otpModel "github.com/bashocode/gowallet/monolith/internal/otp/model"
 	otpRepo "github.com/bashocode/gowallet/monolith/internal/otp/repository"
+	"github.com/bashocode/gowallet/monolith/internal/logger"
 	userModel "github.com/bashocode/gowallet/monolith/internal/user/model"
 	userRepo "github.com/bashocode/gowallet/monolith/internal/user/repository"
 	walletRepo "github.com/bashocode/gowallet/monolith/internal/wallet/repository"
@@ -20,6 +21,11 @@ import (
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/crypto/bcrypt"
 )
+
+func init() {
+	logger.InitLogger()
+}
+
 
 func TestRegister_Success(t *testing.T) {
 	// sql mock
@@ -808,3 +814,55 @@ func TestResetPassword_Success(t *testing.T) {
 	mockUserRepo.AssertExpectations(t)
 	mockRtRepo.AssertExpectations(t)
 }
+
+func TestGetAllUsers_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	mockOTPRepo := new(otpRepo.MockOTPRepository)
+	mockEmailSender := new(email.MockEmailSender)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+
+	ctx := context.TODO()
+	users := []*userModel.User{
+		{ID: "user-1", FullName: "User One", Email: "one@example.com"},
+		{ID: "user-2", FullName: "User Two", Email: "two@example.com"},
+	}
+
+	mockUserRepo.On("GetAll", ctx).Return(users, nil)
+
+	result, err := svc.GetAllUsers(ctx)
+	assert.NoError(t, err)
+	assert.Len(t, result, 2)
+	assert.Equal(t, "user-1", result[0].ID)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestGetAllUsers_Failure(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	mockOTPRepo := new(otpRepo.MockOTPRepository)
+	mockEmailSender := new(email.MockEmailSender)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+
+	ctx := context.TODO()
+
+	mockUserRepo.On("GetAll", ctx).Return(nil, errors.New("db error"))
+
+	result, err := svc.GetAllUsers(ctx)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	mockUserRepo.AssertExpectations(t)
+}
+

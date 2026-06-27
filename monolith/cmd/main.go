@@ -135,13 +135,7 @@ func main() {
 			adminOnly := protected.Group("/admin")
 			adminOnly.Use(middleware.RequireRole("admin")) // RBAC Protection
 			{
-				adminOnly.GET("/users", func(c *gin.Context) {
-					// Simulation: Admin can see all user
-					c.JSON(http.StatusOK, gin.H{
-						"success": true,
-						"message": "Hello Admin! You have successfully accessed the control panel data.",
-					})
-				})
+				adminOnly.GET("/users", uHandler.AdminGetUsers)
 			}
 		}
 	}
