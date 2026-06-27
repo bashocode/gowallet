@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"math"
 	"os"
 	"time"
 
@@ -45,6 +46,7 @@ type UserService interface {
 	GetGoogleLoginURL() string
 	HandleGoogleCallback(ctx context.Context, code string) (*model.LoginResponse, error)
 	RefreshToken(ctx context.Context, oldTokenString string) (*model.LoginResponse, error)
+	GetAllUsers(ctx context.Context, params model.PaginationParams) ([]*model.User, *model.PaginationMeta, error)
 }
 
 type userService struct {
@@ -177,13 +179,13 @@ func (s *userService) Login(ctx context.Context, req model.LoginRequest) (*model
 	}
 
 	// generate access token 15 minutes
-	accessToken, err := auth.GenerateToken(user.ID, user.Email, 15*time.Minute)
+	accessToken, err := auth.GenerateToken(user.ID, user.Email, user.Role, 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
 	// generate refresh token 7 days
-	refreshToken, err := auth.GenerateToken(user.ID, user.Email, 7*24*time.Hour)
+	refreshToken, err := auth.GenerateToken(user.ID, user.Email, user.Role, 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
@@ -494,12 +496,12 @@ func (s *userService) HandleGoogleCallback(ctx context.Context, code string) (*m
 	}
 
 	// 4. Generate JWT token
-	accessToken, err := auth.GenerateToken(user.ID, user.Email, 15*time.Minute)
+	accessToken, err := auth.GenerateToken(user.ID, user.Email, user.Role, 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
-	refreshToken, err := auth.GenerateToken(user.ID, user.Email, 7*24*time.Hour)
+	refreshToken, err := auth.GenerateToken(user.ID, user.Email, user.Role, 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
@@ -546,12 +548,12 @@ func (s *userService) RefreshToken(ctx context.Context, oldTokenString string) (
 	}
 
 	// 6. Generate Access Token & New Refresh Token (Rotation)
-	newAccessToken, err := auth.GenerateToken(user.ID, user.Email, 15*time.Minute)
+	newAccessToken, err := auth.GenerateToken(user.ID, user.Email, user.Role, 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
-	newRefreshTokenString, err := auth.GenerateToken(user.ID, user.Email, 7*24*time.Hour)
+	newRefreshTokenString, err := auth.GenerateToken(user.ID, user.Email, user.Role, 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
@@ -572,4 +574,26 @@ func (s *userService) RefreshToken(ctx context.Context, oldTokenString string) (
 		AccessToken:  newAccessToken,
 		RefreshToken: newRefreshTokenString,
 	}, nil
+}
+
+func (s *userService) GetAllUsers(ctx context.Context, params model.PaginationParams) ([]*model.User, *model.PaginationMeta, error) {
+	users, total, err := s.userRepo.GetAll(ctx, params)
+	if err != nil {
+		logger.Log.Error("Failed to fetch all users", "error", err)
+		return nil, nil, customErr.ErrInternalServer
+	}
+
+	totalPage := int(math.Ceil(float64(total) / float64(params.Limit)))
+	if totalPage == 0 {
+		totalPage = 1
+	}
+
+	meta := &model.PaginationMeta{
+		Page:      params.Page,
+		Limit:     params.Limit,
+		Total:     total,
+		TotalPage: totalPage,
+	}
+
+	return users, meta, nil
 }

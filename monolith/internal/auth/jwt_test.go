@@ -10,10 +10,11 @@ import (
 func TestGenerateAndValidateToken(t *testing.T) {
 	userID := "user-123"
 	email := "test@example.com"
+	role := "user"
 	duration := 15 * time.Minute
 
 	// Test GenerateToken
-	token, err := GenerateToken(userID, email, duration)
+	token, err := GenerateToken(userID, email, role, duration)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
@@ -35,9 +36,10 @@ func TestValidateToken_Invalid(t *testing.T) {
 	// Test with expired token
 	userID := "user-123"
 	email := "test@example.com"
+	role := "user"
 	duration := -5 * time.Minute // expired 5 minutes ago
 
-	expiredToken, err := GenerateToken(userID, email, duration)
+	expiredToken, err := GenerateToken(userID, email, role, duration)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, expiredToken)
 

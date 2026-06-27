@@ -54,6 +54,7 @@ func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 		// save to context
 		c.Set("user_id", claims.UserID)
 		c.Set("email", claims.Email)
+		c.Set("role", claims.Role)
 		c.Set("token_string", tokenString) // store for logout needs
 
 		c.Next()

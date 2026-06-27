@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/bashocode/gowallet/monolith/internal/user/model"
 )
@@ -21,6 +22,7 @@ type UserRepository interface {
 	UpdateVerificationStatusTx(ctx context.Context, tx *sql.Tx, id string, verified bool) error
 	UpdatePassword(ctx context.Context, id string, passwordHash string) error
 	GetByOAuth(ctx context.Context, provider, oauthID string) (*model.User, error)
+	GetAll(ctx context.Context, params model.PaginationParams) ([]*model.User, int64, error)
 }
 
 type mysqlUserRepository struct {
@@ -38,13 +40,13 @@ func (r *mysqlUserRepository) Create(ctx context.Context, u *model.User) error {
 }
 
 func (r *mysqlUserRepository) GetByID(ctx context.Context, id string) (*model.User, error) {
-	query := `SELECT id, full_name, email, password_hash, oauth_provider, 
+	query := `SELECT id, full_name, email, role, password_hash, oauth_provider, 
 		oauth_id, avatar_url, is_verified, created_at, updated_at, 
 		deleted_at FROM users WHERE id = ? AND deleted_at IS NULL`
 	u := &model.User{}
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&u.ID, &u.FullName, &u.Email, &u.PasswordHash,
+		&u.ID, &u.FullName, &u.Email, &u.Role, &u.PasswordHash,
 		&u.OAuthProvider, &u.OAuthID, &u.AvatarURL, &u.IsVerified,
 		&u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 	)
@@ -58,10 +60,10 @@ func (r *mysqlUserRepository) GetByID(ctx context.Context, id string) (*model.Us
 }
 
 func (r *mysqlUserRepository) GetByEmail(ctx context.Context, email string) (*model.User, error) {
-	query := `SELECT id, full_name, email, password_hash, avatar_url, is_verified, created_at, updated_at, deleted_at FROM users WHERE email = ? AND deleted_at IS NULL`
+	query := `SELECT id, full_name, email, role, password_hash, avatar_url, is_verified, created_at, updated_at, deleted_at FROM users WHERE email = ? AND deleted_at IS NULL`
 	u := &model.User{}
 
-	err := r.db.QueryRowContext(ctx, query, email).Scan(&u.ID, &u.FullName, &u.Email, &u.PasswordHash, &u.AvatarURL, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
+	err := r.db.QueryRowContext(ctx, query, email).Scan(&u.ID, &u.FullName, &u.Email, &u.Role, &u.PasswordHash, &u.AvatarURL, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, errors.New("user not found")
@@ -74,10 +76,10 @@ func (r *mysqlUserRepository) GetByEmail(ctx context.Context, email string) (*mo
 }
 
 func (r *mysqlUserRepository) GetByEmailNoErrorNotFound(ctx context.Context, email string) (*model.User, error) {
-	query := `SELECT id, full_name, email, password_hash, avatar_url, is_verified, created_at, updated_at, deleted_at FROM users WHERE email = ? AND deleted_at IS NULL`
+	query := `SELECT id, full_name, email, role, password_hash, avatar_url, is_verified, created_at, updated_at, deleted_at FROM users WHERE email = ? AND deleted_at IS NULL`
 	u := &model.User{}
 
-	err := r.db.QueryRowContext(ctx, query, email).Scan(&u.ID, &u.FullName, &u.Email, &u.PasswordHash, &u.AvatarURL, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
+	err := r.db.QueryRowContext(ctx, query, email).Scan(&u.ID, &u.FullName, &u.Email, &u.Role, &u.PasswordHash, &u.AvatarURL, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -132,11 +134,11 @@ func (r *mysqlUserRepository) UpdatePassword(ctx context.Context, id string, pas
 }
 
 func (r *mysqlUserRepository) GetByOAuth(ctx context.Context, provider, oauthID string) (*model.User, error) {
-	query := `SELECT id, full_name, email, password_hash, oauth_provider, oauth_id, avatar_url, is_verified, created_at, updated_at, deleted_at FROM users WHERE oauth_provider = ? AND oauth_id = ? AND deleted_at IS NULL`
+	query := `SELECT id, full_name, email, role, password_hash, oauth_provider, oauth_id, avatar_url, is_verified, created_at, updated_at, deleted_at FROM users WHERE oauth_provider = ? AND oauth_id = ? AND deleted_at IS NULL`
 	u := &model.User{}
 
 	err := r.db.QueryRowContext(ctx, query, provider, oauthID).Scan(
-		&u.ID, &u.FullName, &u.Email, &u.PasswordHash, &u.OAuthProvider, &u.OAuthID, &u.AvatarURL, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+		&u.ID, &u.FullName, &u.Email, &u.Role, &u.PasswordHash, &u.OAuthProvider, &u.OAuthID, &u.AvatarURL, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -145,4 +147,59 @@ func (r *mysqlUserRepository) GetByOAuth(ctx context.Context, provider, oauthID 
 		return nil, err
 	}
 	return u, nil
+}
+
+func (r *mysqlUserRepository) GetAll(ctx context.Context, params model.PaginationParams) ([]*model.User, int64, error) {
+	// First get total count
+	var total int64
+	countQuery := `SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`
+	err := r.db.QueryRowContext(ctx, countQuery).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Validate sort column to avoid SQL injection
+	allowedSortColumns := map[string]bool{
+		"id":         true,
+		"full_name":  true,
+		"email":      true,
+		"role":       true,
+		"created_at": true,
+		"updated_at": true,
+	}
+	sortCol := "created_at"
+	if allowedSortColumns[params.Sort] {
+		sortCol = params.Sort
+	}
+
+	// Validate order direction
+	orderDir := "DESC"
+	if params.Order == "asc" || params.Order == "ASC" {
+		orderDir = "ASC"
+	}
+
+	query := fmt.Sprintf(`SELECT id, full_name, email, role, oauth_provider, oauth_id, avatar_url, is_verified, created_at, updated_at, deleted_at FROM users WHERE deleted_at IS NULL ORDER BY %s %s LIMIT ? OFFSET ?`, sortCol, orderDir)
+	rows, err := r.db.QueryContext(ctx, query, params.Limit, params.Offset())
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var users []*model.User
+	for rows.Next() {
+		u := &model.User{}
+		err := rows.Scan(
+			&u.ID, &u.FullName, &u.Email, &u.Role, &u.OAuthProvider, &u.OAuthID, &u.AvatarURL, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		users = append(users, u)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return users, total, nil
 }

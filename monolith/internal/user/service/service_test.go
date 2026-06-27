@@ -12,6 +12,7 @@ import (
 	"github.com/bashocode/gowallet/monolith/internal/email"
 	otpModel "github.com/bashocode/gowallet/monolith/internal/otp/model"
 	otpRepo "github.com/bashocode/gowallet/monolith/internal/otp/repository"
+	"github.com/bashocode/gowallet/monolith/internal/logger"
 	userModel "github.com/bashocode/gowallet/monolith/internal/user/model"
 	userRepo "github.com/bashocode/gowallet/monolith/internal/user/repository"
 	walletRepo "github.com/bashocode/gowallet/monolith/internal/wallet/repository"
@@ -20,6 +21,11 @@ import (
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/crypto/bcrypt"
 )
+
+func init() {
+	logger.InitLogger()
+}
+
 
 func TestRegister_Success(t *testing.T) {
 	// sql mock
@@ -539,8 +545,9 @@ func TestLogout_Success(t *testing.T) {
 	ctx := context.TODO()
 	userID := "user-123"
 	email := "test@example.com"
+	role := "user"
 
-	token, err := auth.GenerateToken(userID, email, 15*time.Minute)
+	token, err := auth.GenerateToken(userID, email, role, 15*time.Minute)
 	assert.NoError(t, err)
 
 	blacklistKey := fmt.Sprintf("blacklist:%s", token)
@@ -598,8 +605,9 @@ func TestLogout_RedisError(t *testing.T) {
 	ctx := context.TODO()
 	userID := "user-123"
 	email := "test@example.com"
+	role := "user"
 
-	token, err := auth.GenerateToken(userID, email, 15*time.Minute)
+	token, err := auth.GenerateToken(userID, email, role, 15*time.Minute)
 	assert.NoError(t, err)
 
 	blacklistKey := fmt.Sprintf("blacklist:%s", token)
@@ -805,5 +813,74 @@ func TestResetPassword_Success(t *testing.T) {
 	assert.NoError(t, err)
 	mockUserRepo.AssertExpectations(t)
 	mockRtRepo.AssertExpectations(t)
+}
+
+func TestGetAllUsers_Success(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	mockOTPRepo := new(otpRepo.MockOTPRepository)
+	mockEmailSender := new(email.MockEmailSender)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+
+	ctx := context.TODO()
+	users := []*userModel.User{
+		{ID: "user-1", FullName: "User One", Email: "one@example.com"},
+		{ID: "user-2", FullName: "User Two", Email: "two@example.com"},
+	}
+
+	params := userModel.PaginationParams{
+		Page:  1,
+		Limit: 10,
+		Sort:  "created_at",
+		Order: "desc",
+	}
+
+	mockUserRepo.On("GetAll", ctx, params).Return(users, int64(2), nil)
+
+	result, meta, err := svc.GetAllUsers(ctx, params)
+	assert.NoError(t, err)
+	assert.Len(t, result, 2)
+	assert.Equal(t, "user-1", result[0].ID)
+	assert.Equal(t, 1, meta.Page)
+	assert.Equal(t, 10, meta.Limit)
+	assert.Equal(t, int64(2), meta.Total)
+	assert.Equal(t, 1, meta.TotalPage)
+	mockUserRepo.AssertExpectations(t)
+}
+
+func TestGetAllUsers_Failure(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	rdb, _ := redismock.NewClientMock()
+	defer rdb.Close()
+
+	mockUserRepo := new(userRepo.MockUserRepository)
+	mockWalletRepo := new(walletRepo.MockWalletRepository)
+	mockOTPRepo := new(otpRepo.MockOTPRepository)
+	mockEmailSender := new(email.MockEmailSender)
+	svc := NewUserService(db, rdb, mockUserRepo, mockWalletRepo, mockOTPRepo, mockEmailSender)
+
+	ctx := context.TODO()
+	params := userModel.PaginationParams{
+		Page:  1,
+		Limit: 10,
+		Sort:  "created_at",
+		Order: "desc",
+	}
+
+	mockUserRepo.On("GetAll", ctx, params).Return(nil, int64(0), errors.New("db error"))
+
+	result, meta, err := svc.GetAllUsers(ctx, params)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Nil(t, meta)
+	mockUserRepo.AssertExpectations(t)
 }
 
