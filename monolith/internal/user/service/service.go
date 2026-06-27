@@ -546,8 +546,15 @@ func (s *userService) HandleGoogleCallback(ctx context.Context, code string, sta
 		return nil, customErr.ErrInternalServer
 	}
 
-	err = s.rdb.Set(ctx, "refresh_token:"+user.ID, refreshToken, 7*24*time.Hour).Err()
-	if err != nil {
+	// Save new Refresh Token to Database (align with normal login)
+	newRT := &model.RefreshToken{
+		ID:        uuid.New().String(),
+		UserID:    user.ID,
+		Token:     refreshToken,
+		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+		Revoked:   false,
+	}
+	if err := s.rtRepo.Create(ctx, newRT); err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
@@ -617,6 +624,17 @@ func (s *userService) RefreshToken(ctx context.Context, oldTokenString string) (
 }
 
 func (s *userService) GetAllUsers(ctx context.Context, params model.PaginationParams) ([]*model.User, *model.PaginationMeta, error) {
+	// Validate pagination parameters
+	if params.Page < 1 {
+		params.Page = 1
+	}
+	if params.Limit <= 0 {
+		params.Limit = 10
+	}
+	if params.Limit > 100 {
+		params.Limit = 100
+	}
+
 	users, total, err := s.userRepo.GetAll(ctx, params)
 	if err != nil {
 		logger.Log.Error("Failed to fetch all users", "error", err)

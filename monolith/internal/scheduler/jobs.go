@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"fmt"
 	"os"
@@ -41,6 +42,7 @@ func (s *Scheduler) ReconcileAllBalances() {
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		logger.Error(ctx, "[Cron Job] Reconciliation failed to query wallets", "error", err.Error())
+		return
 	}
 	defer rows.Close()
 
@@ -146,11 +148,16 @@ func (s *Scheduler) ExportDailyTransactions() {
 
 	rowCount := 0
 	for rows.Next() {
-		var id, sender, receiver, status, createdAt string
+		var id, receiver, status, createdAt string
+		var sender sql.NullString
 		var amount decimal.Decimal
 
 		_ = rows.Scan(&id, &sender, &receiver, &amount, &status, &createdAt)
-		_ = writer.Write([]string{id, sender, receiver, amount.StringFixed(2), status, createdAt})
+		senderStr := ""
+		if sender.Valid {
+			senderStr = sender.String
+		}
+		_ = writer.Write([]string{id, senderStr, receiver, amount.StringFixed(2), status, createdAt})
 
 		rowCount++
 	}

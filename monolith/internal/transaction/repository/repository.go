@@ -125,5 +125,9 @@ func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID st
 		txs = append(txs, t)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
 	return txs, total, nil
 }

@@ -98,6 +98,7 @@ func main() {
 
 	// 2. setup gin router
 	r := gin.New()
+	r.Use(middleware.CorrelationID())
 	r.Use(gin.Recovery())
 	// Register global error handling middleware
 	r.Use(middleware.ErrorHandler())
