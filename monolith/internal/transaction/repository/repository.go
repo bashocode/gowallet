@@ -55,7 +55,7 @@ func (r *mysqlTransactionRepository) GetByIdempotencyKey(ctx context.Context, ke
 
 func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, error) {
 	// counting total data for pagination meta
-	countQuery := `SELECT COUNT(*) FROM transactions WHERE (sender_wallet_id) = ? OR receiver_wallet_id = ?`
+	countQuery := `SELECT COUNT(*) FROM transactions WHERE (sender_wallet_id = ? OR receiver_wallet_id = ?)`
 	var total int64
 	var err error
 

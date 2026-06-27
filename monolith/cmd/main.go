@@ -12,7 +12,9 @@ import (
 	"github.com/bashocode/gowallet/monolith/internal/config"
 	"github.com/bashocode/gowallet/monolith/internal/database"
 	"github.com/bashocode/gowallet/monolith/internal/email"
+	ledgerHandler "github.com/bashocode/gowallet/monolith/internal/ledger/handler"
 	ledgerRepository "github.com/bashocode/gowallet/monolith/internal/ledger/repository"
+	ledgerService "github.com/bashocode/gowallet/monolith/internal/ledger/service"
 	"github.com/bashocode/gowallet/monolith/internal/logger"
 	"github.com/bashocode/gowallet/monolith/internal/middleware"
 	otpRepository "github.com/bashocode/gowallet/monolith/internal/otp/repository"
@@ -58,6 +60,7 @@ func main() {
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
 		logger.Log.Error("Critical Error: Could not connect to database after retries", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
@@ -65,6 +68,7 @@ func main() {
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
 	if err != nil {
 		logger.Log.Error("Critical Error: Could not connect to Redis", "error", err)
+		os.Exit(1)
 	}
 	defer rdb.Close()
 
@@ -82,10 +86,12 @@ func main() {
 	uSvc := userService.NewUserService(db, rdb, uRepo, wRepo, otpRepo, emailSender)
 	wSvc := walletService.NewWalletService(wRepo, rdb)
 	tSvc := txService.NewTransactionService(db, rdb, tRepo, uRepo, wRepo, lRepo)
+	lSvc := ledgerService.NewLedgerService(lRepo, wRepo)
 
 	uHandler := userHandler.NewUserHandler(uSvc)
 	wHandler := walletHandler.NewWalletHandler(wSvc)
 	tHandler := txHandler.NewTransactionHandler(tSvc)
+	lHandler := ledgerHandler.NewLedgerHandler(lSvc)
 
 	cronSched := scheduler.NewScheduler(db, wRepo, lRepo)
 	cronSched.Start()
@@ -136,6 +142,8 @@ func main() {
 			adminOnly.Use(middleware.RequireRole("admin")) // RBAC Protection
 			{
 				adminOnly.GET("/users", uHandler.AdminGetUsers)
+				adminOnly.GET("/ledger/mutations", lHandler.GetMutations)
+				adminOnly.GET("/ledger/reconcile", lHandler.Reconcile)
 			}
 		}
 	}
