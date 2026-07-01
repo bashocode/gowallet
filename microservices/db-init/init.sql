@@ -2,7 +2,7 @@
 CREATE DATABASE IF NOT EXISTS `gowallet_auth`;
 
 -- New database for User Service
--- CREATE DATABASE IF NOT EXISTS `gowallet_user`;
+CREATE DATABASE IF NOT EXISTS `gowallet_user`;
 
 -- New database for Wallet Service
 -- CREATE DATABASE IF NOT EXISTS `gowallet_wallet`;
@@ -15,7 +15,7 @@ CREATE DATABASE IF NOT EXISTS `gowallet_auth`;
 
 -- Grant full privileges to user gowallet_user
 GRANT ALL PRIVILEGES ON `gowallet_auth`.* TO 'gowallet_user'@'%';
--- GRANT ALL PRIVILEGES ON `gowallet_user`.* TO 'gowallet_user'@'%';
+GRANT ALL PRIVILEGES ON `gowallet_user`.* TO 'gowallet_user'@'%';
 -- GRANT ALL PRIVILEGES ON `gowallet_wallet`.* TO 'gowallet_user'@'%';
 -- GRANT ALL PRIVILEGES ON `gowallet_transaction`.* TO 'gowallet_user'@'%';
 -- GRANT ALL PRIVILEGES ON `gowallet_payment`.* TO 'gowallet_user'@'%';
