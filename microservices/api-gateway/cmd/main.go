@@ -49,6 +49,11 @@ func main() {
 	r.Use(middleware.CORSMiddleware())
 
 	// 3. Define proxy routing rules
+	// /api/v1/auth/google/* is forwarded to User Service on port 8084 (handles oauth callbacks)
+	r.Any("/api/v1/auth/google/*path", func(c *gin.Context) {
+		userProxy.ServeHTTP(c.Writer, c.Request)
+	})
+
 	// /api/v1/auth/* is forwarded to Auth Service on port 8081
 	r.Any("/api/v1/auth/*path", func(c *gin.Context) {
 		authProxy.ServeHTTP(c.Writer, c.Request)
@@ -56,6 +61,11 @@ func main() {
 
 	// /api/v1/users/* is forwarded to User Service on port 8084
 	r.Any("/api/v1/users/*path", func(c *gin.Context) {
+		userProxy.ServeHTTP(c.Writer, c.Request)
+	})
+
+	// /api/v1/admin/* is forwarded to User Service on port 8084
+	r.Any("/api/v1/admin/*path", func(c *gin.Context) {
 		userProxy.ServeHTTP(c.Writer, c.Request)
 	})
 

@@ -63,8 +63,8 @@ services:
     depends_on:
       auth-service:
         condition: service_started
-    #     user-service:
-    #         condition: service_started
+      user-service:
+        condition: service_started
     networks:
       - gowallet-network
     restart: unless-stopped
@@ -89,7 +89,36 @@ services:
     depends_on:
       - mysql
       - redis
-      # - user-service
+      - user-service
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: .
+      dockerfile: user-service/Dockerfile
+    container_name: gowallet-user-service-ms
+    ports:
+      - "8084:8084"
+    environment:
+      - DB_USER=gowallet_user
+      - DB_PASSWORD=gowallet_password
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=gowallet_user
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=super-secret-key-change-this-in-production
+      - GOOGLE_CLIENT_ID=
+      - GOOGLE_CLIENT_SECRET=
+      - GOOGLE_REDIRECT_URL=http://localhost:8080/api/v1/auth/google/callback
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - SMTP_FROM=no-reply@gowallet.com
+    depends_on:
+      - mysql
+      - redis
     networks:
       - gowallet-network
     restart: unless-stopped
