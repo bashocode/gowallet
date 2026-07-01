@@ -3,7 +3,6 @@ module github.com/bashocode/gowallet/microservices/shared
 go 1.26.4
 
 require (
-	github.com/bashocode/gowallet/monolith v0.0.0-20260630142256-2ccd521bde01
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-redis/redismock/v9 v9.2.0
 	github.com/go-sql-driver/mysql v1.10.0
