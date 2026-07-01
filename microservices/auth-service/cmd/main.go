@@ -45,9 +45,17 @@ func main() {
 	r.Use(middleware.ErrorHandler())
 
 	// Auth Routes
-	r.POST("/api/v1/auth/login", authHandler.Login)
-	r.POST("/api/v1/auth/refresh", authHandler.RefreshToken)
-	r.POST("/api/v1/auth/logout", authHandler.Logout)
+	v1 := r.Group("/api/v1")
+	{
+		v1.POST("/auth/login", authHandler.Login)
+		v1.POST("/auth/refresh", authHandler.RefreshToken)
+
+		protected := v1.Group("")
+		protected.Use(middleware.AuthMiddleware(rdb))
+		{
+			protected.POST("/auth/logout", authHandler.Logout)
+		}
+	}
 
 	logger.Log.Info("Auth Service listening on port 8081...")
 	if err := r.Run(":8081"); err != nil {
