@@ -6,6 +6,7 @@ WORKDIR /app
 COPY go.work ./
 COPY shared/ ./shared/
 COPY api-gateway/ ./api-gateway/
+COPY auth-service/ ./auth-service/
 
 WORKDIR /app/api-gateway
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /service ./cmd/main.go
