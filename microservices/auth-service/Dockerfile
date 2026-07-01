@@ -5,8 +5,9 @@ WORKDIR /app
 # Copy go.work and local module dependencies
 COPY go.work ./
 COPY shared/ ./shared/
-COPY auth-service/ ./auth-service/
 COPY api-gateway/ ./api-gateway/
+COPY auth-service/ ./auth-service/
+COPY user-service/ ./user-service/
 
 WORKDIR /app/auth-service
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /service ./cmd/main.go

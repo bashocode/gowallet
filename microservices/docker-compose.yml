@@ -6,12 +6,12 @@ services:
     image: mysql:8.0
     container_name: gowallet-mysql-ms
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: gowallet
-      MYSQL_USER: gowallet_user
-      MYSQL_PASSWORD: gowallet_password
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME_DEFAULT}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "3306:3306"
+      - "${DB_PORT}:${DB_PORT}"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./db-init:/docker-entrypoint-initdb.d
@@ -27,7 +27,7 @@ services:
     image: redis:7-alpine
     container_name: gowallet-redis-ms
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:${REDIS_PORT}"
     networks:
       - gowallet-network
     healthcheck:
@@ -40,8 +40,8 @@ services:
     image: mailhog/mailhog:latest
     container_name: gowallet-mailhog-ms
     ports:
-      - "1025:1025" # SMTP port
-      - "8025:8025" # Web UI dashboard port
+      - "${MAILHOG_PORT}:${MAILHOG_PORT}" # SMTP port
+      - "${MAILHOG_WEB_PORT}:${MAILHOG_WEB_PORT}" # Web UI dashboard port
     networks:
       - gowallet-network
     restart: always
@@ -53,18 +53,18 @@ services:
       dockerfile: api-gateway/Dockerfile
     container_name: gowallet-api-gateway-ms
     ports:
-      - "8080:8080"
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
     environment:
-      AUTH_SERVICE_URL: http://auth-service:8081
-      USER_SERVICE_URL: http://user-service:8084
-      WALLET_SERVICE_URL: http://wallet-service:8082
-      TRANSACTION_SERVICE_URL: http://transaction-service:8086
-      PAYMENT_SERVICE_URL: http://payment-service:8083
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL}
+      USER_SERVICE_URL: ${USER_SERVICE_URL}
+      WALLET_SERVICE_URL: ${WALLET_SERVICE_URL}
+      TRANSACTION_SERVICE_URL: ${TRANSACTION_SERVICE_URL}
+      PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL}
     depends_on:
       auth-service:
         condition: service_started
-    #     user-service:
-    #         condition: service_started
+      user-service:
+          condition: service_started
     networks:
       - gowallet-network
     restart: unless-stopped
@@ -75,21 +75,50 @@ services:
       dockerfile: auth-service/Dockerfile
     container_name: gowallet-auth-service-ms
     ports:
-      - "8081:8081"
+      - "${AUTH_PORT}:${AUTH_PORT}"
     environment:
-      - DB_USER=gowallet_user
-      - DB_PASSWORD=gowallet_password
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - DB_NAME=gowallet_auth
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - JWT_SECRET=super-secret-key-change-this-in-production
-      - USER_GRPC_ADDR=user-service:50052
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME_AUTH}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - JWT_SECRET=${JWT_SECRET}
+      - USER_GRPC_ADDR=${USER_GRPC_ADDR}
     depends_on:
       - mysql
       - redis
-      # - user-service
+      - user-service
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: .
+      dockerfile: user-service/Dockerfile
+    container_name: gowallet-user-service-ms
+    ports:
+      - "${USER_PORT}:${USER_PORT}"
+    environment:
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME_USER}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - JWT_SECRET=${JWT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_FROM=${SMTP_FROM}
+    depends_on:
+      - mysql
+      - redis
     networks:
       - gowallet-network
     restart: unless-stopped
