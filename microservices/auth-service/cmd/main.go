@@ -1,8 +1,6 @@
 package main
 
 import (
-	"log"
-
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/handler"
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/repository"
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/service"
@@ -10,7 +8,10 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
+	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -23,24 +24,48 @@ func main() {
 	// Connect to Redis (for token blacklisting)
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
 	if err != nil {
-		log.Fatalf("Could not connect to Redis: %v", err)
+		logger.Fatal(nil, "Could not connect to Redis", "error", err)
 	}
 	defer rdb.Close()
 
 	// Connect to MySQL (for refresh tokens)
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
-		log.Fatalf("Could not connect to database: %v", err)
+		logger.Fatal(nil, "Could not connect to database", "error", err)
 	}
 	defer db.Close()
 
+	// Connect to User Service via gRPC
+	conn, err := grpc.NewClient(
+		cfg.UserGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(`{
+			"methodConfig": [{
+				"name": [{"service": "user.UserService"}],
+				"retryPolicy": {
+					"maxAttempts": 3,
+					"initialBackoff": "0.1s",
+					"maxBackoff": "1s",
+					"backoffMultiplier": 2,
+					"retryableStatusCodes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
+				}
+			}]
+		}`),
+	)
+	if err != nil {
+		logger.Fatal(nil, "Failed to connect to user service", "error", err)
+	}
+	defer conn.Close()
+
+	userClient := pb.NewUserServiceClient(conn)
+
 	// Initialize layers
 	rtRepo := repository.NewMySQLRefreshTokenRepository(db)
-	userRepo := repository.NewMySQLUserRepository(db)
-	authSvc := service.NewAuthService(rdb, rtRepo, userRepo)
+	authSvc := service.NewAuthService(rdb, rtRepo, userClient)
 	authHandler := handler.NewAuthHandler(authSvc)
 
 	r := gin.New()
+	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(middleware.ErrorHandler())
 
@@ -59,6 +84,6 @@ func main() {
 
 	logger.Log.Info("Auth Service listening on port 8081...")
 	if err := r.Run(":8081"); err != nil {
-		log.Fatalf("Auth Service failed: %v", err)
+		logger.Fatal(nil, "Auth Service failed", "error", err)
 	}
 }
