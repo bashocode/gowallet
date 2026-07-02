@@ -10,6 +10,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/repository"
 	sharedAuth "github.com/bashocode/gowallet/microservices/shared/auth"
 	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
+	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
@@ -22,40 +23,40 @@ type AuthService interface {
 }
 
 type authService struct {
-	rdb      *redis.Client
-	rtRepo   repository.RefreshTokenRepository
-	userRepo repository.UserRepository
+	rdb        *redis.Client
+	rtRepo     repository.RefreshTokenRepository
+	userClient pb.UserServiceClient
 }
 
-func NewAuthService(rdb *redis.Client, rtRepo repository.RefreshTokenRepository, userRepo repository.UserRepository) AuthService {
+func NewAuthService(rdb *redis.Client, rtRepo repository.RefreshTokenRepository, userClient pb.UserServiceClient) AuthService {
 	return &authService{
-		rdb:      rdb,
-		rtRepo:   rtRepo,
-		userRepo: userRepo,
+		rdb:        rdb,
+		rtRepo:     rtRepo,
+		userClient: userClient,
 	}
 }
 
 func (s *authService) Login(ctx context.Context, req model.LoginRequest) (*model.LoginResponse, error) {
-	// find by email
-	user, err := s.userRepo.GetByEmail(ctx, req.Email)
+	// Call User Service via gRPC
+	userResp, err := s.userClient.GetUserByEmail(ctx, &pb.GetUserByEmailRequest{Email: req.Email})
 	if err != nil {
 		return nil, customErr.NewAppError(http.StatusUnauthorized, "INVALID_CREDENTIALS", "wrong email or password.")
 	}
 
 	// verify the hash password
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password))
+	err = bcrypt.CompareHashAndPassword([]byte(userResp.GetPasswordHash()), []byte(req.Password))
 	if err != nil {
 		return nil, customErr.NewAppError(http.StatusUnauthorized, "INVALID_CREDENTIALS", "wrong email or password.")
 	}
 
 	// generate access token 15 minutes
-	accessToken, err := sharedAuth.GenerateToken(user.ID, user.Email, user.Role, 15*time.Minute)
+	accessToken, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
 	// generate refresh token 7 days
-	refreshToken, err := sharedAuth.GenerateToken(user.ID, user.Email, user.Role, 7*24*time.Hour)
+	refreshToken, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
@@ -63,7 +64,7 @@ func (s *authService) Login(ctx context.Context, req model.LoginRequest) (*model
 	// save token to db
 	rt := &model.RefreshToken{
 		ID:        uuid.New().String(),
-		UserID:    user.ID,
+		UserID:    userResp.GetId(),
 		Token:     refreshToken,
 		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
 		Revoked:   false,
@@ -102,19 +103,19 @@ func (s *authService) RefreshToken(ctx context.Context, oldTokenString string) (
 		return nil, customErr.ErrInternalServer
 	}
 
-	// 5. Get user details from DB to generate new JWT
-	user, err := s.userRepo.GetByID(ctx, rt.UserID)
+	// 5. Get user details from user service via gRPC to generate new JWT
+	userResp, err := s.userClient.GetUserByID(ctx, &pb.GetUserRequest{Id: rt.UserID})
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
 	// 6. Generate access token & new refresh token
-	newAccessToken, err := sharedAuth.GenerateToken(user.ID, user.Email, user.Role, 15*time.Minute)
+	newAccessToken, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
-	newRefreshTokenString, err := sharedAuth.GenerateToken(user.ID, user.Email, user.Role, 7*24*time.Hour)
+	newRefreshTokenString, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
@@ -122,7 +123,7 @@ func (s *authService) RefreshToken(ctx context.Context, oldTokenString string) (
 	// 7. Save new Refresh Token to Database
 	newRT := &model.RefreshToken{
 		ID:        uuid.New().String(),
-		UserID:    user.ID,
+		UserID:    userResp.GetId(),
 		Token:     newRefreshTokenString,
 		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
 		Revoked:   false,

@@ -1,17 +1,17 @@
 package main
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/bashocode/gowallet/microservices/api-gateway/internal/middleware"
 	"github.com/bashocode/gowallet/microservices/api-gateway/internal/proxy"
 	"github.com/bashocode/gowallet/microservices/shared/config"
+	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	log.Println("Starting API Gateway on port 8080...")
+	logger.Log.Info("Starting API Gateway on port 8080...")
 
 	// Load configuration
 	cfg := config.LoadConfig()
@@ -19,30 +19,31 @@ func main() {
 	// 2. Create reverse proxy for each target microservice
 	authProxy, err := proxy.NewReverseProxy(cfg.AuthServiceURL)
 	if err != nil {
-		log.Fatalf("Failed to initialize auth proxy: %v", err)
+		logger.Fatal(nil, "Failed to initialize auth proxy", "error", err)
 	}
 
 	userProxy, err := proxy.NewReverseProxy(cfg.UserServiceURL)
 	if err != nil {
-		log.Fatalf("Failed to initialize user proxy: %v", err)
+		logger.Fatal(nil, "Failed to initialize user proxy", "error", err)
 	}
 
 	walletProxy, err := proxy.NewReverseProxy(cfg.WalletServiceURL)
 	if err != nil {
-		log.Fatalf("Failed to initialize wallet proxy: %v", err)
+		logger.Fatal(nil, "Failed to initialize wallet proxy", "error", err)
 	}
 
 	transactionProxy, err := proxy.NewReverseProxy(cfg.TransactionServiceURL)
 	if err != nil {
-		log.Fatalf("Failed to initialize transaction proxy: %v", err)
+		logger.Fatal(nil, "Failed to initialize transaction proxy", "error", err)
 	}
 
 	paymentProxy, err := proxy.NewReverseProxy(cfg.PaymentServiceURL)
 	if err != nil {
-		log.Fatalf("Failed to initialize payment proxy: %v", err)
+		logger.Fatal(nil, "Failed to initialize payment proxy", "error", err)
 	}
 
 	r := gin.New()
+	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 
 	// Enable CORS Middleware
@@ -93,8 +94,8 @@ func main() {
 		})
 	})
 
-	log.Println("API Gateway listening on port 8080...")
+	logger.Log.Info("API Gateway listening on port 8080...")
 	if err := r.Run(":8080"); err != nil {
-		log.Fatalf("Gateway failed: %v", err)
+		logger.Fatal(nil, "Gateway failed", "error", err)
 	}
 }
