@@ -50,3 +50,8 @@ func Error(ctx context.Context, msg string, args ...any) {
 func Warn(ctx context.Context, msg string, args ...any) {
 	Log.WarnContext(ctx, msg, getLogArgs(ctx, args)...)
 }
+
+func Fatal(ctx context.Context, msg string, args ...any) {
+	Log.ErrorContext(ctx, msg, getLogArgs(ctx, args)...)
+	os.Exit(1)
+}
