@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package wallet;
+
+option go_package = "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet";
+
+service WalletService {
+  rpc GetWalletByUserID (GetWalletRequest) returns (WalletResponse);
+  rpc UpdateWalletBalance (UpdateBalanceRequest) returns (WalletResponse);
+  rpc CreateWallet (CreateWalletRequest) returns (WalletResponse);
+}
+
+message GetWalletRequest {
+  string user_id = 1;
+}
+
+message CreateWalletRequest {
+  string user_id = 1;
+}
+
+message UpdateBalanceRequest {
+  string user_id = 2;
+  double amount = 3;       // Positive for credit, Negative for debit
+  int32 expected_version = 4; // Optimistic locking version check
+}
+
+message WalletResponse {
+  string id = 1;
+  string user_id = 2;
+  double balance = 3;
+  int32 version = 4;
+}

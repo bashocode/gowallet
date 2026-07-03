@@ -19,9 +19,9 @@ import (
 	otpGenerator "github.com/bashocode/gowallet/microservices/user-service/internal/otp/generator"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/model"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/repository"
+	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -47,28 +47,28 @@ type userService struct {
 	db          *sql.DB
 	rdb         *redis.Client
 	userRepo    repository.UserRepository
-	walletRepo  repository.WalletRepository
-	otpRepo     repository.OTPRepository
-	rtRepo      repository.RefreshTokenRepository
-	emailSender email.EmailSender
+	walletClient pbWallet.WalletServiceClient
+	otpRepo      repository.OTPRepository
+	rtRepo       repository.RefreshTokenRepository
+	emailSender  email.EmailSender
 }
 
 func NewUserService(
 	db *sql.DB,
 	rdb *redis.Client,
 	uRepo repository.UserRepository,
-	wRepo repository.WalletRepository,
+	wClient pbWallet.WalletServiceClient,
 	otpRepo repository.OTPRepository,
 	emailSender email.EmailSender,
 ) UserService {
 	return &userService{
-		db:          db,
-		rdb:         rdb,
-		userRepo:    uRepo,
-		walletRepo:  wRepo,
-		otpRepo:     otpRepo,
-		rtRepo:      repository.NewMySQLRefreshTokenRepository(db),
-		emailSender: emailSender,
+		db:           db,
+		rdb:          rdb,
+		userRepo:     uRepo,
+		walletClient: wClient,
+		otpRepo:      otpRepo,
+		rtRepo:       repository.NewMySQLRefreshTokenRepository(db),
+		emailSender:  emailSender,
 	}
 }
 
@@ -100,15 +100,11 @@ func (s *userService) Register(ctx context.Context, req model.CreateUserRequest)
 		return nil, customErr.ErrInternalServer
 	}
 
-	wallet := &model.Wallet{
-		ID:       uuid.New().String(),
-		UserID:   user.ID,
-		Balance:  decimal.Zero,
-		Currency: "IDR",
-		Status:   "active",
-	}
-
-	if err := s.walletRepo.CreateTx(ctx, tx, wallet); err != nil {
+	_, err = s.walletClient.CreateWallet(ctx, &pbWallet.CreateWalletRequest{
+		UserId: user.ID,
+	})
+	if err != nil {
+		logger.Log.Error("failed to create wallet via gRPC", "error", err)
 		return nil, customErr.ErrInternalServer
 	}
 
@@ -387,15 +383,11 @@ func (s *userService) HandleGoogleCallback(ctx context.Context, code string, sta
 				return nil, customErr.ErrInternalServer
 			}
 
-			wallet := &model.Wallet{
-				ID:       uuid.New().String(),
-				UserID:   user.ID,
-				Balance:  decimal.Zero,
-				Currency: "IDR",
-				Status:   "active",
-				Version:  1,
-			}
-			if err := s.walletRepo.CreateTx(ctx, tx, wallet); err != nil {
+			_, err = s.walletClient.CreateWallet(ctx, &pbWallet.CreateWalletRequest{
+				UserId: user.ID,
+			})
+			if err != nil {
+				logger.Log.Error("failed to create wallet via gRPC for OAuth user", "error", err)
 				return nil, customErr.ErrInternalServer
 			}
 

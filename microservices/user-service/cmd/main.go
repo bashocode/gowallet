@@ -13,8 +13,10 @@ import (
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/repository"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/service"
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
+	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -40,12 +42,36 @@ func main() {
 	// Initialize email sender
 	emailSender := email.NewSMTPEmailSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPFrom)
 
+	// Connect to wallet-service gRPC
+	conn, err := grpc.NewClient(
+		cfg.WalletGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(`{
+			"loadBalancingConfig": [{"round_robin":{}}],
+			"methodConfig": [{
+				"name": [{}],
+				"retryPolicy": {
+					"maxAttempts": 3,
+					"initialBackoff": "0.1s",
+					"maxBackoff": "1s",
+					"backoffMultiplier": 2.0,
+					"retryableStatusCodes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
+				}
+			}]
+		}`),
+	)
+	if err != nil {
+		logger.Fatal(nil, "Failed to connect to wallet service", "error", err)
+	}
+	// Note: defer conn.Close() isn't deferred here since the main function blocks on HTTP server, but we can defer it or keep it open.
+
+	walletClient := pbWallet.NewWalletServiceClient(conn)
+
 	// Initialize layers
 	userRepo := repository.NewMySQLUserRepository(db)
-	walletRepo := repository.NewMySQLWalletRepository(db)
 	otpRepo := repository.NewMySQLOTPRepository(db)
 
-	userSvc := service.NewUserService(db, rdb, userRepo, walletRepo, otpRepo, emailSender)
+	userSvc := service.NewUserService(db, rdb, userRepo, walletClient, otpRepo, emailSender)
 	userHandler := handler.NewUserHandler(userSvc)
 
 	r := gin.New()
