@@ -9,6 +9,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/model"
 	pb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -16,7 +17,7 @@ import (
 
 type mockWalletRepository struct {
 	getFunc    func(ctx context.Context, userID string) (*model.Wallet, error)
-	updateFunc func(ctx context.Context, userID string, amount float64, expectedVersion int32) (*model.Wallet, error)
+	updateFunc func(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error)
 	createFunc func(ctx context.Context, w *model.Wallet) error
 }
 
@@ -24,7 +25,7 @@ func (m *mockWalletRepository) GetByUserID(ctx context.Context, userID string) (
 	return m.getFunc(ctx, userID)
 }
 
-func (m *mockWalletRepository) UpdateBalanceWithOwnerCheck(ctx context.Context, userID string, amount float64, expectedVersion int32) (*model.Wallet, error) {
+func (m *mockWalletRepository) UpdateBalanceWithOwnerCheck(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error) {
 	return m.updateFunc(ctx, userID, amount, expectedVersion)
 }
 
@@ -42,18 +43,18 @@ func TestWalletGRPCServer(t *testing.T) {
 				return &model.Wallet{
 					ID:      "wallet-123",
 					UserID:  "user-123",
-					Balance: 1500.0,
+					Balance: decimal.NewFromInt(1500),
 					Version: 1,
 				}, nil
 			}
 			return nil, errors.New("not found")
 		},
-		updateFunc: func(ctx context.Context, userID string, amount float64, expectedVersion int32) (*model.Wallet, error) {
+		updateFunc: func(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error) {
 			if userID == "user-123" && expectedVersion == 1 {
 				return &model.Wallet{
 					ID:      "wallet-123",
 					UserID:  "user-123",
-					Balance: 1500.0 + amount,
+					Balance: decimal.NewFromInt(1500).Add(amount),
 					Version: 2,
 				}, nil
 			}
@@ -96,8 +97,8 @@ func TestWalletGRPCServer(t *testing.T) {
 		if resp.GetUserId() != "user-456" {
 			t.Errorf("Expected user ID user-456, got %s", resp.GetUserId())
 		}
-		if resp.GetBalance() != 0.0 {
-			t.Errorf("Expected balance 0.0, got %f", resp.GetBalance())
+		if resp.GetBalance() != "0.0" {
+			t.Errorf("Expected balance 0.0, got %s", resp.GetBalance())
 		}
 	})
 
@@ -107,8 +108,8 @@ func TestWalletGRPCServer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
-		if resp.GetBalance() != 1500.0 {
-			t.Errorf("Expected balance 1500.0, got %f", resp.GetBalance())
+		if resp.GetBalance() != "1500.0" {
+			t.Errorf("Expected balance 1500.0, got %s", resp.GetBalance())
 		}
 		if resp.GetVersion() != 1 {
 			t.Errorf("Expected version 1, got %d", resp.GetVersion())
@@ -126,14 +127,14 @@ func TestWalletGRPCServer(t *testing.T) {
 	t.Run("UpdateWalletBalance_Success", func(t *testing.T) {
 		resp, err := client.UpdateWalletBalance(context.Background(), &pb.UpdateBalanceRequest{
 			UserId:          "user-123",
-			Amount:          500.0,
+			Amount:          "500.0",
 			ExpectedVersion: 1,
 		})
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
-		if resp.GetBalance() != 2000.0 {
-			t.Errorf("Expected balance 2000.0, got %f", resp.GetBalance())
+		if resp.GetBalance() != "2000.0" {
+			t.Errorf("Expected balance 2000.0, got %s", resp.GetBalance())
 		}
 		if resp.GetVersion() != 2 {
 			t.Errorf("Expected version 2, got %d", resp.GetVersion())

@@ -19,10 +19,12 @@ type Config struct {
 	AuthServiceURL        string
 	UserServiceURL        string
 	WalletServiceURL      string
+	LedgerServiceURL      string
 	TransactionServiceURL string
 	PaymentServiceURL     string
 	UserGRPCAddr          string
 	WalletGRPCAddr        string
+	LedgerGRPCAddr        string
 }
 
 func LoadConfig() *Config {
@@ -80,6 +82,11 @@ func LoadConfig() *Config {
 		walletServiceURL = "http://localhost:8082"
 	}
 
+	ledgerServiceURL := os.Getenv("LEDGER_SERVICE_URL")
+	if ledgerServiceURL == "" {
+		ledgerServiceURL = "http://localhost:8085"
+	}
+
 	transactionServiceURL := os.Getenv("TRANSACTION_SERVICE_URL")
 	if transactionServiceURL == "" {
 		transactionServiceURL = "http://localhost:8086"
@@ -100,6 +107,11 @@ func LoadConfig() *Config {
 		walletGRPCAddr = "localhost:50053"
 	}
 
+	ledgerGRPCAddr := os.Getenv("LEDGER_GRPC_ADDR")
+	if ledgerGRPCAddr == "" {
+		ledgerGRPCAddr = "localhost:50054"
+	}
+
 	return &Config{
 		DBDSN:                 dsn,
 		RedisAddr:             redisAddr,
@@ -112,9 +124,11 @@ func LoadConfig() *Config {
 		AuthServiceURL:        authServiceURL,
 		UserServiceURL:        userServiceURL,
 		WalletServiceURL:      walletServiceURL,
+		LedgerServiceURL:      ledgerServiceURL,
 		TransactionServiceURL: transactionServiceURL,
 		PaymentServiceURL:     paymentServiceURL,
 		UserGRPCAddr:          userGRPCAddr,
 		WalletGRPCAddr:        walletGRPCAddr,
+		LedgerGRPCAddr:        ledgerGRPCAddr,
 	}
 }

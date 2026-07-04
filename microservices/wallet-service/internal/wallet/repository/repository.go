@@ -6,11 +6,12 @@ import (
 	"errors"
 
 	"github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/model"
+	"github.com/shopspring/decimal"
 )
 
 type WalletRepository interface {
 	GetByUserID(ctx context.Context, userID string) (*model.Wallet, error)
-	UpdateBalanceWithOwnerCheck(ctx context.Context, userID string, amount float64, expectedVersion int32) (*model.Wallet, error)
+	UpdateBalanceWithOwnerCheck(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error)
 	Create(ctx context.Context, w *model.Wallet) error
 }
 
@@ -47,7 +48,7 @@ func (r *mysqlWalletRepository) GetByUserID(ctx context.Context, userID string) 
 	return w, nil
 }
 
-func (r *mysqlWalletRepository) UpdateBalanceWithOwnerCheck(ctx context.Context, userID string, amount float64, expectedVersion int32) (*model.Wallet, error) {
+func (r *mysqlWalletRepository) UpdateBalanceWithOwnerCheck(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
