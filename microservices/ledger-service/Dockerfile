@@ -11,7 +11,7 @@ COPY user-service/ ./user-service/
 COPY wallet-service/ ./wallet-service/
 COPY ledger-service/ ./ledger-service/
 
-WORKDIR /app/user-service
+WORKDIR /app/ledger-service
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /service ./cmd/main.go
 
 # === Stage 2: Production Image ===
@@ -21,5 +21,5 @@ RUN apk --no-cache add ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /service .
 
-EXPOSE 8084
+EXPOSE 8085 50054
 CMD ["./service"]

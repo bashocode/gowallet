@@ -3,6 +3,7 @@ go 1.26.4
 use (
 	./api-gateway
 	./auth-service
+	./ledger-service
 	./shared
 	./user-service
 	./wallet-service

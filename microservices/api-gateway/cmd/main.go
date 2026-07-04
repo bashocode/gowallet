@@ -42,6 +42,11 @@ func main() {
 		logger.Fatal(nil, "Failed to initialize payment proxy", "error", err)
 	}
 
+	ledgerProxy, err := proxy.NewReverseProxy(cfg.LedgerServiceURL)
+	if err != nil {
+		logger.Fatal(nil, "Failed to initialize ledger proxy", "error", err)
+	}
+
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
@@ -84,6 +89,11 @@ func main() {
 	// /api/v1/payments/* is forwarded to Payment Service on port 8083
 	r.Any("/api/v1/payments/*path", func(c *gin.Context) {
 		paymentProxy.ServeHTTP(c.Writer, c.Request)
+	})
+
+	// /api/v1/ledger/* is forwarded to Ledger Service on port 8085
+	r.Any("/api/v1/ledger/*path", func(c *gin.Context) {
+		ledgerProxy.ServeHTTP(c.Writer, c.Request)
 	})
 
 	// Health check endpoint
