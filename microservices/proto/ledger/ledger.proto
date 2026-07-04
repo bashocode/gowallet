@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package ledger;
+
+option go_package = "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger";
+
+service LedgerService {
+  rpc RecordLedgerEntry (RecordEntryRequest) returns (RecordEntryResponse);
+  rpc RecordLedgerEntries (RecordEntriesRequest) returns (RecordEntriesResponse);
+  rpc GetBalanceFromLedger (GetBalanceRequest) returns (BalanceResponse);
+  rpc GetEntriesByWalletID (GetEntriesRequest) returns (EntriesResponse);
+}
+
+message RecordEntryRequest {
+  string transaction_id = 1;
+  string wallet_id = 2;
+  string type = 3;        // credit or debit
+  string amount = 4;      // decimal as string, e.g. "10000.50"
+}
+
+message RecordEntryResponse {
+  string entry_id = 1;
+  bool success = 2;
+}
+
+message RecordEntriesRequest {
+  repeated RecordEntryRequest entries = 1;
+}
+
+message RecordEntriesResponse {
+  bool success = 1;
+}
+
+message GetBalanceRequest {
+  string wallet_id = 1;
+}
+
+message BalanceResponse {
+  string calculated_balance = 1; // decimal as string
+}
+
+message GetEntriesRequest {
+  string wallet_id = 1;
+}
+
+message EntriesResponse {
+  repeated LedgerEntry entries = 1;
+}
+
+message LedgerEntry {
+  string id = 1;
+  string transaction_id = 2;
+  string wallet_id = 3;
+  string entry_type = 4;
+  string amount = 5;
+  string created_at = 6;
+}

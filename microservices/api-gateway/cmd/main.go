@@ -32,6 +32,11 @@ func main() {
 		logger.Fatal(nil, "Failed to initialize wallet proxy", "error", err)
 	}
 
+	ledgerProxy, err := proxy.NewReverseProxy(cfg.LedgerServiceURL)
+	if err != nil {
+		logger.Fatal(nil, "Failed to initialize ledger proxy", "error", err)
+	}
+
 	transactionProxy, err := proxy.NewReverseProxy(cfg.TransactionServiceURL)
 	if err != nil {
 		logger.Fatal(nil, "Failed to initialize transaction proxy", "error", err)
@@ -74,6 +79,11 @@ func main() {
 	// /api/v1/wallets/* is forwarded to Wallet Service on port 8082
 	r.Any("/api/v1/wallets/*path", func(c *gin.Context) {
 		walletProxy.ServeHTTP(c.Writer, c.Request)
+	})
+
+	// /api/v1/ledger/* is forwarded to Ledger Service on port 8085
+	r.Any("/api/v1/ledger/*path", func(c *gin.Context) {
+		ledgerProxy.ServeHTTP(c.Writer, c.Request)
 	})
 
 	// /api/v1/transactions/* is forwarded to Transaction Service on port 8086
