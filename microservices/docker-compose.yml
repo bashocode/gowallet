@@ -70,6 +70,8 @@ services:
         condition: service_started
       ledger-service:
         condition: service_started
+      transaction-service:
+        condition: service_started
     networks:
       - gowallet-network
     restart: unless-stopped
@@ -174,6 +176,35 @@ services:
     depends_on:
       - mysql
       - redis
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+
+  transaction-service:
+    build:
+      context: .
+      dockerfile: transaction-service/Dockerfile
+    container_name: gowallet-transaction-service-ms
+    ports:
+      - "${TRANSACTION_PORT}:${TRANSACTION_PORT}"
+    environment:
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME_TRANSACTION}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - JWT_SECRET=${JWT_SECRET}
+      - USER_GRPC_ADDR=${USER_GRPC_ADDR}
+      - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
+      - LEDGER_GRPC_ADDR=${LEDGER_GRPC_ADDR}
+    depends_on:
+      - mysql
+      - redis
+      - user-service
+      - wallet-service
+      - ledger-service
     networks:
       - gowallet-network
     restart: unless-stopped
