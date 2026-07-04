@@ -43,6 +43,11 @@ func (s *authService) Login(ctx context.Context, req model.LoginRequest) (*model
 		return nil, customErr.NewAppError(http.StatusUnauthorized, "INVALID_CREDENTIALS", "wrong email or password.")
 	}
 
+	// check if user already verify email
+	if !userResp.GetIsVerified() {
+		return nil, customErr.NewAppError(http.StatusUnauthorized, "EMAIL_NOT_VERIFIED", "Email not verified. Please verify your email.")
+	}
+
 	// verify the hash password
 	err = bcrypt.CompareHashAndPassword([]byte(userResp.GetPasswordHash()), []byte(req.Password))
 	if err != nil {

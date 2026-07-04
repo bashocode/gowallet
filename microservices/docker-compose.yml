@@ -64,7 +64,9 @@ services:
       auth-service:
         condition: service_started
       user-service:
-          condition: service_started
+        condition: service_started
+      wallet-service:
+        condition: service_started
     networks:
       - gowallet-network
     restart: unless-stopped
@@ -116,6 +118,31 @@ services:
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_FROM=${SMTP_FROM}
+      - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+
+  wallet-service:
+    build:
+      context: .
+      dockerfile: wallet-service/Dockerfile
+    container_name: gowallet-wallet-service-ms
+    ports:
+      - "8082:8082"
+      - "50053:50053"
+    environment:
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME_WALLET}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
       - mysql
       - redis

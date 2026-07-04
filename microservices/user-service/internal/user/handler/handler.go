@@ -172,25 +172,19 @@ type VerifyOTPRequest struct {
 }
 
 func (h *UserHandler) VerifyEmail(c *gin.Context) {
-	userID, exist := c.Get("user_id")
-	if !exist {
-		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "User context not found"))
+	userIDStr := c.Query("user_id")
+	code := c.Query("code")
+
+	if userIDStr == "" || code == "" {
+		c.Error(customErr.NewAppError(
+			http.StatusBadRequest,
+			"INVALID_INPUT",
+			"user_id and code query parameters are required",
+		))
 		return
 	}
 
-	userIDStr, ok := utils.SafeString(userID)
-	if !ok {
-		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "Invalid user context"))
-		return
-	}
-
-	var req VerifyOTPRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))
-		return
-	}
-
-	err := h.svc.VerifyEmail(c.Request.Context(), userIDStr, req.Code)
+	err := h.svc.VerifyEmail(c.Request.Context(), userIDStr, code)
 	if err != nil {
 		c.Error(err)
 		return
