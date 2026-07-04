@@ -40,7 +40,10 @@ func (s *ledgerService) ReconcileWalletBalance(ctx context.Context, userID strin
 		return false, decimal.Zero, decimal.Zero, err
 	}
 
-	walletBalance := decimal.NewFromFloat(wallet.GetBalance())
+	walletBalance, err := decimal.NewFromString(wallet.GetBalance())
+	if err != nil {
+		return false, decimal.Zero, decimal.Zero, err
+	}
 
 	calculatedBalance, err := s.ledgerRepo.GetBalanceByWalletID(ctx, wallet.GetId())
 	if err != nil {

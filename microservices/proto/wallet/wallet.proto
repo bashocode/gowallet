@@ -20,13 +20,13 @@ message CreateWalletRequest {
 
 message UpdateBalanceRequest {
   string user_id = 2;
-  double amount = 3;       // Positive for credit, Negative for debit
+  string amount = 3;       // Positive for credit, Negative for debit
   int32 expected_version = 4; // Optimistic locking version check
 }
 
 message WalletResponse {
   string id = 1;
   string user_id = 2;
-  double balance = 3;
+  string balance = 3;
   int32 version = 4;
 }

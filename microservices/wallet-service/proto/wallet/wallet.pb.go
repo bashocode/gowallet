@@ -112,7 +112,7 @@ func (x *CreateWalletRequest) GetUserId() string {
 type UpdateBalanceRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	UserId          string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Amount          float64                `protobuf:"fixed64,3,opt,name=amount,proto3" json:"amount,omitempty"`                                         // Positive for credit, Negative for debit
+	Amount          string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`                                           // Positive for credit, Negative for debit
 	ExpectedVersion int32                  `protobuf:"varint,4,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"` // Optimistic locking version check
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -155,11 +155,11 @@ func (x *UpdateBalanceRequest) GetUserId() string {
 	return ""
 }
 
-func (x *UpdateBalanceRequest) GetAmount() float64 {
+func (x *UpdateBalanceRequest) GetAmount() string {
 	if x != nil {
 		return x.Amount
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateBalanceRequest) GetExpectedVersion() int32 {
@@ -173,7 +173,7 @@ type WalletResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Balance       float64                `protobuf:"fixed64,3,opt,name=balance,proto3" json:"balance,omitempty"`
+	Balance       string                 `protobuf:"bytes,3,opt,name=balance,proto3" json:"balance,omitempty"`
 	Version       int32                  `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -223,11 +223,11 @@ func (x *WalletResponse) GetUserId() string {
 	return ""
 }
 
-func (x *WalletResponse) GetBalance() float64 {
+func (x *WalletResponse) GetBalance() string {
 	if x != nil {
 		return x.Balance
 	}
-	return 0
+	return ""
 }
 
 func (x *WalletResponse) GetVersion() int32 {
@@ -248,12 +248,12 @@ const file_proto_wallet_wallet_proto_rawDesc = "" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"r\n" +
 	"\x14UpdateBalanceRequest\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x16\n" +
-	"\x06amount\x18\x03 \x01(\x01R\x06amount\x12)\n" +
+	"\x06amount\x18\x03 \x01(\tR\x06amount\x12)\n" +
 	"\x10expected_version\x18\x04 \x01(\x05R\x0fexpectedVersion\"m\n" +
 	"\x0eWalletResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x18\n" +
-	"\abalance\x18\x03 \x01(\x01R\abalance\x12\x18\n" +
+	"\abalance\x18\x03 \x01(\tR\abalance\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\x05R\aversion2\xe8\x01\n" +
 	"\rWalletService\x12E\n" +
 	"\x11GetWalletByUserID\x12\x18.wallet.GetWalletRequest\x1a\x16.wallet.WalletResponse\x12K\n" +
