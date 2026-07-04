@@ -116,6 +116,7 @@ type UserResponse struct {
 	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	PasswordHash  string                 `protobuf:"bytes,4,opt,name=password_hash,json=passwordHash,proto3" json:"password_hash,omitempty"` // Needed by Auth Service for login verification
 	Role          string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`                                     // Needed by Auth Service to generate JWT with role
+	IsVerified    bool                   `protobuf:"varint,6,opt,name=is_verified,json=isVerified,proto3" json:"is_verified,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -185,6 +186,13 @@ func (x *UserResponse) GetRole() string {
 	return ""
 }
 
+func (x *UserResponse) GetIsVerified() bool {
+	if x != nil {
+		return x.IsVerified
+	}
+	return false
+}
+
 var File_proto_user_user_proto protoreflect.FileDescriptor
 
 const file_proto_user_user_proto_rawDesc = "" +
@@ -193,13 +201,15 @@ const file_proto_user_user_proto_rawDesc = "" +
 	"\x0eGetUserRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"-\n" +
 	"\x15GetUserByEmailRequest\x12\x14\n" +
-	"\x05email\x18\x01 \x01(\tR\x05email\"\x8a\x01\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\"\xab\x01\n" +
 	"\fUserResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tfull_name\x18\x02 \x01(\tR\bfullName\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12#\n" +
 	"\rpassword_hash\x18\x04 \x01(\tR\fpasswordHash\x12\x12\n" +
-	"\x04role\x18\x05 \x01(\tR\x04role2\x89\x01\n" +
+	"\x04role\x18\x05 \x01(\tR\x04role\x12\x1f\n" +
+	"\vis_verified\x18\x06 \x01(\bR\n" +
+	"isVerified2\x89\x01\n" +
 	"\vUserService\x127\n" +
 	"\vGetUserByID\x12\x14.user.GetUserRequest\x1a\x12.user.UserResponse\x12A\n" +
 	"\x0eGetUserByEmail\x12\x1b.user.GetUserByEmailRequest\x1a\x12.user.UserResponseBEZCgithub.com/bashocode/gowallet/microservices/user-service/proto/userb\x06proto3"

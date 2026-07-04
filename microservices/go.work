@@ -5,4 +5,5 @@ use (
 	./auth-service
 	./shared
 	./user-service
+	./wallet-service
 )

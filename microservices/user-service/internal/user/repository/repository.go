@@ -199,26 +199,6 @@ func (r *mysqlUserRepository) GetAll(ctx context.Context, params model.Paginatio
 	return users, total, nil
 }
 
-// === WalletRepository ===
-
-type WalletRepository interface {
-	CreateTx(ctx context.Context, tx *sql.Tx, w *model.Wallet) error
-}
-
-type mysqlWalletRepository struct {
-	db *sql.DB
-}
-
-func NewMySQLWalletRepository(db *sql.DB) WalletRepository {
-	return &mysqlWalletRepository{db: db}
-}
-
-func (r *mysqlWalletRepository) CreateTx(ctx context.Context, tx *sql.Tx, w *model.Wallet) error {
-	query := "INSERT INTO wallets (id, user_id, balance, currency, status) VALUES (?, ?, ?, ?, ?)"
-	_, err := tx.ExecContext(ctx, query, w.ID, w.UserID, w.Balance, w.Currency, w.Status)
-	return err
-}
-
 // === OTPRepository ===
 
 type OTPRepository interface {

@@ -29,10 +29,11 @@ func (s *userGRPCServer) GetUserByID(ctx context.Context, req *pb.GetUserRequest
 	}
 
 	return &pb.UserResponse{
-		Id:       u.ID,
-		FullName: u.FullName,
-		Email:    u.Email,
-		Role:     u.Role,
+		Id:         u.ID,
+		FullName:   u.FullName,
+		Email:      u.Email,
+		Role:       u.Role,
+		IsVerified: u.IsVerified,
 	}, nil
 }
 
@@ -51,5 +52,6 @@ func (s *userGRPCServer) GetUserByEmail(ctx context.Context, req *pb.GetUserByEm
 		Email:        u.Email,
 		PasswordHash: u.PasswordHash, // Sent securely via internal gRPC
 		Role:         u.Role,
+		IsVerified:   u.IsVerified,
 	}, nil
 }

@@ -22,6 +22,7 @@ type Config struct {
 	TransactionServiceURL string
 	PaymentServiceURL     string
 	UserGRPCAddr          string
+	WalletGRPCAddr        string
 }
 
 func LoadConfig() *Config {
@@ -94,6 +95,11 @@ func LoadConfig() *Config {
 		userGRPCAddr = "localhost:50052"
 	}
 
+	walletGRPCAddr := os.Getenv("WALLET_GRPC_ADDR")
+	if walletGRPCAddr == "" {
+		walletGRPCAddr = "localhost:50053"
+	}
+
 	return &Config{
 		DBDSN:                 dsn,
 		RedisAddr:             redisAddr,
@@ -109,5 +115,6 @@ func LoadConfig() *Config {
 		TransactionServiceURL: transactionServiceURL,
 		PaymentServiceURL:     paymentServiceURL,
 		UserGRPCAddr:          userGRPCAddr,
+		WalletGRPCAddr:        walletGRPCAddr,
 	}
 }
