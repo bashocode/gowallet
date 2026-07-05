@@ -5,6 +5,7 @@ use (
 	./auth-service
 	./ledger-service
 	./shared
+	./transaction-service
 	./user-service
 	./wallet-service
 )

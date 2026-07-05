@@ -10,6 +10,7 @@ COPY auth-service/ ./auth-service/
 COPY user-service/ ./user-service/
 COPY wallet-service/ ./wallet-service/
 COPY ledger-service/ ./ledger-service/
+COPY transaction-service/ ./transaction-service/
 
 WORKDIR /app/ledger-service
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /service ./cmd/main.go
@@ -19,7 +20,8 @@ FROM alpine:3.24.1
 RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
-COPY --from=builder /service .
+# COPY --from=builder /service .
+COPY ledger-service/bin/ledger-service-linux ./service
 
 EXPOSE 8085 50054
 CMD ["./service"]
