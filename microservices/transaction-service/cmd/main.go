@@ -1,14 +1,18 @@
 package main
 
 import (
+	"net"
+
 	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
+	transactionGRPC "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/grpc"
 	transactionHandler "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/handler"
 	transactionRepository "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
 	transactionService "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/service"
+	pb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	pbUser "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
@@ -116,7 +120,27 @@ func main() {
 	txSvc := transactionService.NewTransactionService(db, txRepo, userClient, walletClient, ledgerClient)
 	txHandler := transactionHandler.NewTransactionHandler(txSvc)
 
-	// Setup HTTP Server
+	// =========================================================
+	// Start gRPC Server (for internal service-to-service calls)
+	// =========================================================
+	go func() {
+		grpcLis, err := net.Listen("tcp", ":50055")
+		if err != nil {
+			logger.Fatal(nil, "Failed to listen on gRPC port 50055", "error", err)
+		}
+
+		grpcServer := grpc.NewServer()
+		pb.RegisterTransactionServiceServer(grpcServer, transactionGRPC.NewTransactionGRPCServer(txSvc))
+
+		logger.Log.Info("Transaction gRPC server listening on port 50055...")
+		if err := grpcServer.Serve(grpcLis); err != nil {
+			logger.Fatal(nil, "gRPC server failed", "error", err)
+		}
+	}()
+
+	// =========================================================
+	// Setup HTTP Server (public routes only — no topup exposed)
+	// =========================================================
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
@@ -128,12 +152,11 @@ func main() {
 		protected.Use(middleware.AuthMiddleware(rdb))
 		{
 			protected.POST("/transactions/transfer", txHandler.Transfer)
-			protected.POST("/transactions/topup", txHandler.TopUp)
 			protected.GET("/transactions/history", txHandler.GetHistory)
 		}
 	}
 
-	logger.Log.Info("Transaction Service listening on port 8086...")
+	logger.Log.Info("Transaction Service HTTP server listening on port 8086...")
 	if err := r.Run(":8086"); err != nil {
 		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
 	}

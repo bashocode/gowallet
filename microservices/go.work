@@ -8,4 +8,5 @@ use (
 	./transaction-service
 	./user-service
 	./wallet-service
+	./payment-service
 )

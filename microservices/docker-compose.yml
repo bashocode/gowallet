@@ -72,6 +72,8 @@ services:
         condition: service_started
       transaction-service:
         condition: service_started
+      payment-service:
+        condition: service_started
     networks:
       - gowallet-network
     restart: unless-stopped
@@ -188,6 +190,7 @@ services:
     container_name: gowallet-transaction-service-ms
     ports:
       - "${TRANSACTION_PORT}:${TRANSACTION_PORT}"
+      - "50055:50055"
     environment:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
@@ -206,6 +209,34 @@ services:
       - user-service
       - wallet-service
       - ledger-service
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: payment-service/Dockerfile
+    container_name: gowallet-payment-service-ms
+    ports:
+      - "8083:8083"
+    environment:
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=gowallet_payment
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - JWT_SECRET=${JWT_SECRET}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - TRANSACTION_GRPC_ADDR=transaction-service:50055
+      - BASE_URL=${BASE_URL}
+    depends_on:
+      - mysql
+      - redis
+      - transaction-service
     networks:
       - gowallet-network
     restart: unless-stopped
