@@ -9,6 +9,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
+	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -36,7 +37,7 @@ func main() {
 	defer db.Close()
 
 	// Connect to User Service via gRPC
-	conn, err := grpc.NewClient(
+	userConn, err := grpc.NewClient(
 		cfg.UserGRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(`{
@@ -55,13 +56,38 @@ func main() {
 	if err != nil {
 		logger.Fatal(nil, "Failed to connect to user service", "error", err)
 	}
-	defer conn.Close()
+	defer userConn.Close()
 
-	userClient := pb.NewUserServiceClient(conn)
+	userClient := pb.NewUserServiceClient(userConn)
+
+	// Connect to Wallet Service via gRPC (for OAuth user wallet creation)
+	walletConn, err := grpc.NewClient(
+		cfg.WalletGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(`{
+			"loadBalancingConfig": [{"round_robin":{}}],
+			"methodConfig": [{
+				"name": [{}],
+				"retryPolicy": {
+					"maxAttempts": 3,
+					"initialBackoff": "0.1s",
+					"maxBackoff": "1s",
+					"backoffMultiplier": 2.0,
+					"retryableStatusCodes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
+				}
+			}]
+		}`),
+	)
+	if err != nil {
+		logger.Fatal(nil, "Failed to connect to wallet service", "error", err)
+	}
+	defer walletConn.Close()
+
+	walletClient := pbWallet.NewWalletServiceClient(walletConn)
 
 	// Initialize layers
 	rtRepo := repository.NewMySQLRefreshTokenRepository(db)
-	authSvc := service.NewAuthService(rdb, rtRepo, userClient)
+	authSvc := service.NewAuthService(rdb, rtRepo, userClient, walletClient)
 	authHandler := handler.NewAuthHandler(authSvc)
 
 	r := gin.New()
@@ -74,6 +100,8 @@ func main() {
 	{
 		v1.POST("/auth/login", authHandler.Login)
 		v1.POST("/auth/refresh", authHandler.RefreshToken)
+		v1.GET("/auth/google/login", authHandler.GoogleLogin)
+		v1.GET("/auth/google/callback", authHandler.GoogleCallback)
 
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware(rdb))

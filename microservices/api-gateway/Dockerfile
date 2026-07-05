@@ -10,6 +10,7 @@ COPY auth-service/ ./auth-service/
 COPY user-service/ ./user-service/
 COPY wallet-service/ ./wallet-service/
 COPY ledger-service/ ./ledger-service/
+COPY transaction-service/ ./transaction-service/
 
 WORKDIR /app/api-gateway
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /service ./cmd/main.go
@@ -23,7 +24,9 @@ RUN adduser -D -g '' appuser
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /service .
+# COPY --from=builder /service .
+
+COPY api-gateway/bin/api-gateway-linux ./service
 
 USER appuser
 EXPOSE 8080

@@ -4,8 +4,10 @@ import (
 	"context"
 
 	"github.com/bashocode/gowallet/microservices/shared/logger"
+	"github.com/bashocode/gowallet/microservices/user-service/internal/user/model"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/repository"
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -53,5 +55,43 @@ func (s *userGRPCServer) GetUserByEmail(ctx context.Context, req *pb.GetUserByEm
 		PasswordHash: u.PasswordHash, // Sent securely via internal gRPC
 		Role:         u.Role,
 		IsVerified:   u.IsVerified,
+	}, nil
+}
+
+func (s *userGRPCServer) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.UserResponse, error) {
+	logger.Log.Info("gRPC Request: CreateUser", "email", req.GetEmail())
+
+	user := &model.User{
+		ID:           uuid.New().String(),
+		FullName:     req.GetFullName(),
+		Email:        req.GetEmail(),
+		PasswordHash: "",
+		Role:         "user",
+		IsVerified:   true, // OAuth users are pre-verified
+	}
+
+	if req.GetOauthProvider() != "" {
+		provider := req.GetOauthProvider()
+		oauthID := req.GetOauthId()
+		user.OAuthProvider = &provider
+		user.OAuthID = &oauthID
+	}
+
+	if req.GetAvatarUrl() != "" {
+		avatarURL := req.GetAvatarUrl()
+		user.AvatarURL = &avatarURL
+	}
+
+	if err := s.repo.Create(ctx, user); err != nil {
+		logger.Log.Warn("gRPC CreateUser failed", "email", req.GetEmail(), "error", err)
+		return nil, status.Errorf(codes.Internal, "failed to create user: %v", err)
+	}
+
+	return &pb.UserResponse{
+		Id:         user.ID,
+		FullName:   user.FullName,
+		Email:      user.Email,
+		Role:       user.Role,
+		IsVerified: user.IsVerified,
 	}, nil
 }
