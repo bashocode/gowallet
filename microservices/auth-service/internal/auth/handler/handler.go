@@ -81,3 +81,37 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		"message": "Logout successful. Token session has been deactivated",
 	})
 }
+
+// GoogleLogin redirects user to Google OAuth consent screen
+func (h *AuthHandler) GoogleLogin(c *gin.Context) {
+	loginURL, err := h.svc.GetGoogleLoginURL(c.Request.Context())
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	c.Redirect(http.StatusTemporaryRedirect, loginURL)
+}
+
+// GoogleCallback handles the OAuth callback from Google
+func (h *AuthHandler) GoogleCallback(c *gin.Context) {
+	code := c.Query("code")
+	state := c.Query("state")
+
+	if state == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "state token is invalid"})
+		return
+	}
+
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "authorization code is empty"})
+		return
+	}
+
+	resp, err := h.svc.HandleGoogleCallback(c.Request.Context(), code, state)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}

@@ -55,14 +55,8 @@ func main() {
 	r.Use(middleware.CORSMiddleware())
 
 	// 3. Define proxy routing rules
-	// /api/v1/auth/* is forwarded to Auth Service (or User Service for Google OAuth)
+	// /api/v1/auth/* is forwarded to Auth Service (login, refresh, logout, Google OAuth)
 	r.Any("/api/v1/auth/*path", func(c *gin.Context) {
-		path := c.Param("path")
-		// Forward Google OAuth requests to user-service, others to auth-service
-		if len(path) >= 7 && path[:7] == "/google" {
-			userProxy.ServeHTTP(c.Writer, c.Request)
-			return
-		}
 		authProxy.ServeHTTP(c.Writer, c.Request)
 	})
 

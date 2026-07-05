@@ -88,10 +88,6 @@ func main() {
 		v1.POST("/users/verify-password-reset", userHandler.VerifyPasswordReset)
 		v1.GET("/users/verify-email", userHandler.VerifyEmail)
 
-		// Google OAuth Routes (Using specific path matching so it aligns with gateway redirect)
-		v1.GET("/auth/google/login", userHandler.GoogleLogin)
-		v1.GET("/auth/google/callback", userHandler.GoogleCallback)
-
 		// Protected Routes
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware(rdb))

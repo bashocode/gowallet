@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -9,30 +12,39 @@ import (
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/model"
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/repository"
 	sharedAuth "github.com/bashocode/gowallet/microservices/shared/auth"
+	"github.com/bashocode/gowallet/microservices/shared/config"
 	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
+	"github.com/bashocode/gowallet/microservices/shared/logger"
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
+	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 type AuthService interface {
 	Login(ctx context.Context, req model.LoginRequest) (*model.LoginResponse, error)
 	RefreshToken(ctx context.Context, oldTokenString string) (*model.LoginResponse, error)
 	Logout(ctx context.Context, tokenString string) error
+	GetGoogleLoginURL(ctx context.Context) (string, error)
+	HandleGoogleCallback(ctx context.Context, code string, state string) (*model.LoginResponse, error)
 }
 
 type authService struct {
-	rdb        *redis.Client
-	rtRepo     repository.RefreshTokenRepository
-	userClient pb.UserServiceClient
+	rdb          *redis.Client
+	rtRepo       repository.RefreshTokenRepository
+	userClient   pb.UserServiceClient
+	walletClient pbWallet.WalletServiceClient
 }
 
-func NewAuthService(rdb *redis.Client, rtRepo repository.RefreshTokenRepository, userClient pb.UserServiceClient) AuthService {
+func NewAuthService(rdb *redis.Client, rtRepo repository.RefreshTokenRepository, userClient pb.UserServiceClient, walletClient pbWallet.WalletServiceClient) AuthService {
 	return &authService{
-		rdb:        rdb,
-		rtRepo:     rtRepo,
-		userClient: userClient,
+		rdb:          rdb,
+		rtRepo:       rtRepo,
+		userClient:   userClient,
+		walletClient: walletClient,
 	}
 }
 
@@ -171,4 +183,132 @@ func (s *authService) Logout(ctx context.Context, tokenString string) error {
 	}
 
 	return nil
+}
+
+// --- Google OAuth ---
+
+type googleUserInfo struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	VerifiedEmail bool   `json:"verified_email"`
+	Name          string `json:"name"`
+	Picture       string `json:"picture"`
+}
+
+func (s *authService) getOAuthConfig() *oauth2.Config {
+	cfg := config.LoadConfig()
+	return &oauth2.Config{
+		ClientID:     cfg.GoogleClientID,
+		ClientSecret: cfg.GoogleClientSecret,
+		RedirectURL:  cfg.GoogleRedirectURL,
+		Scopes: []string{
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		},
+		Endpoint: google.Endpoint,
+	}
+}
+
+func (s *authService) GetGoogleLoginURL(ctx context.Context) (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	state := base64.URLEncoding.EncodeToString(b)
+
+	stateKey := fmt.Sprintf("oauth:state:%s", state)
+	err := s.rdb.Set(ctx, stateKey, "valid", 10*time.Minute).Err()
+	if err != nil {
+		return "", err
+	}
+
+	url := s.getOAuthConfig().AuthCodeURL(state)
+	return url, nil
+}
+
+func (s *authService) HandleGoogleCallback(ctx context.Context, code string, state string) (*model.LoginResponse, error) {
+	stateKey := fmt.Sprintf("oauth:state:%s", state)
+	val, err := s.rdb.Get(ctx, stateKey).Result()
+	if err != nil || val != "valid" {
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_STATE", "invalid or expired OAuth state - possible CSRF attack")
+	}
+
+	s.rdb.Del(ctx, stateKey)
+
+	config := s.getOAuthConfig()
+
+	token, err := config.Exchange(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("failed to exchange code: %w", err)
+	}
+
+	client := config.Client(ctx, token)
+	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user info: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var googleUser googleUserInfo
+	if err := json.NewDecoder(resp.Body).Decode(&googleUser); err != nil {
+		return nil, fmt.Errorf("failed to decode user info: %w", err)
+	}
+
+	// Try to get user by email
+	userResp, err := s.userClient.GetUserByEmail(ctx, &pb.GetUserByEmailRequest{Email: googleUser.Email})
+	if err != nil {
+		// User not found — create via gRPC
+		userResp, err = s.userClient.CreateUser(ctx, &pb.CreateUserRequest{
+			FullName:      googleUser.Name,
+			Email:         googleUser.Email,
+			OauthProvider: "google",
+			OauthId:       googleUser.ID,
+			AvatarUrl:     googleUser.Picture,
+		})
+		if err != nil {
+			logger.Log.Error("failed to create OAuth user via gRPC", "error", err)
+			return nil, customErr.ErrInternalServer
+		}
+
+		// Create wallet for new user via gRPC
+		_, err = s.walletClient.CreateWallet(ctx, &pbWallet.CreateWalletRequest{
+			UserId: userResp.GetId(),
+		})
+		if err != nil {
+			logger.Log.Error("failed to create wallet via gRPC for OAuth user", "error", err)
+			return nil, customErr.ErrInternalServer
+		}
+	} else {
+		// User exists — check if they registered with password (not OAuth)
+		if userResp.GetPasswordHash() != "" {
+			return nil, customErr.NewAppError(http.StatusConflict, "EMAIL_ALREADY_REGISTERED", "This email is registered using password credentials. Please sign in with email and password.")
+		}
+	}
+
+	// Generate tokens
+	accessToken, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 15*time.Minute)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	refreshToken, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 7*24*time.Hour)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	newRT := &model.RefreshToken{
+		ID:        uuid.New().String(),
+		UserID:    userResp.GetId(),
+		Token:     refreshToken,
+		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+		Revoked:   false,
+	}
+	if err := s.rtRepo.Create(ctx, newRT); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	return &model.LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
 }
