@@ -1,8 +1,6 @@
 package main
 
 import (
-	"net/url"
-
 	paymentHandler "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/handler"
 	paymentRepository "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/repository"
 	paymentService "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/service"
@@ -92,16 +90,8 @@ func main() {
 		}
 	}
 
-	u, err := url.Parse(cfg.PaymentServiceURL)
-	var httpPort string
-	if err == nil && u.Port() != "" {
-		httpPort = u.Port()
-	} else {
-		httpPort = "8083" // fallback
-	}
-
-	logger.Log.Info("Payment Service listening on port " + httpPort + "...")
-	if err := r.Run(":" + httpPort); err != nil {
+	logger.Log.Info("Payment Service listening on port " + cfg.PaymentPort + "...")
+	if err := r.Run(":" + cfg.PaymentPort); err != nil {
 		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
 	}
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"net"
-	"net/url"
 
 	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
 	"github.com/bashocode/gowallet/microservices/shared/config"
@@ -162,16 +161,8 @@ func main() {
 		}
 	}
 
-	u, err := url.Parse(cfg.TransactionServiceURL)
-	var httpPort string
-	if err == nil && u.Port() != "" {
-		httpPort = u.Port()
-	} else {
-		httpPort = "8086" // fallback
-	}
-
-	logger.Log.Info("Transaction Service HTTP server listening on port " + httpPort + "...")
-	if err := r.Run(":" + httpPort); err != nil {
+	logger.Log.Info("Transaction Service HTTP server listening on port " + cfg.TransactionPort + "...")
+	if err := r.Run(":" + cfg.TransactionPort); err != nil {
 		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
 	}
 }

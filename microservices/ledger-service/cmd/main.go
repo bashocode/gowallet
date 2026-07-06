@@ -2,7 +2,6 @@ package main
 
 import (
 	"net"
-	"net/url"
 
 	ledgerGRPC "github.com/bashocode/gowallet/microservices/ledger-service/internal/ledger/grpc"
 	ledgerHandler "github.com/bashocode/gowallet/microservices/ledger-service/internal/ledger/handler"
@@ -107,16 +106,8 @@ func main() {
 		}
 	}
 
-	u, err := url.Parse(cfg.LedgerServiceURL)
-	var httpPort string
-	if err == nil && u.Port() != "" {
-		httpPort = u.Port()
-	} else {
-		httpPort = "8085" // fallback
-	}
-
-	logger.Log.Info("Ledger HTTP Server running on port " + httpPort + "...")
-	if err := r.Run(":" + httpPort); err != nil {
+	logger.Log.Info("Ledger HTTP Server running on port " + cfg.LedgerPort + "...")
+	if err := r.Run(":" + cfg.LedgerPort); err != nil {
 		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
 	}
 }

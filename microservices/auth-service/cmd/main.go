@@ -1,8 +1,6 @@
 package main
 
 import (
-	"net/url"
-
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/handler"
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/repository"
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/service"
@@ -112,16 +110,8 @@ func main() {
 		}
 	}
 
-	u, err := url.Parse(cfg.AuthServiceURL)
-	var httpPort string
-	if err == nil && u.Port() != "" {
-		httpPort = u.Port()
-	} else {
-		httpPort = "8081" // fallback
-	}
-
-	logger.Log.Info("Auth Service listening on port " + httpPort + "...")
-	if err := r.Run(":" + httpPort); err != nil {
+	logger.Log.Info("Auth Service listening on port " + cfg.AuthPort + "...")
+	if err := r.Run(":" + cfg.AuthPort); err != nil {
 		logger.Fatal(nil, "Auth Service failed", "error", err)
 	}
 }

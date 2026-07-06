@@ -2,7 +2,6 @@ package main
 
 import (
 	"net"
-	"net/url"
 
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
@@ -129,16 +128,8 @@ func main() {
 		}
 	}()
 
-	u, err := url.Parse(cfg.UserServiceURL)
-	var httpPort string
-	if err == nil && u.Port() != "" {
-		httpPort = u.Port()
-	} else {
-		httpPort = "8084" // fallback
-	}
-
-	logger.Log.Info("User Service listening on port " + httpPort + "...")
-	if err := r.Run(":" + httpPort); err != nil {
+	logger.Log.Info("User Service listening on port " + cfg.UserPort + "...")
+	if err := r.Run(":" + cfg.UserPort); err != nil {
 		logger.Fatal(nil, "User Service failed", "error", err)
 	}
 }
