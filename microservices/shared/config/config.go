@@ -25,6 +25,10 @@ type Config struct {
 	UserGRPCAddr          string
 	WalletGRPCAddr        string
 	LedgerGRPCAddr        string
+	TransactionGRPCAddr   string
+	StripeSecretKey       string
+	StripeWebhookSecret   string
+	BaseURL               string
 }
 
 func LoadConfig() *Config {
@@ -112,6 +116,24 @@ func LoadConfig() *Config {
 		ledgerGRPCAddr = "localhost:50054"
 	}
 
+	transactionGRPCAddr := os.Getenv("TRANSACTION_GRPC_ADDR")
+	if transactionGRPCAddr == "" {
+		transactionGRPCAddr = "localhost:50055"
+	}
+
+	stripeSecretKey := os.Getenv("STRIPE_SECRET_KEY")
+	if stripeSecretKey == "" {
+		stripeSecretKey = ""
+	}
+	stripeWebhookSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
+	if stripeWebhookSecret == "" {
+		stripeWebhookSecret = ""
+	}
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8080"
+	}
+
 	return &Config{
 		DBDSN:                 dsn,
 		RedisAddr:             redisAddr,
@@ -130,5 +152,9 @@ func LoadConfig() *Config {
 		UserGRPCAddr:          userGRPCAddr,
 		WalletGRPCAddr:        walletGRPCAddr,
 		LedgerGRPCAddr:        ledgerGRPCAddr,
+		TransactionGRPCAddr:   transactionGRPCAddr,
+		StripeSecretKey:       stripeSecretKey,
+		StripeWebhookSecret:   stripeWebhookSecret,
+		BaseURL:               baseURL,
 	}
 }

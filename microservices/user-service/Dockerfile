@@ -11,6 +11,7 @@ COPY user-service/ ./user-service/
 COPY wallet-service/ ./wallet-service/
 COPY ledger-service/ ./ledger-service/
 COPY transaction-service/ ./transaction-service/
+COPY payment-service/ ./payment-service/
 
 WORKDIR /app/user-service
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /service ./cmd/main.go
