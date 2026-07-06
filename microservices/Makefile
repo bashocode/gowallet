@@ -17,10 +17,10 @@ endif
 # LIST OF MICROSERVICES
 # ==============================================================================
 # Names of the microservice directories to be built automatically
-SERVICES := api-gateway auth-service user-service wallet-service ledger-service transaction-service
+SERVICES := api-gateway auth-service user-service wallet-service ledger-service transaction-service payment-service
 
 # Mark the targets below as abstract commands (not physical files)
-.PHONY: all build-linux build-native clean help
+.PHONY: all build-linux build-native clean help tidy tidy-shared
 
 # Default target if you run the `make` command without any arguments
 all: help
@@ -67,6 +67,23 @@ clean:
 	done
 	@echo "Clean completed!"
 
+## tidy-shared: Run go mod tidy only on the shared package
+# Run this first if you add/remove a dependency in the shared package.
+tidy-shared:
+	@echo "Running go mod tidy on shared..."
+	@cd shared && go mod tidy
+	@echo "Done tidying shared!"
+
+## tidy: Run go mod tidy on ALL services (shared first, then each service)
+# Useful after adding new dependencies or cloning the repository.
+tidy: tidy-shared
+	@echo "Running go mod tidy on all services..."
+	@for service in $(SERVICES); do \
+		echo "Tidying $$service..."; \
+		cd $$service && go mod tidy && cd ..; \
+	done
+	@echo "All services tidied successfully!"
+
 ## help: Display the usage guide for available make commands
 help:
 	@echo "Usage:"
@@ -75,6 +92,8 @@ help:
 	@echo "Targets:"
 	@echo "  make build-linux   - Compile all services for Linux ($(GOARCH)) to run in Docker (RAM-efficient)"
 	@echo "  make build-native  - Compile all services natively for macOS ($(ARCH)) to run locally"
+	@echo "  make tidy          - Run go mod tidy on shared and all services"
+	@echo "  make tidy-shared   - Run go mod tidy on the shared package only"
 	@echo "  make clean         - Remove all compiled binaries"
 	@echo "  make help          - Show this help message"
 

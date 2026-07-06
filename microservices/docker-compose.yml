@@ -72,6 +72,8 @@ services:
         condition: service_started
       transaction-service:
         condition: service_started
+      payment-service:
+        condition: service_started
     networks:
       - gowallet-network
     restart: unless-stopped
@@ -93,6 +95,10 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - JWT_SECRET=${JWT_SECRET}
       - USER_GRPC_ADDR=${USER_GRPC_ADDR}
+      - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
     depends_on:
       - mysql
       - redis
@@ -117,9 +123,6 @@ services:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - JWT_SECRET=${JWT_SECRET}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_FROM=${SMTP_FROM}
@@ -137,8 +140,8 @@ services:
       dockerfile: wallet-service/Dockerfile
     container_name: gowallet-wallet-service-ms
     ports:
-      - "8082:8082"
-      - "50053:50053"
+      - "${WALLET_PORT}:${WALLET_PORT}"
+      - "${WALLET_GRPC_PORT}:${WALLET_GRPC_PORT}"
     environment:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
@@ -161,8 +164,8 @@ services:
       dockerfile: ledger-service/Dockerfile
     container_name: gowallet-ledger-service-ms
     ports:
-      - "8085:8085"
-      - "50054:50054"
+      - "${LEDGER_PORT}:${LEDGER_PORT}"
+      - "${LEDGER_GRPC_PORT}:${LEDGER_GRPC_PORT}"
     environment:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
@@ -187,6 +190,7 @@ services:
     container_name: gowallet-transaction-service-ms
     ports:
       - "${TRANSACTION_PORT}:${TRANSACTION_PORT}"
+      - "${TRANSACTION_GRPC_PORT}:${TRANSACTION_GRPC_PORT}"
     environment:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
@@ -205,6 +209,34 @@ services:
       - user-service
       - wallet-service
       - ledger-service
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: payment-service/Dockerfile
+    container_name: gowallet-payment-service-ms
+    ports:
+      - "${PAYMENT_PORT}:${PAYMENT_PORT}"
+    environment:
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=gowallet_payment
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - JWT_SECRET=${JWT_SECRET}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - TRANSACTION_GRPC_ADDR=${TRANSACTION_GRPC_ADDR}
+      - BASE_URL=${BASE_URL}
+    depends_on:
+      - mysql
+      - redis
+      - transaction-service
     networks:
       - gowallet-network
     restart: unless-stopped

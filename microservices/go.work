@@ -4,6 +4,7 @@ use (
 	./api-gateway
 	./auth-service
 	./ledger-service
+	./payment-service
 	./shared
 	./transaction-service
 	./user-service

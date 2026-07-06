@@ -36,8 +36,8 @@ func NewMySQLUserRepository(db *sql.DB) UserRepository {
 }
 
 func (r *mysqlUserRepository) Create(ctx context.Context, u *model.User) error {
-	query := `INSERT INTO users (id, full_name, email, password_hash) VALUES (?, ?, ?, ?)`
-	_, err := r.db.ExecContext(ctx, query, u.ID, u.FullName, u.Email, u.PasswordHash)
+	query := `INSERT INTO users (id, full_name, email, password_hash, oauth_provider, oauth_id, avatar_url, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := r.db.ExecContext(ctx, query, u.ID, u.FullName, u.Email, u.PasswordHash, u.OAuthProvider, u.OAuthID, u.AvatarURL, u.IsVerified)
 	return err
 }
 
@@ -96,8 +96,8 @@ func (r *mysqlUserRepository) Update(ctx context.Context, u *model.User) error {
 }
 
 func (r *mysqlUserRepository) CreateTx(ctx context.Context, tx *sql.Tx, u *model.User) error {
-	query := `INSERT INTO users (id, full_name, email, password_hash, oauth_provider, oauth_id, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?)`
-	_, err := tx.ExecContext(ctx, query, u.ID, u.FullName, u.Email, u.PasswordHash, u.OAuthProvider, u.OAuthID, u.IsVerified)
+	query := `INSERT INTO users (id, full_name, email, password_hash, oauth_provider, oauth_id, avatar_url, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := tx.ExecContext(ctx, query, u.ID, u.FullName, u.Email, u.PasswordHash, u.OAuthProvider, u.OAuthID, u.AvatarURL, u.IsVerified)
 	return err
 }
 
