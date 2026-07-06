@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 
 	"github.com/bashocode/gowallet/microservices/api-gateway/internal/middleware"
 	"github.com/bashocode/gowallet/microservices/api-gateway/internal/proxy"
@@ -11,10 +12,18 @@ import (
 )
 
 func main() {
-	logger.Log.Info("Starting API Gateway on port 8080...")
-
 	// Load configuration
 	cfg := config.LoadConfig()
+
+	u, err := url.Parse(cfg.BaseURL)
+	var gatewayPort string
+	if err == nil && u.Port() != "" {
+		gatewayPort = u.Port()
+	} else {
+		gatewayPort = "8080" // fallback
+	}
+
+	logger.Log.Info("Starting API Gateway on port " + gatewayPort + "...")
 
 	// 2. Create reverse proxy for each target microservice
 	authProxy, err := proxy.NewReverseProxy(cfg.AuthServiceURL)
@@ -98,8 +107,8 @@ func main() {
 		})
 	})
 
-	logger.Log.Info("API Gateway listening on port 8080...")
-	if err := r.Run(":8080"); err != nil {
+	logger.Log.Info("API Gateway listening on port " + gatewayPort + "...")
+	if err := r.Run(":" + gatewayPort); err != nil {
 		logger.Fatal(nil, "Gateway failed", "error", err)
 	}
 }

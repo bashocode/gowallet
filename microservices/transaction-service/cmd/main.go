@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"net/url"
 
 	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
 	"github.com/bashocode/gowallet/microservices/shared/config"
@@ -129,20 +130,15 @@ func main() {
 	}
 
 	lis, err := net.Listen("tcp", ":"+port)
-
 	if err != nil {
-		logger.Fatal(nil, "Failed to listen gRPC", "error", err)
-	}
-
-	if err != nil {
-		logger.Fatal(nil, "Failed to listen on gRPC port 50055", "error", err)
+		logger.Fatal(nil, "Failed to listen on gRPC port "+port, "error", err)
 	}
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterTransactionServiceServer(grpcServer, transactionGRPC.NewTransactionGRPCServer(txSvc))
 
 	go func() {
-		logger.Log.Info("Transaction gRPC server listening on port 50055...")
+		logger.Log.Info("Transaction gRPC server listening on port " + port + "...")
 		if err := grpcServer.Serve(lis); err != nil {
 			logger.Fatal(nil, "gRPC server failed", "error", err)
 		}
@@ -166,8 +162,16 @@ func main() {
 		}
 	}
 
-	logger.Log.Info("Transaction Service HTTP server listening on port 8086...")
-	if err := r.Run(":8086"); err != nil {
+	u, err := url.Parse(cfg.TransactionServiceURL)
+	var httpPort string
+	if err == nil && u.Port() != "" {
+		httpPort = u.Port()
+	} else {
+		httpPort = "8086" // fallback
+	}
+
+	logger.Log.Info("Transaction Service HTTP server listening on port " + httpPort + "...")
+	if err := r.Run(":" + httpPort); err != nil {
 		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
 	}
 }

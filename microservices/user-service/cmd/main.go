@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"net/url"
 
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
@@ -108,29 +109,36 @@ func main() {
 	}
 
 	// Start gRPC server
-	// Dynamic approach:
 	_, port, err := net.SplitHostPort(cfg.UserGRPCAddr)
 	if err != nil {
-		logger.Fatal(nil, "Failed to split host port: %v", err)
+		logger.Fatal(nil, "Failed to split gRPC host port", "error", err)
 	}
 
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		logger.Fatal(nil, "Failed to listen gRPC port", "error", err)
+		logger.Fatal(nil, "Failed to listen gRPC port "+port, "error", err)
 	}
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterUserServiceServer(grpcServer, userGRPC.NewUserGRPCServer(userRepo))
 
 	go func() {
-		logger.Log.Info("User gRPC Server running on port 50052...")
+		logger.Log.Info("User gRPC Server running on port " + port + "...")
 		if err := grpcServer.Serve(lis); err != nil {
 			logger.Fatal(nil, "Failed to serve gRPC", "error", err)
 		}
 	}()
 
-	logger.Log.Info("User Service listening on port 8084...")
-	if err := r.Run(":8084"); err != nil {
+	u, err := url.Parse(cfg.UserServiceURL)
+	var httpPort string
+	if err == nil && u.Port() != "" {
+		httpPort = u.Port()
+	} else {
+		httpPort = "8084" // fallback
+	}
+
+	logger.Log.Info("User Service listening on port " + httpPort + "...")
+	if err := r.Run(":" + httpPort); err != nil {
 		logger.Fatal(nil, "User Service failed", "error", err)
 	}
 }
