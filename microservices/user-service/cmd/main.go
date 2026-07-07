@@ -111,26 +111,26 @@ func main() {
 	// Dynamic approach:
 	_, port, err := net.SplitHostPort(cfg.UserGRPCAddr)
 	if err != nil {
-		logger.Fatal(nil, "Failed to split host port: %v", err)
+		logger.Fatal(nil, "Failed to split gRPC host port: %v", err)
 	}
 
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		logger.Fatal(nil, "Failed to listen gRPC port", "error", err)
+		logger.Fatal(nil, "Failed to listen gRPC port"+port, "error", err)
 	}
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterUserServiceServer(grpcServer, userGRPC.NewUserGRPCServer(userRepo))
 
 	go func() {
-		logger.Log.Info("User gRPC Server running on port 50052...")
+		logger.Log.Info("User gRPC Server running on port " + port + "...")
 		if err := grpcServer.Serve(lis); err != nil {
 			logger.Fatal(nil, "Failed to serve gRPC", "error", err)
 		}
 	}()
 
-	logger.Log.Info("User Service listening on port 8084...")
-	if err := r.Run(":8084"); err != nil {
+	logger.Log.Info("User Service listening on port " + cfg.UserPort + "...")
+	if err := r.Run(":" + cfg.UserPort); err != nil {
 		logger.Fatal(nil, "User Service failed", "error", err)
 	}
 }

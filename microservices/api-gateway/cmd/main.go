@@ -11,10 +11,9 @@ import (
 )
 
 func main() {
-	logger.Log.Info("Starting API Gateway on port 8080...")
-
 	// Load configuration
 	cfg := config.LoadConfig()
+	logger.Log.Info("Starting API Gateway on port " + cfg.GatewayPort + "...")
 
 	// 2. Create reverse proxy for each target microservice
 	authProxy, err := proxy.NewReverseProxy(cfg.AuthServiceURL)
@@ -98,8 +97,8 @@ func main() {
 		})
 	})
 
-	logger.Log.Info("API Gateway listening on port 8080...")
-	if err := r.Run(":8080"); err != nil {
+	logger.Log.Info("API Gateway listening on port " + cfg.GatewayPort + "...")
+	if err := r.Run(":" + cfg.GatewayPort); err != nil {
 		logger.Fatal(nil, "Gateway failed", "error", err)
 	}
 }

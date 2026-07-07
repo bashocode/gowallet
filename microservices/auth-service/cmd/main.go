@@ -110,8 +110,8 @@ func main() {
 		}
 	}
 
-	logger.Log.Info("Auth Service listening on port 8081...")
-	if err := r.Run(":8081"); err != nil {
+	logger.Log.Info("Auth Service listening on port " + cfg.AuthPort + "...")
+	if err := r.Run(":" + cfg.AuthPort); err != nil {
 		logger.Fatal(nil, "Auth Service failed", "error", err)
 	}
 }

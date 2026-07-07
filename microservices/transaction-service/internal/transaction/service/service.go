@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"time"
 
 	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
 	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
+	"github.com/bashocode/gowallet/microservices/transaction-service/internal/circuitbreaker"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
 	pbUser "github.com/bashocode/gowallet/microservices/user-service/proto/user"
@@ -24,11 +26,14 @@ type TransactionService interface {
 }
 
 type transactionService struct {
-	db           *sql.DB
-	txRepo       repository.TransactionRepository
-	userClient   pbUser.UserServiceClient
-	walletClient pbWallet.WalletServiceClient
-	ledgerClient pbLedger.LedgerServiceClient
+	db            *sql.DB
+	txRepo        repository.TransactionRepository
+	userClient    pbUser.UserServiceClient
+	walletClient  pbWallet.WalletServiceClient
+	ledgerClient  pbLedger.LedgerServiceClient
+	userBreaker   *circuitbreaker.CircuitBreaker
+	walletBreaker *circuitbreaker.CircuitBreaker
+	ledgerBreaker *circuitbreaker.CircuitBreaker
 }
 
 func NewTransactionService(
@@ -39,130 +44,295 @@ func NewTransactionService(
 	ledgerClient pbLedger.LedgerServiceClient,
 ) TransactionService {
 	return &transactionService{
-		db:           db,
-		txRepo:       txRepo,
-		userClient:   userClient,
-		walletClient: walletClient,
-		ledgerClient: ledgerClient,
+		db:            db,
+		txRepo:        txRepo,
+		userClient:    userClient,
+		walletClient:  walletClient,
+		ledgerClient:  ledgerClient,
+		userBreaker:   circuitbreaker.New(3, 30*time.Second),
+		walletBreaker: circuitbreaker.New(3, 30*time.Second),
+		ledgerBreaker: circuitbreaker.New(3, 30*time.Second),
 	}
 }
 
 func (s *transactionService) Transfer(ctx context.Context, senderUserID string, req model.TransferRequest) (*model.Transaction, error) {
-	// 1. Idempotency check — FIRST, before any gRPC call
+	// 1. Check Idempotency Key (double transaction security)
 	existing, _ := s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
 	if existing != nil {
 		return existing, nil
 	}
 
-	// 2. Validate receiver exists
-	receiverUser, err := s.userClient.GetUserByEmail(ctx, &pbUser.GetUserByEmailRequest{Email: req.ReceiverEmail})
+	// 2. Find & Validate Receiver User via User Service gRPC
+	var receiverUser *pbUser.UserResponse
+	err := s.userBreaker.Call(func() error {
+		var callErr error
+		receiverUser, callErr = s.userClient.GetUserByEmail(ctx, &pbUser.GetUserByEmailRequest{Email: req.ReceiverEmail})
+		return callErr
+	})
 	if err != nil {
-		return nil, customErr.NewAppError(http.StatusNotFound, "RECEIVER_NOT_FOUND", "Receiver not found")
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "User service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusNotFound, "RECEIVER_NOT_FOUND", "Receiver not found.")
 	}
 
-	// 3. Get sender and receiver wallets
-	senderWallet, err := s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
+	// 3. Get Sender Wallet Details via Wallet Service gRPC
+	var senderWallet *pbWallet.WalletResponse
+	err = s.walletBreaker.Call(func() error {
+		var callErr error
+		senderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
+		return callErr
+	})
 	if err != nil {
-		return nil, customErr.NewAppError(http.StatusNotFound, "SENDER_WALLET_NOT_FOUND", "Sender wallet not found")
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusNotFound, "SENDER_WALLET_NOT_FOUND", "Sender wallet not found.")
 	}
 
-	receiverWallet, err := s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUser.Id})
-	if err != nil {
-		return nil, customErr.NewAppError(http.StatusNotFound, "RECEIVER_WALLET_NOT_FOUND", "Receiver wallet not found")
-	}
-
-	// Sender and receiver cannot be the same
-	if senderWallet.Id == receiverWallet.Id {
-		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_TRANSFER", "Cannot transfer to self account")
-	}
-
-	// Validate sender balance (compare local copy before mutation)
 	senderBalance, err := decimal.NewFromString(senderWallet.GetBalance())
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 	if senderBalance.LessThan(req.Amount) {
-		return nil, customErr.NewAppError(http.StatusBadRequest, "INSUFFICIENT_BALANCE", "Insufficient balance")
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INSUFFICIENT_BALANCE", "Insufficient balance.")
 	}
 
-	// 4. Create transaction record with status "pending"
-	transactionID := uuid.New().String()
-	transaction := &model.Transaction{
-		ID:               transactionID,
+	// 4. Create transaction record with PENDING status
+	txID := uuid.New().String()
+	txRecord := &model.Transaction{
+		ID:               txID,
 		SenderWalletID:   &senderWallet.Id,
-		ReceiverWalletID: receiverWallet.Id,
+		ReceiverWalletID: receiverUser.Id, // Using User ID as destination WalletID
 		Amount:           req.Amount,
 		Description:      req.Description,
 		IdempotencyKey:   req.IdempotencyKey,
-		Status:           "pending",
+		Status:           "PENDING",
 	}
-	if err := s.txRepo.Create(ctx, transaction); err != nil {
+	if err := s.txRepo.Create(ctx, txRecord); err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
-	// 5. Saga: Debit sender (negative amount = reduce balance)
+	// 5. Deduct Sender Balance (Debit) via Wallet Service gRPC
 	debitAmount := req.Amount.Neg()
-	_, err = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
-		UserId:          senderUserID,
-		Amount:          debitAmount.String(),
-		ExpectedVersion: senderWallet.Version,
+	err = s.walletBreaker.Call(func() error {
+		var callErr error
+		_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+			UserId:          senderUserID,
+			Amount:          debitAmount.String(),
+			ExpectedVersion: senderWallet.Version,
+		})
+		return callErr
 	})
 	if err != nil {
-		s.markFailed(ctx, transactionID)
-		return nil, customErr.NewAppError(http.StatusConflict, "TRANSFER_FAILED", "Debit failed, please try again")
+		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENT_ERROR", "Failed to process transaction. Try again.")
 	}
 
-	// 6. Saga: Credit receiver (positive amount = add balance)
-	_, err = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
-		UserId:          receiverUser.Id,
-		Amount:          req.Amount.String(),
-		ExpectedVersion: receiverWallet.Version,
+	// 6. Add Receiver Balance (Credit) via Wallet Service gRPC
+	var receiverWallet *pbWallet.WalletResponse
+	err = s.walletBreaker.Call(func() error {
+		var callErr error
+		receiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUser.Id})
+		return callErr
 	})
 	if err != nil {
-		s.markFailed(ctx, transactionID)
-		logger.Log.Error("Partial saga failure: credit failed after debit succeeded",
-			slog.String("transaction_id", transactionID),
-			slog.Any("error", err),
-		)
-		return nil, customErr.NewAppError(http.StatusConflict, "TRANSFER_FAILED", "Credit failed, please try again")
+		// Compensation: re-read sender wallet before compensate
+		var compSenderWallet *pbWallet.WalletResponse
+		_ = s.walletBreaker.Call(func() error {
+			var callErr error
+			compSenderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
+			return callErr
+		})
+		if compSenderWallet != nil {
+			_ = s.walletBreaker.Call(func() error {
+				var callErr error
+				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+					UserId:          senderUserID,
+					Amount:          req.Amount.String(),
+					ExpectedVersion: compSenderWallet.Version, // ✅ ACTUAL VERSION
+				})
+				return callErr
+			})
+		}
+		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusNotFound, "RECEIVER_WALLET_NOT_FOUND", "Receiver wallet not found.")
 	}
 
-	// 7. Saga: Record ledger entries (debit + credit)
-	_, err = s.ledgerClient.RecordLedgerEntries(ctx, &pbLedger.RecordEntriesRequest{
-		Entries: []*pbLedger.RecordEntryRequest{
-			{
-				TransactionId: transactionID,
+	err = s.walletBreaker.Call(func() error {
+		var callErr error
+		_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+			UserId:          receiverUser.Id,
+			Amount:          req.Amount.String(),
+			ExpectedVersion: receiverWallet.Version,
+		})
+		return callErr
+	})
+	if err != nil {
+		// Compensation: re-read sender wallet before compensate
+		var compSenderWallet *pbWallet.WalletResponse
+		_ = s.walletBreaker.Call(func() error {
+			var callErr error
+			compSenderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
+			return callErr
+		})
+		if compSenderWallet != nil {
+			_ = s.walletBreaker.Call(func() error {
+				var callErr error
+				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+					UserId:          senderUserID,
+					Amount:          req.Amount.String(),
+					ExpectedVersion: compSenderWallet.Version, // ✅ ACTUAL VERSION
+				})
+				return callErr
+			})
+		}
+		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
+		return nil, customErr.ErrInternalServer
+	}
+
+	// 7. Record Financial Audit Trail in Ledger Service gRPC
+	err = s.ledgerBreaker.Call(func() error {
+		var callErr error
+		_, callErr = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
+			TransactionId: txID,
+			WalletId:      senderWallet.Id,
+			Type:          "debit",
+			Amount:        req.Amount.String(),
+		})
+		return callErr
+	})
+	if err != nil {
+		// Compensation: re-read receiver & sender wallet before compensate
+		var compReceiverWallet *pbWallet.WalletResponse
+		_ = s.walletBreaker.Call(func() error {
+			var callErr error
+			compReceiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUser.Id})
+			return callErr
+		})
+		if compReceiverWallet != nil {
+			_ = s.walletBreaker.Call(func() error {
+				var callErr error
+				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+					UserId:          receiverUser.Id,
+					Amount:          debitAmount.String(), // Deduct credit back
+					ExpectedVersion: compReceiverWallet.Version,
+				})
+				return callErr
+			})
+		}
+
+		var compSenderWallet *pbWallet.WalletResponse
+		_ = s.walletBreaker.Call(func() error {
+			var callErr error
+			compSenderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
+			return callErr
+		})
+		if compSenderWallet != nil {
+			_ = s.walletBreaker.Call(func() error {
+				var callErr error
+				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+					UserId:          senderUserID,
+					Amount:          req.Amount.String(),
+					ExpectedVersion: compSenderWallet.Version,
+				})
+				return callErr
+			})
+		}
+
+		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record audit log. Transaction cancelled.")
+	}
+
+	err = s.ledgerBreaker.Call(func() error {
+		var callErr error
+		_, callErr = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
+			TransactionId: txID,
+			WalletId:      receiverWallet.Id,
+			Type:          "credit",
+			Amount:        req.Amount.String(),
+		})
+		return callErr
+	})
+	if err != nil {
+		// Compensation: re-read receiver & sender wallet before compensate
+		var compReceiverWallet *pbWallet.WalletResponse
+		_ = s.walletBreaker.Call(func() error {
+			var callErr error
+			compReceiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUser.Id})
+			return callErr
+		})
+		if compReceiverWallet != nil {
+			_ = s.walletBreaker.Call(func() error {
+				var callErr error
+				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+					UserId:          receiverUser.Id,
+					Amount:          debitAmount.String(),
+					ExpectedVersion: compReceiverWallet.Version,
+				})
+				return callErr
+			})
+		}
+
+		var compSenderWallet *pbWallet.WalletResponse
+		_ = s.walletBreaker.Call(func() error {
+			var callErr error
+			compSenderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
+			return callErr
+		})
+		if compSenderWallet != nil {
+			_ = s.walletBreaker.Call(func() error {
+				var callErr error
+				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+					UserId:          senderUserID,
+					Amount:          req.Amount.String(),
+					ExpectedVersion: compSenderWallet.Version,
+				})
+				return callErr
+			})
+		}
+
+		// Compensation: since sender's DEBIT ledger above was already recorded, we must write a balancing CREDIT ledger (ledger is immutable)
+		_ = s.ledgerBreaker.Call(func() error {
+			var callErr error
+			_, callErr = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
+				TransactionId: txID,
 				WalletId:      senderWallet.Id,
-				Type:          "debit",
+				Type:          "credit", // Neutralizes previous DEBIT
 				Amount:        req.Amount.String(),
-			},
-			{
-				TransactionId: transactionID,
-				WalletId:      receiverWallet.Id,
-				Type:          "credit",
-				Amount:        req.Amount.String(),
-			},
-		},
-	})
-	if err != nil {
-		s.markFailed(ctx, transactionID)
-		logger.Log.Error("Partial saga failure: ledger record failed after wallet updates",
-			slog.String("transaction_id", transactionID),
-			slog.Any("error", err),
-		)
-		return nil, customErr.NewAppError(http.StatusConflict, "TRANSFER_FAILED", "Ledger record failed, please try again")
+			})
+			return callErr
+		})
+
+		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record receiver audit log. Transaction cancelled.")
 	}
 
-	// 8. Mark transaction as success
-	if err := s.txRepo.UpdateStatus(ctx, transactionID, "success"); err != nil {
+	// 8. Update transaction status to SUCCESS
+	txRecord.Status = "SUCCESS"
+	if err := s.txRepo.UpdateStatus(ctx, txID, "SUCCESS"); err != nil {
 		logger.Log.Error("Failed to update transaction status to success",
-			slog.String("transaction_id", transactionID),
+			slog.String("transaction_id", txID),
 			slog.Any("error", err),
 		)
 	}
-	transaction.Status = "success"
 
-	return transaction, nil
+	return txRecord, nil
 }
 
 func (s *transactionService) GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error) {
@@ -176,9 +346,17 @@ func (s *transactionService) GetHistory(ctx context.Context, userID string, para
 		params.Limit = 100
 	}
 
-	// Get user's wallet via gRPC
-	wallet, err := s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: userID})
+	// Get user's wallet via gRPC (with circuit breaker)
+	var wallet *pbWallet.WalletResponse
+	err := s.walletBreaker.Call(func() error {
+		var callErr error
+		wallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: userID})
+		return callErr
+	})
 	if err != nil {
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
 		return nil, nil, customErr.NewAppError(http.StatusNotFound, "WALLET_NOT_FOUND", "Wallet not found")
 	}
 
@@ -209,9 +387,17 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 		return existing, nil
 	}
 
-	// 2. Get user's wallet
-	wallet, err := s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: userID})
+	// 2. Get user's wallet (with circuit breaker)
+	var wallet *pbWallet.WalletResponse
+	err := s.walletBreaker.Call(func() error {
+		var callErr error
+		wallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: userID})
+		return callErr
+	})
 	if err != nil {
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
 		return nil, customErr.NewAppError(http.StatusNotFound, "WALLET_NOT_FOUND", "Wallet not found")
 	}
 
@@ -231,22 +417,33 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 	}
 
 	// 4. Saga: Credit wallet (positive amount = add balance)
-	_, err = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
-		UserId:          userID,
-		Amount:          req.Amount.String(),
-		ExpectedVersion: wallet.Version,
+	err = s.walletBreaker.Call(func() error {
+		var callErr error
+		_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+			UserId:          userID,
+			Amount:          req.Amount.String(),
+			ExpectedVersion: wallet.Version,
+		})
+		return callErr
 	})
 	if err != nil {
 		s.markFailed(ctx, transactionID)
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
 		return nil, customErr.NewAppError(http.StatusConflict, "TOPUP_FAILED", "Wallet credit failed, please try again")
 	}
 
 	// 5. Saga: Record ledger entry (credit only)
-	_, err = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
-		TransactionId: transactionID,
-		WalletId:      wallet.Id,
-		Type:          "credit",
-		Amount:        req.Amount.String(),
+	err = s.ledgerBreaker.Call(func() error {
+		var callErr error
+		_, callErr = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
+			TransactionId: transactionID,
+			WalletId:      wallet.Id,
+			Type:          "credit",
+			Amount:        req.Amount.String(),
+		})
+		return callErr
 	})
 	if err != nil {
 		s.markFailed(ctx, transactionID)
@@ -254,6 +451,9 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 			slog.String("transaction_id", transactionID),
 			slog.Any("error", err),
 		)
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
+		}
 		return nil, customErr.NewAppError(http.StatusConflict, "TOPUP_FAILED", "Ledger record failed, please try again")
 	}
 

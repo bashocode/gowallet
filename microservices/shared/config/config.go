@@ -29,6 +29,13 @@ type Config struct {
 	StripeSecretKey       string
 	StripeWebhookSecret   string
 	BaseURL               string
+	GatewayPort           string
+	AuthPort              string
+	WalletPort            string
+	PaymentPort           string
+	UserPort              string
+	LedgerPort            string
+	TransactionPort       string
 }
 
 func LoadConfig() *Config {
@@ -134,6 +141,41 @@ func LoadConfig() *Config {
 		baseURL = "http://localhost:8080"
 	}
 
+	gatewayPort := os.Getenv("GATEWAY_PORT")
+	if gatewayPort == "" {
+		gatewayPort = "8080"
+	}
+
+	authPort := os.Getenv("AUTH_PORT")
+	if authPort == "" {
+		authPort = "8081"
+	}
+
+	walletPort := os.Getenv("WALLET_PORT")
+	if walletPort == "" {
+		walletPort = "8082"
+	}
+
+	paymentPort := os.Getenv("PAYMENT_PORT")
+	if paymentPort == "" {
+		paymentPort = "8083"
+	}
+
+	userPort := os.Getenv("USER_PORT")
+	if userPort == "" {
+		userPort = "8084"
+	}
+
+	ledgerPort := os.Getenv("LEDGER_PORT")
+	if ledgerPort == "" {
+		ledgerPort = "8085"
+	}
+
+	transactionPort := os.Getenv("TRANSACTION_PORT")
+	if transactionPort == "" {
+		transactionPort = "8086"
+	}
+
 	return &Config{
 		DBDSN:                 dsn,
 		RedisAddr:             redisAddr,
@@ -156,5 +198,12 @@ func LoadConfig() *Config {
 		StripeSecretKey:       stripeSecretKey,
 		StripeWebhookSecret:   stripeWebhookSecret,
 		BaseURL:               baseURL,
+		GatewayPort:           gatewayPort,
+		AuthPort:              authPort,
+		WalletPort:            walletPort,
+		PaymentPort:           paymentPort,
+		UserPort:              userPort,
+		LedgerPort:            ledgerPort,
+		TransactionPort:       transactionPort,
 	}
 }
