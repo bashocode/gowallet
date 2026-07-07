@@ -74,8 +74,8 @@ func main() {
 		}
 	}
 
-	logger.Log.Info("Wallet HTTP Server running on port 8082...")
-	if err := r.Run(":8082"); err != nil {
+	logger.Log.Info("Wallet HTTP Server running on port " + cfg.WalletPort + "...")
+	if err := r.Run(":" + cfg.WalletPort); err != nil {
 		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
 	}
 }

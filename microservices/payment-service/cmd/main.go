@@ -90,8 +90,8 @@ func main() {
 		}
 	}
 
-	logger.Log.Info("Payment Service listening on port 8083...")
-	if err := r.Run(":8083"); err != nil {
+	logger.Log.Info("Payment Service listening on port " + cfg.PaymentPort + "...")
+	if err := r.Run(":" + cfg.PaymentPort); err != nil {
 		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
 	}
 }
