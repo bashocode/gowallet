@@ -108,6 +108,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		Description:      req.Description,
 		IdempotencyKey:   req.IdempotencyKey,
 		Status:           "PENDING",
+		CreatedAt:        time.Now(),
 	}
 	if err := s.txRepo.Create(ctx, txRecord); err != nil {
 		return nil, customErr.ErrInternalServer
