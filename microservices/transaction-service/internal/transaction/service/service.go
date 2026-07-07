@@ -25,6 +25,10 @@ type TransactionService interface {
 	TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error)
 }
 
+type DLQPublisher interface {
+	Publish(ctx context.Context, topic string, payload map[string]string) error
+}
+
 type transactionService struct {
 	db            *sql.DB
 	txRepo        repository.TransactionRepository
@@ -34,6 +38,7 @@ type transactionService struct {
 	userBreaker   *circuitbreaker.CircuitBreaker
 	walletBreaker *circuitbreaker.CircuitBreaker
 	ledgerBreaker *circuitbreaker.CircuitBreaker
+	dlqPublisher  DLQPublisher
 }
 
 func NewTransactionService(
@@ -42,6 +47,7 @@ func NewTransactionService(
 	userClient pbUser.UserServiceClient,
 	walletClient pbWallet.WalletServiceClient,
 	ledgerClient pbLedger.LedgerServiceClient,
+	dlq DLQPublisher,
 ) TransactionService {
 	return &transactionService{
 		db:            db,
@@ -52,6 +58,7 @@ func NewTransactionService(
 		userBreaker:   circuitbreaker.New(3, 30*time.Second),
 		walletBreaker: circuitbreaker.New(3, 30*time.Second),
 		ledgerBreaker: circuitbreaker.New(3, 30*time.Second),
+		dlqPublisher:  dlq,
 	}
 }
 
@@ -108,7 +115,6 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		Description:      req.Description,
 		IdempotencyKey:   req.IdempotencyKey,
 		Status:           "PENDING",
-		CreatedAt:        time.Now(),
 	}
 	if err := s.txRepo.Create(ctx, txRecord); err != nil {
 		return nil, customErr.ErrInternalServer
@@ -141,23 +147,33 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return callErr
 	})
 	if err != nil {
-		// Compensation: re-read sender wallet before compensate
+		// Compensation: re-read sender wallet before compensate (BUG-2 fix)
 		var compSenderWallet *pbWallet.WalletResponse
-		_ = s.walletBreaker.Call(func() error {
+		compReadErr := s.walletBreaker.Call(func() error {
 			var callErr error
 			compSenderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
 			return callErr
 		})
-		if compSenderWallet != nil {
-			_ = s.walletBreaker.Call(func() error {
-				var callErr error
-				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
-					UserId:          senderUserID,
-					Amount:          req.Amount.String(),
-					ExpectedVersion: compSenderWallet.Version, // ✅ ACTUAL VERSION
-				})
-				return callErr
+		if compReadErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation re-read sender failed", slog.String("transaction_id", txID), slog.Any("error", compReadErr))
+			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
+			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "get_sender_wallet_for_compensation", "error": compReadErr.Error()})
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+		}
+		compRefundErr := s.walletBreaker.Call(func() error {
+			var callErr error
+			_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+				UserId:          senderUserID,
+				Amount:          req.Amount.String(),
+				ExpectedVersion: compSenderWallet.Version,
 			})
+			return callErr
+		})
+		if compRefundErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation refund sender failed", slog.String("transaction_id", txID), slog.Any("error", compRefundErr))
+			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
+			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "refund_sender_after_receiver_wallet_not_found", "error": compRefundErr.Error()})
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
 		if err.Error() == "circuit breaker is open — service unavailable" {
@@ -176,23 +192,33 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return callErr
 	})
 	if err != nil {
-		// Compensation: re-read sender wallet before compensate
+		// Compensation: re-read sender wallet before compensate (BUG-2 fix)
 		var compSenderWallet *pbWallet.WalletResponse
-		_ = s.walletBreaker.Call(func() error {
+		compReadErr := s.walletBreaker.Call(func() error {
 			var callErr error
 			compSenderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
 			return callErr
 		})
-		if compSenderWallet != nil {
-			_ = s.walletBreaker.Call(func() error {
-				var callErr error
-				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
-					UserId:          senderUserID,
-					Amount:          req.Amount.String(),
-					ExpectedVersion: compSenderWallet.Version, // ✅ ACTUAL VERSION
-				})
-				return callErr
+		if compReadErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation re-read sender failed", slog.String("transaction_id", txID), slog.Any("error", compReadErr))
+			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
+			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "get_sender_wallet_for_compensation", "error": compReadErr.Error()})
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+		}
+		compRefundErr := s.walletBreaker.Call(func() error {
+			var callErr error
+			_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+				UserId:          senderUserID,
+				Amount:          req.Amount.String(),
+				ExpectedVersion: compSenderWallet.Version,
 			})
+			return callErr
+		})
+		if compRefundErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation refund sender failed", slog.String("transaction_id", txID), slog.Any("error", compRefundErr))
+			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
+			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "refund_sender_after_credit_fail", "error": compRefundErr.Error()})
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
 		if err.Error() == "circuit breaker is open — service unavailable" {
@@ -213,33 +239,44 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return callErr
 	})
 	if err != nil {
-		// Compensation: re-read receiver & sender wallet before compensate
+		// Compensation: re-read receiver & sender wallet before compensate (BUG-2 fix)
+		compFailed := false
+
 		var compReceiverWallet *pbWallet.WalletResponse
-		_ = s.walletBreaker.Call(func() error {
+		compRecvReadErr := s.walletBreaker.Call(func() error {
 			var callErr error
 			compReceiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUser.Id})
 			return callErr
 		})
-		if compReceiverWallet != nil {
-			_ = s.walletBreaker.Call(func() error {
+		if compRecvReadErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation re-read receiver failed", slog.String("transaction_id", txID), slog.Any("error", compRecvReadErr))
+			compFailed = true
+		} else {
+			if compDebitErr := s.walletBreaker.Call(func() error {
 				var callErr error
 				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
 					UserId:          receiverUser.Id,
-					Amount:          debitAmount.String(), // Deduct credit back
+					Amount:          debitAmount.String(),
 					ExpectedVersion: compReceiverWallet.Version,
 				})
 				return callErr
-			})
+			}); compDebitErr != nil {
+				logger.Error(ctx, "CRITICAL: compensation debit receiver failed", slog.String("transaction_id", txID), slog.Any("error", compDebitErr))
+				compFailed = true
+			}
 		}
 
 		var compSenderWallet *pbWallet.WalletResponse
-		_ = s.walletBreaker.Call(func() error {
+		compSendReadErr := s.walletBreaker.Call(func() error {
 			var callErr error
 			compSenderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
 			return callErr
 		})
-		if compSenderWallet != nil {
-			_ = s.walletBreaker.Call(func() error {
+		if compSendReadErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation re-read sender failed", slog.String("transaction_id", txID), slog.Any("error", compSendReadErr))
+			compFailed = true
+		} else {
+			if compCreditErr := s.walletBreaker.Call(func() error {
 				var callErr error
 				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
 					UserId:          senderUserID,
@@ -247,7 +284,16 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 					ExpectedVersion: compSenderWallet.Version,
 				})
 				return callErr
-			})
+			}); compCreditErr != nil {
+				logger.Error(ctx, "CRITICAL: compensation credit sender failed", slog.String("transaction_id", txID), slog.Any("error", compCreditErr))
+				compFailed = true
+			}
+		}
+
+		if compFailed {
+			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
+			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "compensation_after_ledger_debit_fail"})
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 
 		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
@@ -268,15 +314,20 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return callErr
 	})
 	if err != nil {
-		// Compensation: re-read receiver & sender wallet before compensate
+		// Compensation: re-read receiver & sender wallet before compensate (BUG-2 fix)
+		compFailed := false
+
 		var compReceiverWallet *pbWallet.WalletResponse
-		_ = s.walletBreaker.Call(func() error {
+		compRecvReadErr := s.walletBreaker.Call(func() error {
 			var callErr error
 			compReceiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUser.Id})
 			return callErr
 		})
-		if compReceiverWallet != nil {
-			_ = s.walletBreaker.Call(func() error {
+		if compRecvReadErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation re-read receiver failed", slog.String("transaction_id", txID), slog.Any("error", compRecvReadErr))
+			compFailed = true
+		} else {
+			if compDebitErr := s.walletBreaker.Call(func() error {
 				var callErr error
 				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
 					UserId:          receiverUser.Id,
@@ -284,17 +335,23 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 					ExpectedVersion: compReceiverWallet.Version,
 				})
 				return callErr
-			})
+			}); compDebitErr != nil {
+				logger.Error(ctx, "CRITICAL: compensation debit receiver failed", slog.String("transaction_id", txID), slog.Any("error", compDebitErr))
+				compFailed = true
+			}
 		}
 
 		var compSenderWallet *pbWallet.WalletResponse
-		_ = s.walletBreaker.Call(func() error {
+		compSendReadErr := s.walletBreaker.Call(func() error {
 			var callErr error
 			compSenderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
 			return callErr
 		})
-		if compSenderWallet != nil {
-			_ = s.walletBreaker.Call(func() error {
+		if compSendReadErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation re-read sender failed", slog.String("transaction_id", txID), slog.Any("error", compSendReadErr))
+			compFailed = true
+		} else {
+			if compCreditErr := s.walletBreaker.Call(func() error {
 				var callErr error
 				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
 					UserId:          senderUserID,
@@ -302,20 +359,32 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 					ExpectedVersion: compSenderWallet.Version,
 				})
 				return callErr
-			})
+			}); compCreditErr != nil {
+				logger.Error(ctx, "CRITICAL: compensation credit sender failed", slog.String("transaction_id", txID), slog.Any("error", compCreditErr))
+				compFailed = true
+			}
 		}
 
 		// Compensation: since sender's DEBIT ledger above was already recorded, we must write a balancing CREDIT ledger (ledger is immutable)
-		_ = s.ledgerBreaker.Call(func() error {
+		if compLedgerErr := s.ledgerBreaker.Call(func() error {
 			var callErr error
 			_, callErr = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
 				TransactionId: txID,
 				WalletId:      senderWallet.Id,
-				Type:          "credit", // Neutralizes previous DEBIT
+				Type:          "credit",
 				Amount:        req.Amount.String(),
 			})
 			return callErr
-		})
+		}); compLedgerErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation ledger reversal failed", slog.String("transaction_id", txID), slog.Any("error", compLedgerErr))
+			compFailed = true
+		}
+
+		if compFailed {
+			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
+			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "compensation_after_ledger_credit_fail"})
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+		}
 
 		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
 		if err.Error() == "circuit breaker is open — service unavailable" {
@@ -327,7 +396,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 	// 8. Update transaction status to SUCCESS
 	txRecord.Status = "SUCCESS"
 	if err := s.txRepo.UpdateStatus(ctx, txID, "SUCCESS"); err != nil {
-		logger.Log.Error("Failed to update transaction status to success",
+		logger.Error(ctx, "Failed to update transaction status to success",
 			slog.String("transaction_id", txID),
 			slog.Any("error", err),
 		)
@@ -448,7 +517,7 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 	})
 	if err != nil {
 		s.markFailed(ctx, transactionID)
-		logger.Log.Error("Partial saga failure: ledger record failed after wallet credit",
+		logger.Error(ctx, "Partial saga failure: ledger record failed after wallet credit",
 			slog.String("transaction_id", transactionID),
 			slog.Any("error", err),
 		)
@@ -460,7 +529,7 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 
 	// 6. Mark transaction as success
 	if err := s.txRepo.UpdateStatus(ctx, transactionID, "success"); err != nil {
-		logger.Log.Error("Failed to update transaction status to success",
+		logger.Error(ctx, "Failed to update transaction status to success",
 			slog.String("transaction_id", transactionID),
 			slog.Any("error", err),
 		)
@@ -472,7 +541,7 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 
 func (s *transactionService) markFailed(ctx context.Context, transactionID string) {
 	if err := s.txRepo.UpdateStatus(ctx, transactionID, "failed"); err != nil {
-		logger.Log.Error("Failed to mark transaction as failed",
+		logger.Error(ctx, "Failed to mark transaction as failed",
 			slog.String("transaction_id", transactionID),
 			slog.Any("error", err),
 		)

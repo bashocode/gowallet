@@ -104,13 +104,28 @@ func (m *MockLedgerClient) RecordLedgerEntry(ctx context.Context, in *pbLedger.R
 	return &pbLedger.RecordEntryResponse{EntryId: "ledger-entry-123", Success: true}, nil
 }
 
+// Mock DLQ Publisher
+type MockDLQPublisher struct {
+	Published []MockDLQEvent
+}
+
+type MockDLQEvent struct {
+	Topic   string
+	Payload map[string]string
+}
+
+func (m *MockDLQPublisher) Publish(ctx context.Context, topic string, payload map[string]string) error {
+	m.Published = append(m.Published, MockDLQEvent{Topic: topic, Payload: payload})
+	return nil
+}
+
 func TestTransfer_HappyPath(t *testing.T) {
 	txRepo := NewMockTxRepo()
 	uClient := &MockUserClient{}
 	wClient := &MockWalletClient{}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient)
+	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -144,7 +159,7 @@ func TestTransfer_DebitFails(t *testing.T) {
 	}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient)
+	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -202,7 +217,7 @@ func TestTransfer_CreditFails_CompensationSucceeds(t *testing.T) {
 	}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient)
+	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -268,7 +283,7 @@ func TestTransfer_LedgerFails_CompensationSucceeds(t *testing.T) {
 		},
 	}
 
-	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient)
+	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -305,7 +320,7 @@ func TestTransfer_CircuitBreaker(t *testing.T) {
 	}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient)
+	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
 
 	// Call 1
 	_, err := svc.Transfer(context.Background(), "sender-123", model.TransferRequest{

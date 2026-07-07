@@ -8,6 +8,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
+	"github.com/bashocode/gowallet/microservices/transaction-service/internal/dlq"
 	transactionGRPC "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/grpc"
 	transactionHandler "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/handler"
 	transactionRepository "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
@@ -113,11 +114,13 @@ func main() {
 	}
 	defer ledgerConn.Close()
 
+	dlqPublisher := dlq.NewNoOpPublisher()
+
 	ledgerClient := pbLedger.NewLedgerServiceClient(ledgerConn)
 
 	// Initialize layers
 	txRepo := transactionRepository.NewMySQLTransactionRepository(db)
-	txSvc := transactionService.NewTransactionService(db, txRepo, userClient, walletClient, ledgerClient)
+	txSvc := transactionService.NewTransactionService(db, txRepo, userClient, walletClient, ledgerClient, dlqPublisher)
 	txHandler := transactionHandler.NewTransactionHandler(txSvc)
 
 	// =========================================================
