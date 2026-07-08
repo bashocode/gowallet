@@ -23,6 +23,7 @@ type TransactionService interface {
 	Transfer(ctx context.Context, senderUserID string, req model.TransferRequest) (*model.Transaction, error)
 	GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error)
 	TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error)
+	GenerateDailyReport(ctx context.Context) (int, error)
 }
 
 type DLQPublisher interface {
@@ -537,6 +538,18 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 	transaction.Status = "success"
 
 	return transaction, nil
+}
+
+// GenerateDailyReport produces the daily transaction report. Currently returns
+// the count of today's transactions; a CSV/object-storage export can be wired
+// here later without changing the scheduler contract.
+func (s *transactionService) GenerateDailyReport(ctx context.Context) (int, error) {
+	count, err := s.txRepo.CountToday(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to count today's transactions", slog.Any("error", err))
+		return 0, err
+	}
+	return int(count), nil
 }
 
 func (s *transactionService) markFailed(ctx context.Context, transactionID string) {

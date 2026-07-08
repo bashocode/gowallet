@@ -8,6 +8,7 @@ service WalletService {
   rpc GetWalletByUserID (GetWalletRequest) returns (WalletResponse);
   rpc UpdateWalletBalance (UpdateBalanceRequest) returns (WalletResponse);
   rpc CreateWallet (CreateWalletRequest) returns (WalletResponse);
+  rpc ReconcileBalances (ReconcileRequest) returns (ReconcileResponse);
 }
 
 message GetWalletRequest {
@@ -29,4 +30,11 @@ message WalletResponse {
   string user_id = 2;
   string balance = 3;
   int32 version = 4;
+}
+
+message ReconcileRequest {}
+
+message ReconcileResponse {
+  int32 mismatch_count = 1;
+  int32 total_wallets = 2;
 }

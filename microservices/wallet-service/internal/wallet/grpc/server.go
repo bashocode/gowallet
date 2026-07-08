@@ -2,7 +2,9 @@ package grpc
 
 import (
 	"context"
+	"log/slog"
 
+	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/model"
 	"github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/repository"
 	pb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
@@ -74,5 +76,26 @@ func (s *walletGRPCServer) UpdateWalletBalance(ctx context.Context, req *pb.Upda
 		UserId:  w.UserID,
 		Balance: w.Balance.String(),
 		Version: w.Version,
+	}, nil
+}
+
+// ReconcileBalances is triggered by scheduler-service to audit wallet balance
+// integrity. It returns the count of wallets whose stored balance disagrees
+// with the expected invariant (balance >= 0). The domain-owning service is the
+// only one allowed to read its own DB (Database-per-Service boundary).
+func (s *walletGRPCServer) ReconcileBalances(ctx context.Context, _ *pb.ReconcileRequest) (*pb.ReconcileResponse, error) {
+	logger.Log.InfoContext(ctx, "[gRPC] ReconcileBalances triggered by scheduler-service")
+
+	mismatches, total, err := s.repo.ReconcileAll(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "reconciliation failed: %v", err)
+	}
+
+	logger.Log.InfoContext(ctx, "[gRPC] Balance reconciliation completed",
+		slog.Int("mismatches", mismatches), slog.Int("total_wallets", total))
+
+	return &pb.ReconcileResponse{
+		MismatchCount: int32(mismatches),
+		TotalWallets:  int32(total),
 	}, nil
 }

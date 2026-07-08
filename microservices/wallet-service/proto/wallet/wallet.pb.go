@@ -237,6 +237,94 @@ func (x *WalletResponse) GetVersion() int32 {
 	return 0
 }
 
+type ReconcileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReconcileRequest) Reset() {
+	*x = ReconcileRequest{}
+	mi := &file_proto_wallet_wallet_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconcileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconcileRequest) ProtoMessage() {}
+
+func (x *ReconcileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_wallet_wallet_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconcileRequest.ProtoReflect.Descriptor instead.
+func (*ReconcileRequest) Descriptor() ([]byte, []int) {
+	return file_proto_wallet_wallet_proto_rawDescGZIP(), []int{4}
+}
+
+type ReconcileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MismatchCount int32                  `protobuf:"varint,1,opt,name=mismatch_count,json=mismatchCount,proto3" json:"mismatch_count,omitempty"`
+	TotalWallets  int32                  `protobuf:"varint,2,opt,name=total_wallets,json=totalWallets,proto3" json:"total_wallets,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReconcileResponse) Reset() {
+	*x = ReconcileResponse{}
+	mi := &file_proto_wallet_wallet_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconcileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconcileResponse) ProtoMessage() {}
+
+func (x *ReconcileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_wallet_wallet_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconcileResponse.ProtoReflect.Descriptor instead.
+func (*ReconcileResponse) Descriptor() ([]byte, []int) {
+	return file_proto_wallet_wallet_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ReconcileResponse) GetMismatchCount() int32 {
+	if x != nil {
+		return x.MismatchCount
+	}
+	return 0
+}
+
+func (x *ReconcileResponse) GetTotalWallets() int32 {
+	if x != nil {
+		return x.TotalWallets
+	}
+	return 0
+}
+
 var File_proto_wallet_wallet_proto protoreflect.FileDescriptor
 
 const file_proto_wallet_wallet_proto_rawDesc = "" +
@@ -254,11 +342,16 @@ const file_proto_wallet_wallet_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x18\n" +
 	"\abalance\x18\x03 \x01(\tR\abalance\x12\x18\n" +
-	"\aversion\x18\x04 \x01(\x05R\aversion2\xe8\x01\n" +
+	"\aversion\x18\x04 \x01(\x05R\aversion\"\x12\n" +
+	"\x10ReconcileRequest\"_\n" +
+	"\x11ReconcileResponse\x12%\n" +
+	"\x0emismatch_count\x18\x01 \x01(\x05R\rmismatchCount\x12#\n" +
+	"\rtotal_wallets\x18\x02 \x01(\x05R\ftotalWallets2\xb2\x02\n" +
 	"\rWalletService\x12E\n" +
 	"\x11GetWalletByUserID\x12\x18.wallet.GetWalletRequest\x1a\x16.wallet.WalletResponse\x12K\n" +
 	"\x13UpdateWalletBalance\x12\x1c.wallet.UpdateBalanceRequest\x1a\x16.wallet.WalletResponse\x12C\n" +
-	"\fCreateWallet\x12\x1b.wallet.CreateWalletRequest\x1a\x16.wallet.WalletResponseBIZGgithub.com/bashocode/gowallet/microservices/wallet-service/proto/walletb\x06proto3"
+	"\fCreateWallet\x12\x1b.wallet.CreateWalletRequest\x1a\x16.wallet.WalletResponse\x12H\n" +
+	"\x11ReconcileBalances\x12\x18.wallet.ReconcileRequest\x1a\x19.wallet.ReconcileResponseBIZGgithub.com/bashocode/gowallet/microservices/wallet-service/proto/walletb\x06proto3"
 
 var (
 	file_proto_wallet_wallet_proto_rawDescOnce sync.Once
@@ -272,22 +365,26 @@ func file_proto_wallet_wallet_proto_rawDescGZIP() []byte {
 	return file_proto_wallet_wallet_proto_rawDescData
 }
 
-var file_proto_wallet_wallet_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_proto_wallet_wallet_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_proto_wallet_wallet_proto_goTypes = []any{
 	(*GetWalletRequest)(nil),     // 0: wallet.GetWalletRequest
 	(*CreateWalletRequest)(nil),  // 1: wallet.CreateWalletRequest
 	(*UpdateBalanceRequest)(nil), // 2: wallet.UpdateBalanceRequest
 	(*WalletResponse)(nil),       // 3: wallet.WalletResponse
+	(*ReconcileRequest)(nil),     // 4: wallet.ReconcileRequest
+	(*ReconcileResponse)(nil),    // 5: wallet.ReconcileResponse
 }
 var file_proto_wallet_wallet_proto_depIdxs = []int32{
 	0, // 0: wallet.WalletService.GetWalletByUserID:input_type -> wallet.GetWalletRequest
 	2, // 1: wallet.WalletService.UpdateWalletBalance:input_type -> wallet.UpdateBalanceRequest
 	1, // 2: wallet.WalletService.CreateWallet:input_type -> wallet.CreateWalletRequest
-	3, // 3: wallet.WalletService.GetWalletByUserID:output_type -> wallet.WalletResponse
-	3, // 4: wallet.WalletService.UpdateWalletBalance:output_type -> wallet.WalletResponse
-	3, // 5: wallet.WalletService.CreateWallet:output_type -> wallet.WalletResponse
-	3, // [3:6] is the sub-list for method output_type
-	0, // [0:3] is the sub-list for method input_type
+	4, // 3: wallet.WalletService.ReconcileBalances:input_type -> wallet.ReconcileRequest
+	3, // 4: wallet.WalletService.GetWalletByUserID:output_type -> wallet.WalletResponse
+	3, // 5: wallet.WalletService.UpdateWalletBalance:output_type -> wallet.WalletResponse
+	3, // 6: wallet.WalletService.CreateWallet:output_type -> wallet.WalletResponse
+	5, // 7: wallet.WalletService.ReconcileBalances:output_type -> wallet.ReconcileResponse
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -304,7 +401,7 @@ func file_proto_wallet_wallet_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_wallet_wallet_proto_rawDesc), len(file_proto_wallet_wallet_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

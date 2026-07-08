@@ -1,9 +1,13 @@
 package main
 
 import (
+	"net"
+
+	authGRPC "github.com/bashocode/gowallet/microservices/auth-service/internal/auth/grpc"
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/handler"
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/repository"
 	"github.com/bashocode/gowallet/microservices/auth-service/internal/auth/service"
+	pbAuth "github.com/bashocode/gowallet/microservices/auth-service/proto/auth"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
@@ -94,6 +98,30 @@ func main() {
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(middleware.ErrorHandler())
+
+	// =========================================================
+	// Start gRPC Server (for internal service-to-service calls,
+	// e.g. scheduler-service triggering cleanup jobs)
+	// =========================================================
+	_, grpcPort, err := net.SplitHostPort(cfg.AuthGRPCAddr)
+	if err != nil {
+		logger.Fatal(nil, "Failed to split Auth gRPC host port", "error", err)
+	}
+
+	authLis, err := net.Listen("tcp", ":"+grpcPort)
+	if err != nil {
+		logger.Fatal(nil, "Failed to listen Auth gRPC", "error", err)
+	}
+
+	grpcServer := grpc.NewServer()
+	pbAuth.RegisterAuthServiceServer(grpcServer, authGRPC.NewAuthGRPCServer(rtRepo))
+
+	go func() {
+		logger.Log.Info("Auth gRPC Server running on " + cfg.AuthGRPCAddr)
+		if err := grpcServer.Serve(authLis); err != nil {
+			logger.Fatal(nil, "Failed to serve Auth gRPC", "error", err)
+		}
+	}()
 
 	// Auth Routes
 	v1 := r.Group("/api/v1")

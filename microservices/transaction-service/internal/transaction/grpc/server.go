@@ -55,3 +55,24 @@ func (s *TransactionGRPCServer) TopUp(ctx context.Context, req *pb.TopUpRequest)
 		Status:        tx.Status,
 	}, nil
 }
+
+// GenerateDailyReport is triggered by scheduler-service at end of day to
+// produce a CSV/aggregate report of the day's transactions. The transaction
+// service owns its DB, so the report is generated here and a reference (URL or
+// count) is returned to the scheduler.
+func (s *TransactionGRPCServer) GenerateDailyReport(ctx context.Context, _ *pb.ReportRequest) (*pb.ReportResponse, error) {
+	logger.Log.InfoContext(ctx, "[gRPC] GenerateDailyReport triggered by scheduler-service")
+
+	count, err := s.svc.GenerateDailyReport(ctx)
+	if err != nil {
+		logger.Log.ErrorContext(ctx, "[gRPC] GenerateDailyReport failed", slog.Any("error", err))
+		return nil, status.Errorf(codes.Internal, "daily report generation failed: %v", err)
+	}
+
+	reportURL := "" // reserved for future object-storage URL once export is wired
+	logger.Log.InfoContext(ctx, "[gRPC] Daily report generated", slog.Int("total_transactions", count))
+	return &pb.ReportResponse{
+		ReportUrl:         reportURL,
+		TotalTransactions: int32(count),
+	}, nil
+}

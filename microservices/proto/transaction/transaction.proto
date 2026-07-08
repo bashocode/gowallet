@@ -6,6 +6,7 @@ option go_package = "github.com/bashocode/gowallet/microservices/transaction-ser
 
 service TransactionService {
   rpc TopUp (TopUpRequest) returns (TopUpResponse);
+  rpc GenerateDailyReport (ReportRequest) returns (ReportResponse);
 }
 
 message TopUpRequest {
@@ -17,4 +18,11 @@ message TopUpRequest {
 message TopUpResponse {
   string transaction_id = 1;
   string status         = 2;
+}
+
+message ReportRequest {}
+
+message ReportResponse {
+  string report_url = 1;
+  int32  total_transactions = 2;
 }

@@ -133,6 +133,94 @@ func (x *TopUpResponse) GetStatus() string {
 	return ""
 }
 
+type ReportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportRequest) Reset() {
+	*x = ReportRequest{}
+	mi := &file_proto_transaction_transaction_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportRequest) ProtoMessage() {}
+
+func (x *ReportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_transaction_transaction_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportRequest.ProtoReflect.Descriptor instead.
+func (*ReportRequest) Descriptor() ([]byte, []int) {
+	return file_proto_transaction_transaction_proto_rawDescGZIP(), []int{2}
+}
+
+type ReportResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ReportUrl         string                 `protobuf:"bytes,1,opt,name=report_url,json=reportUrl,proto3" json:"report_url,omitempty"`
+	TotalTransactions int32                  `protobuf:"varint,2,opt,name=total_transactions,json=totalTransactions,proto3" json:"total_transactions,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ReportResponse) Reset() {
+	*x = ReportResponse{}
+	mi := &file_proto_transaction_transaction_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportResponse) ProtoMessage() {}
+
+func (x *ReportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_transaction_transaction_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportResponse.ProtoReflect.Descriptor instead.
+func (*ReportResponse) Descriptor() ([]byte, []int) {
+	return file_proto_transaction_transaction_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ReportResponse) GetReportUrl() string {
+	if x != nil {
+		return x.ReportUrl
+	}
+	return ""
+}
+
+func (x *ReportResponse) GetTotalTransactions() int32 {
+	if x != nil {
+		return x.TotalTransactions
+	}
+	return 0
+}
+
 var File_proto_transaction_transaction_proto protoreflect.FileDescriptor
 
 const file_proto_transaction_transaction_proto_rawDesc = "" +
@@ -144,9 +232,15 @@ const file_proto_transaction_transaction_proto_rawDesc = "" +
 	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"N\n" +
 	"\rTopUpResponse\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status2T\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"\x0f\n" +
+	"\rReportRequest\"^\n" +
+	"\x0eReportResponse\x12\x1d\n" +
+	"\n" +
+	"report_url\x18\x01 \x01(\tR\treportUrl\x12-\n" +
+	"\x12total_transactions\x18\x02 \x01(\x05R\x11totalTransactions2\xa4\x01\n" +
 	"\x12TransactionService\x12>\n" +
-	"\x05TopUp\x12\x19.transaction.TopUpRequest\x1a\x1a.transaction.TopUpResponseBSZQgithub.com/bashocode/gowallet/microservices/transaction-service/proto/transactionb\x06proto3"
+	"\x05TopUp\x12\x19.transaction.TopUpRequest\x1a\x1a.transaction.TopUpResponse\x12N\n" +
+	"\x13GenerateDailyReport\x12\x1a.transaction.ReportRequest\x1a\x1b.transaction.ReportResponseBSZQgithub.com/bashocode/gowallet/microservices/transaction-service/proto/transactionb\x06proto3"
 
 var (
 	file_proto_transaction_transaction_proto_rawDescOnce sync.Once
@@ -160,16 +254,20 @@ func file_proto_transaction_transaction_proto_rawDescGZIP() []byte {
 	return file_proto_transaction_transaction_proto_rawDescData
 }
 
-var file_proto_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_proto_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_proto_transaction_transaction_proto_goTypes = []any{
-	(*TopUpRequest)(nil),  // 0: transaction.TopUpRequest
-	(*TopUpResponse)(nil), // 1: transaction.TopUpResponse
+	(*TopUpRequest)(nil),   // 0: transaction.TopUpRequest
+	(*TopUpResponse)(nil),  // 1: transaction.TopUpResponse
+	(*ReportRequest)(nil),  // 2: transaction.ReportRequest
+	(*ReportResponse)(nil), // 3: transaction.ReportResponse
 }
 var file_proto_transaction_transaction_proto_depIdxs = []int32{
 	0, // 0: transaction.TransactionService.TopUp:input_type -> transaction.TopUpRequest
-	1, // 1: transaction.TransactionService.TopUp:output_type -> transaction.TopUpResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	2, // 1: transaction.TransactionService.GenerateDailyReport:input_type -> transaction.ReportRequest
+	1, // 2: transaction.TransactionService.TopUp:output_type -> transaction.TopUpResponse
+	3, // 3: transaction.TransactionService.GenerateDailyReport:output_type -> transaction.ReportResponse
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -186,7 +284,7 @@ func file_proto_transaction_transaction_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_transaction_transaction_proto_rawDesc), len(file_proto_transaction_transaction_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

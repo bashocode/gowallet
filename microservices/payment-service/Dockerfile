@@ -12,6 +12,7 @@ COPY wallet-service/ ./wallet-service/
 COPY ledger-service/ ./ledger-service/
 COPY transaction-service/ ./transaction-service/
 COPY payment-service/ ./payment-service/
+COPY scheduler-service/ ./scheduler-service/
 
 WORKDIR /app/payment-service
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /service ./cmd/main.go

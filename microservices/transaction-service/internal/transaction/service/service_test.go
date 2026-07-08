@@ -57,6 +57,10 @@ func (m *MockTxRepo) UpdateStatus(ctx context.Context, id, status string) error 
 	return nil
 }
 
+func (m *MockTxRepo) CountToday(ctx context.Context) (int64, error) {
+	return 0, nil
+}
+
 // Mock gRPC User Client
 type MockUserClient struct {
 	pbUser.UserServiceClient
