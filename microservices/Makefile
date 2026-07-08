@@ -17,7 +17,7 @@ endif
 # LIST OF MICROSERVICES
 # ==============================================================================
 # Names of the microservice directories to be built automatically
-SERVICES := api-gateway auth-service user-service wallet-service ledger-service transaction-service payment-service
+SERVICES := api-gateway auth-service user-service wallet-service ledger-service transaction-service payment-service scheduler-service
 
 # Mark the targets below as abstract commands (not physical files)
 .PHONY: all build-linux build-native clean help tidy tidy-shared

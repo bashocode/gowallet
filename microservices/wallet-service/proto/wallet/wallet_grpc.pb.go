@@ -22,6 +22,7 @@ const (
 	WalletService_GetWalletByUserID_FullMethodName   = "/wallet.WalletService/GetWalletByUserID"
 	WalletService_UpdateWalletBalance_FullMethodName = "/wallet.WalletService/UpdateWalletBalance"
 	WalletService_CreateWallet_FullMethodName        = "/wallet.WalletService/CreateWallet"
+	WalletService_ReconcileBalances_FullMethodName   = "/wallet.WalletService/ReconcileBalances"
 )
 
 // WalletServiceClient is the client API for WalletService service.
@@ -31,6 +32,7 @@ type WalletServiceClient interface {
 	GetWalletByUserID(ctx context.Context, in *GetWalletRequest, opts ...grpc.CallOption) (*WalletResponse, error)
 	UpdateWalletBalance(ctx context.Context, in *UpdateBalanceRequest, opts ...grpc.CallOption) (*WalletResponse, error)
 	CreateWallet(ctx context.Context, in *CreateWalletRequest, opts ...grpc.CallOption) (*WalletResponse, error)
+	ReconcileBalances(ctx context.Context, in *ReconcileRequest, opts ...grpc.CallOption) (*ReconcileResponse, error)
 }
 
 type walletServiceClient struct {
@@ -71,6 +73,16 @@ func (c *walletServiceClient) CreateWallet(ctx context.Context, in *CreateWallet
 	return out, nil
 }
 
+func (c *walletServiceClient) ReconcileBalances(ctx context.Context, in *ReconcileRequest, opts ...grpc.CallOption) (*ReconcileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReconcileResponse)
+	err := c.cc.Invoke(ctx, WalletService_ReconcileBalances_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WalletServiceServer is the server API for WalletService service.
 // All implementations must embed UnimplementedWalletServiceServer
 // for forward compatibility.
@@ -78,6 +90,7 @@ type WalletServiceServer interface {
 	GetWalletByUserID(context.Context, *GetWalletRequest) (*WalletResponse, error)
 	UpdateWalletBalance(context.Context, *UpdateBalanceRequest) (*WalletResponse, error)
 	CreateWallet(context.Context, *CreateWalletRequest) (*WalletResponse, error)
+	ReconcileBalances(context.Context, *ReconcileRequest) (*ReconcileResponse, error)
 	mustEmbedUnimplementedWalletServiceServer()
 }
 
@@ -96,6 +109,9 @@ func (UnimplementedWalletServiceServer) UpdateWalletBalance(context.Context, *Up
 }
 func (UnimplementedWalletServiceServer) CreateWallet(context.Context, *CreateWalletRequest) (*WalletResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateWallet not implemented")
+}
+func (UnimplementedWalletServiceServer) ReconcileBalances(context.Context, *ReconcileRequest) (*ReconcileResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReconcileBalances not implemented")
 }
 func (UnimplementedWalletServiceServer) mustEmbedUnimplementedWalletServiceServer() {}
 func (UnimplementedWalletServiceServer) testEmbeddedByValue()                       {}
@@ -172,6 +188,24 @@ func _WalletService_CreateWallet_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WalletService_ReconcileBalances_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReconcileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletServiceServer).ReconcileBalances(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WalletService_ReconcileBalances_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletServiceServer).ReconcileBalances(ctx, req.(*ReconcileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WalletService_ServiceDesc is the grpc.ServiceDesc for WalletService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -190,6 +224,10 @@ var WalletService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateWallet",
 			Handler:    _WalletService_CreateWallet_Handler,
+		},
+		{
+			MethodName: "ReconcileBalances",
+			Handler:    _WalletService_ReconcileBalances_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

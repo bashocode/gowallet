@@ -13,6 +13,7 @@ type RefreshTokenRepository interface {
 	GetByToken(ctx context.Context, token string) (*model.RefreshToken, error)
 	Revoke(ctx context.Context, token string) error
 	RevokeAllByUserID(ctx context.Context, userID string) error
+	DeleteExpired(ctx context.Context) (int64, error)
 }
 
 type mysqlRefreshTokenRepository struct {
@@ -52,4 +53,13 @@ func (r *mysqlRefreshTokenRepository) RevokeAllByUserID(ctx context.Context, use
 	query := `UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?`
 	_, err := r.db.ExecContext(ctx, query, userID)
 	return err
+}
+
+func (r *mysqlRefreshTokenRepository) DeleteExpired(ctx context.Context) (int64, error) {
+	query := `DELETE FROM refresh_tokens WHERE expires_at < UTC_TIMESTAMP() OR revoked = 1`
+	result, err := r.db.ExecContext(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

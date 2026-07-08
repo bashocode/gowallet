@@ -85,6 +85,7 @@ services:
     container_name: gowallet-auth-service-ms
     ports:
       - "${AUTH_PORT}:${AUTH_PORT}"
+      - "${AUTH_GRPC_PORT}:${AUTH_GRPC_PORT}"
     environment:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
@@ -96,6 +97,7 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - USER_GRPC_ADDR=${USER_GRPC_ADDR}
       - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
+      - AUTH_GRPC_ADDR=${AUTH_GRPC_ADDR}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
@@ -239,6 +241,25 @@ services:
       - transaction-service
     networks:
       - gowallet-network
+    restart: unless-stopped
+
+  scheduler-service:
+    build:
+      context: .
+      dockerfile: scheduler-service/Dockerfile
+    container_name: gowallet-scheduler-service-ms
+    environment:
+      - AUTH_GRPC_ADDR=${AUTH_GRPC_ADDR}
+      - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
+      - TRANSACTION_GRPC_ADDR=${TRANSACTION_GRPC_ADDR}
+    depends_on:
+      - auth-service
+      - wallet-service
+      - transaction-service
+    networks:
+      - gowallet-network
+    # scheduler depends on gRPC servers from other services; restart on failure
+    # so it reconnects once upstreams become healthy.
     restart: unless-stopped
 
 volumes:

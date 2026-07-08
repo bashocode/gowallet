@@ -12,6 +12,7 @@ type TransactionRepository interface {
 	GetByIdempotencyKey(ctx context.Context, key string) (*model.Transaction, error)
 	GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, error)
 	UpdateStatus(ctx context.Context, id, status string) error
+	CountToday(ctx context.Context) (int64, error)
 }
 
 type mysqlTransactionRepository struct {
@@ -56,8 +57,19 @@ func (r *mysqlTransactionRepository) GetByIdempotencyKey(ctx context.Context, ke
 
 func (r *mysqlTransactionRepository) UpdateStatus(ctx context.Context, id, status string) error {
 	query := `UPDATE transactions SET status = ? WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, status, id)
+	_, err := r.db.ExecContext(ctx, query, id, status)
 	return err
+}
+
+// CountToday returns the number of transactions created since UTC midnight today.
+func (r *mysqlTransactionRepository) CountToday(ctx context.Context) (int64, error) {
+	query := `SELECT COUNT(*) FROM transactions WHERE created_at >= DATE(UTC_TIMESTAMP())`
+	var count int64
+	err := r.db.QueryRowContext(ctx, query).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, error) {

@@ -48,6 +48,10 @@ func (m *MockTxRepo) GetHistory(ctx context.Context, walletID string, params mod
 	return nil, 0, nil
 }
 
+func (m *MockTxRepo) CountToday(ctx context.Context) (int64, error) {
+	return 0, nil
+}
+
 func (m *MockTxRepo) UpdateStatus(ctx context.Context, id, status string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

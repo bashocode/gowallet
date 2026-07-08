@@ -16,9 +16,10 @@ import (
 )
 
 type mockWalletRepository struct {
-	getFunc    func(ctx context.Context, userID string) (*model.Wallet, error)
-	updateFunc func(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error)
-	createFunc func(ctx context.Context, w *model.Wallet) error
+	getFunc       func(ctx context.Context, userID string) (*model.Wallet, error)
+	updateFunc    func(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error)
+	createFunc    func(ctx context.Context, w *model.Wallet) error
+	reconcileFunc func(ctx context.Context) (int, int, error)
 }
 
 func (m *mockWalletRepository) GetByUserID(ctx context.Context, userID string) (*model.Wallet, error) {
@@ -31,6 +32,13 @@ func (m *mockWalletRepository) UpdateBalanceWithOwnerCheck(ctx context.Context, 
 
 func (m *mockWalletRepository) Create(ctx context.Context, w *model.Wallet) error {
 	return m.createFunc(ctx, w)
+}
+
+func (m *mockWalletRepository) ReconcileAll(ctx context.Context) (int, int, error) {
+	if m.reconcileFunc != nil {
+		return m.reconcileFunc(ctx)
+	}
+	return 0, 0, nil
 }
 
 func TestWalletGRPCServer(t *testing.T) {

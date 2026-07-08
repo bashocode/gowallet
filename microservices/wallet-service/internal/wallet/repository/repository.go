@@ -13,6 +13,7 @@ type WalletRepository interface {
 	GetByUserID(ctx context.Context, userID string) (*model.Wallet, error)
 	UpdateBalanceWithOwnerCheck(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error)
 	Create(ctx context.Context, w *model.Wallet) error
+	ReconcileAll(ctx context.Context) (mismatches int, total int, err error)
 }
 
 type mysqlWalletRepository struct {
@@ -89,4 +90,16 @@ func (r *mysqlWalletRepository) UpdateBalanceWithOwnerCheck(ctx context.Context,
 		return nil, err
 	}
 	return w, nil
+}
+
+// ReconcileAll scans all wallets and counts those whose balance is negative
+// (an invariant violation). Returns (mismatches, total, err).
+func (r *mysqlWalletRepository) ReconcileAll(ctx context.Context) (int, int, error) {
+	query := `SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN balance < 0 THEN 1 ELSE 0 END), 0) as mismatches FROM wallets WHERE deleted_at IS NULL`
+	var total, mismatches int
+	err := r.db.QueryRowContext(ctx, query).Scan(&total, &mismatches)
+	if err != nil {
+		return 0, 0, err
+	}
+	return mismatches, total, nil
 }
