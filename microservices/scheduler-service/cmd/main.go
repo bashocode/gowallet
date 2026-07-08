@@ -10,6 +10,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	txPb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
+	userPb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	walletPb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -93,8 +94,32 @@ func main() {
 	defer txConn.Close()
 	txClient := txPb.NewTransactionServiceClient(txConn)
 
-	// 4. Initialize & Start Scheduler
-	sched := scheduler.NewScheduler(authClient, walletClient, txClient)
+	// 4. gRPC connection to User Service
+	userConn, err := grpc.NewClient(
+		cfg.UserGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(`{
+			"loadBalancingConfig": [{"round_robin":{}}],
+			"methodConfig": [{
+				"name": [{}],
+				"retryPolicy": {
+					"maxAttempts": 3,
+					"initialBackoff": "0.1s",
+					"maxBackoff": "1s",
+					"backoffMultiplier": 2.0,
+					"retryableStatusCodes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
+				}
+			}]
+		}`),
+	)
+	if err != nil {
+		logger.Fatal(nil, "Could not connect to User gRPC", "error", err)
+	}
+	defer userConn.Close()
+	userClient := userPb.NewUserServiceClient(userConn)
+
+	// 5. Initialize & Start Scheduler
+	sched := scheduler.NewScheduler(authClient, walletClient, txClient, userClient)
 	sched.Start()
 
 	// Wait for shutdown signal (graceful shutdown)

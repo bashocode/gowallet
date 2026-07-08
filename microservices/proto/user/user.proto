@@ -8,6 +8,13 @@ service UserService {
   rpc GetUserByID (GetUserRequest) returns (UserResponse);
   rpc GetUserByEmail (GetUserByEmailRequest) returns (UserResponse);
   rpc CreateUser (CreateUserRequest) returns (UserResponse);
+  rpc CleanupExpiredOTPs (CleanupRequest) returns (CleanupResponse);
+}
+
+message CleanupRequest {}
+
+message CleanupResponse {
+  int32 deleted_count = 1;
 }
 
 message GetUserRequest {

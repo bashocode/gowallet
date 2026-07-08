@@ -20,13 +20,6 @@ func NewAuthGRPCServer(rtRepo repository.RefreshTokenRepository) pb.AuthServiceS
 	return &authGRPCServer{rtRepo: rtRepo}
 }
 
-func (s *authGRPCServer) CleanupExpiredOTPs(ctx context.Context, _ *pb.CleanupRequest) (*pb.CleanupResponse, error) {
-	logger.Log.InfoContext(ctx, "[gRPC] CleanupExpiredOTPs triggered by scheduler-service")
-	// OTPs are currently issued by user-service; auth-service has no OTP store yet.
-	// Reserved for future OTP cleanup logic once OTP storage moves here.
-	return &pb.CleanupResponse{DeletedCount: 0}, nil
-}
-
 func (s *authGRPCServer) CleanupExpiredRefreshTokens(ctx context.Context, _ *pb.CleanupRequest) (*pb.CleanupResponse, error) {
 	logger.Log.InfoContext(ctx, "[gRPC] CleanupExpiredRefreshTokens triggered by scheduler-service")
 

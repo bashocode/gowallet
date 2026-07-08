@@ -4,6 +4,7 @@ import (
 	authPb "github.com/bashocode/gowallet/microservices/auth-service/proto/auth"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	txPb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
+	userPb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	walletPb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/robfig/cron/v3"
 )
@@ -16,12 +17,14 @@ type Scheduler struct {
 	authClient   authPb.AuthServiceClient
 	walletClient walletPb.WalletServiceClient
 	txClient     txPb.TransactionServiceClient
+	userClient   userPb.UserServiceClient
 }
 
 func NewScheduler(
 	authClient authPb.AuthServiceClient,
 	walletClient walletPb.WalletServiceClient,
 	txClient txPb.TransactionServiceClient,
+	userClient userPb.UserServiceClient,
 ) *Scheduler {
 	c := cron.New(cron.WithSeconds())
 	return &Scheduler{
@@ -29,6 +32,7 @@ func NewScheduler(
 		authClient:   authClient,
 		walletClient: walletClient,
 		txClient:     txClient,
+		userClient:   userClient,
 	}
 }
 

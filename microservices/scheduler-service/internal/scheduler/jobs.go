@@ -7,6 +7,7 @@ import (
 	authPb "github.com/bashocode/gowallet/microservices/auth-service/proto/auth"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	txPb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
+	userPb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	walletPb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 )
 
@@ -14,8 +15,8 @@ func (s *Scheduler) TriggerOTPCleanup() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	logger.Log.InfoContext(ctx, "[Cron Job] Triggering expired OTP cleanup via Auth gRPC...")
-	_, err := s.authClient.CleanupExpiredOTPs(ctx, &authPb.CleanupRequest{})
+	logger.Log.InfoContext(ctx, "[Cron Job] Triggering expired OTP cleanup via User gRPC...")
+	_, err := s.userClient.CleanupExpiredOTPs(ctx, &userPb.CleanupRequest{})
 	if err != nil {
 		logger.Error(ctx, "Failed to cleanup expired OTPs", "error", err.Error())
 		return

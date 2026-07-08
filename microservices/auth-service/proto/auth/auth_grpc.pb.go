@@ -19,7 +19,6 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AuthService_CleanupExpiredOTPs_FullMethodName          = "/auth.AuthService/CleanupExpiredOTPs"
 	AuthService_CleanupExpiredRefreshTokens_FullMethodName = "/auth.AuthService/CleanupExpiredRefreshTokens"
 )
 
@@ -27,7 +26,6 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AuthServiceClient interface {
-	CleanupExpiredOTPs(ctx context.Context, in *CleanupRequest, opts ...grpc.CallOption) (*CleanupResponse, error)
 	CleanupExpiredRefreshTokens(ctx context.Context, in *CleanupRequest, opts ...grpc.CallOption) (*CleanupResponse, error)
 }
 
@@ -37,16 +35,6 @@ type authServiceClient struct {
 
 func NewAuthServiceClient(cc grpc.ClientConnInterface) AuthServiceClient {
 	return &authServiceClient{cc}
-}
-
-func (c *authServiceClient) CleanupExpiredOTPs(ctx context.Context, in *CleanupRequest, opts ...grpc.CallOption) (*CleanupResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CleanupResponse)
-	err := c.cc.Invoke(ctx, AuthService_CleanupExpiredOTPs_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *authServiceClient) CleanupExpiredRefreshTokens(ctx context.Context, in *CleanupRequest, opts ...grpc.CallOption) (*CleanupResponse, error) {
@@ -63,7 +51,6 @@ func (c *authServiceClient) CleanupExpiredRefreshTokens(ctx context.Context, in 
 // All implementations must embed UnimplementedAuthServiceServer
 // for forward compatibility.
 type AuthServiceServer interface {
-	CleanupExpiredOTPs(context.Context, *CleanupRequest) (*CleanupResponse, error)
 	CleanupExpiredRefreshTokens(context.Context, *CleanupRequest) (*CleanupResponse, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }
@@ -75,9 +62,6 @@ type AuthServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAuthServiceServer struct{}
 
-func (UnimplementedAuthServiceServer) CleanupExpiredOTPs(context.Context, *CleanupRequest) (*CleanupResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method CleanupExpiredOTPs not implemented")
-}
 func (UnimplementedAuthServiceServer) CleanupExpiredRefreshTokens(context.Context, *CleanupRequest) (*CleanupResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CleanupExpiredRefreshTokens not implemented")
 }
@@ -100,24 +84,6 @@ func RegisterAuthServiceServer(s grpc.ServiceRegistrar, srv AuthServiceServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&AuthService_ServiceDesc, srv)
-}
-
-func _AuthService_CleanupExpiredOTPs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CleanupRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AuthServiceServer).CleanupExpiredOTPs(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AuthService_CleanupExpiredOTPs_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).CleanupExpiredOTPs(ctx, req.(*CleanupRequest))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _AuthService_CleanupExpiredRefreshTokens_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -145,10 +111,6 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "auth.AuthService",
 	HandlerType: (*AuthServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "CleanupExpiredOTPs",
-			Handler:    _AuthService_CleanupExpiredOTPs_Handler,
-		},
 		{
 			MethodName: "CleanupExpiredRefreshTokens",
 			Handler:    _AuthService_CleanupExpiredRefreshTokens_Handler,

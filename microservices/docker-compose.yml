@@ -252,10 +252,12 @@ services:
     container_name: gowallet-scheduler-service-ms
     environment:
       - AUTH_GRPC_ADDR=${AUTH_GRPC_ADDR}
+      - USER_GRPC_ADDR=${USER_GRPC_ADDR}
       - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
       - TRANSACTION_GRPC_ADDR=${TRANSACTION_GRPC_ADDR}
     depends_on:
       - auth-service
+      - user-service
       - wallet-service
       - transaction-service
     networks:

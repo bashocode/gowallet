@@ -14,11 +14,15 @@ import (
 
 type userGRPCServer struct {
 	pb.UnimplementedUserServiceServer
-	repo repository.UserRepository
+	repo    repository.UserRepository
+	otpRepo repository.OTPRepository
 }
 
-func NewUserGRPCServer(repo repository.UserRepository) pb.UserServiceServer {
-	return &userGRPCServer{repo: repo}
+func NewUserGRPCServer(repo repository.UserRepository, otpRepo repository.OTPRepository) pb.UserServiceServer {
+	return &userGRPCServer{
+		repo:    repo,
+		otpRepo: otpRepo,
+	}
 }
 
 func (s *userGRPCServer) GetUserByID(ctx context.Context, req *pb.GetUserRequest) (*pb.UserResponse, error) {
@@ -94,4 +98,17 @@ func (s *userGRPCServer) CreateUser(ctx context.Context, req *pb.CreateUserReque
 		Role:       user.Role,
 		IsVerified: user.IsVerified,
 	}, nil
+}
+
+func (s *userGRPCServer) CleanupExpiredOTPs(ctx context.Context, _ *pb.CleanupRequest) (*pb.CleanupResponse, error) {
+	logger.Log.InfoContext(ctx, "[gRPC] CleanupExpiredOTPs triggered by scheduler-service")
+
+	deleted, err := s.otpRepo.DeleteExpired(ctx)
+	if err != nil {
+		logger.Log.ErrorContext(ctx, "[gRPC] Failed to delete expired OTPs", "error", err)
+		return nil, status.Errorf(codes.Internal, "failed to cleanup expired OTPs: %v", err)
+	}
+
+	logger.Log.InfoContext(ctx, "[gRPC] Expired OTPs cleaned", "deleted_count", deleted)
+	return &pb.CleanupResponse{DeletedCount: int32(deleted)}, nil
 }
