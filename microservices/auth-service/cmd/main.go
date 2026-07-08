@@ -98,6 +98,7 @@ func main() {
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(middleware.ErrorHandler())
+	r.Use(middleware.CorrelationID())
 
 	// =========================================================
 	// Start gRPC Server (for internal service-to-service calls,

@@ -64,6 +64,7 @@ func main() {
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(middleware.ErrorHandler())
+	r.Use(middleware.CorrelationID())
 
 	v1 := r.Group("/api/v1")
 	{

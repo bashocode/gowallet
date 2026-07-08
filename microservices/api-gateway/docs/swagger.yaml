@@ -1,0 +1,557 @@
+basePath: /api/v1
+host: localhost:8080
+info:
+  contact:
+    email: support@gowallet.com
+    name: GoWallet API Support
+  description: Unified API documentation for all GoWallet microservices proxied through
+    the API Gateway.
+  termsOfService: http://swagger.io/terms/
+  title: GoWallet API (Microservices)
+  version: "2.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate user with email and password. Returns JWT access +
+        refresh tokens.
+      parameters:
+      - description: Login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            email:
+              type: string
+            password:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                properties:
+                  access_token:
+                    type: string
+                  refresh_token:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+      summary: Login
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Blacklist the current access token so it can no longer be used.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              message:
+                type: string
+              success:
+                type: boolean
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Logout
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Exchange a valid refresh token for a new access + refresh token
+        pair.
+      parameters:
+      - description: Refresh token
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            refresh_token:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                properties:
+                  access_token:
+                    type: string
+                  refresh_token:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+      summary: Refresh Token
+      tags:
+      - auth
+  /payments:
+    post:
+      consumes:
+      - application/json
+      description: Initiate a payment (top-up or withdrawal).
+      parameters:
+      - description: Payment payload
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            amount:
+              format: float64
+              type: number
+            description:
+              type: string
+            payment_method:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            properties:
+              data:
+                properties:
+                  amount:
+                    format: float64
+                    type: number
+                  id:
+                    type: string
+                  status:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create Payment
+      tags:
+      - payments
+  /payments/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Check the status of a payment by ID.
+      parameters:
+      - description: Payment ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                properties:
+                  amount:
+                    format: float64
+                    type: number
+                  id:
+                    type: string
+                  status:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get Payment Status
+      tags:
+      - payments
+  /transactions:
+    get:
+      consumes:
+      - application/json
+      description: List all transactions for the authenticated user.
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                items:
+                  properties:
+                    amount:
+                      format: float64
+                      type: number
+                    id:
+                      type: string
+                    receiver_wallet_id:
+                      type: string
+                    sender_wallet_id:
+                      type: string
+                    status:
+                      type: string
+                  type: object
+                type: array
+              success:
+                type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get Transaction History
+      tags:
+      - transactions
+  /transactions/transfer:
+    post:
+      consumes:
+      - application/json
+      description: Transfer money from the authenticated user's wallet to another
+        user.
+      parameters:
+      - description: Transfer payload
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            amount:
+              format: float64
+              type: number
+            description:
+              type: string
+            idempotency_key:
+              type: string
+            receiver_email:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                properties:
+                  amount:
+                    format: float64
+                    type: number
+                  id:
+                    type: string
+                  status:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Transfer Funds
+      tags:
+      - transactions
+  /users/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Get the authenticated user's profile.
+      parameters:
+      - description: User ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                properties:
+                  email:
+                    type: string
+                  full_name:
+                    type: string
+                  id:
+                    type: string
+                  role:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get User Profile
+      tags:
+      - users
+  /users/register:
+    post:
+      consumes:
+      - application/json
+      description: Create a new user account with a default wallet.
+      parameters:
+      - description: Registration payload
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            email:
+              type: string
+            full_name:
+              type: string
+            password:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            properties:
+              data:
+                properties:
+                  email:
+                    type: string
+                  full_name:
+                    type: string
+                  id:
+                    type: string
+                  role:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+      summary: Register New User
+      tags:
+      - users
+  /wallets/me:
+    get:
+      consumes:
+      - application/json
+      description: Get the authenticated user's wallet balance.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                properties:
+                  balance:
+                    format: float64
+                    type: number
+                  id:
+                    type: string
+                  user_id:
+                    type: string
+                  version:
+                    type: integer
+                type: object
+              success:
+                type: boolean
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                type: object
+              success:
+                type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get Wallet Balance
+      tags:
+      - wallets
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

@@ -61,6 +61,8 @@ services:
       LEDGER_SERVICE_URL: ${LEDGER_SERVICE_URL}
       TRANSACTION_SERVICE_URL: ${TRANSACTION_SERVICE_URL}
       PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
     depends_on:
       auth-service:
         condition: service_started
