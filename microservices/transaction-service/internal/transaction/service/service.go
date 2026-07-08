@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -106,7 +107,8 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return nil, customErr.NewAppError(http.StatusBadRequest, "INSUFFICIENT_BALANCE", "Insufficient balance.")
 	}
 
-	// 4. Create transaction record with PENDING status
+	// 4. Record PENDING transaction record to database.
+	// We do this in a separate short transaction to release database lock quickly.
 	txID := uuid.New().String()
 	txRecord := &model.Transaction{
 		ID:               txID,
@@ -117,13 +119,84 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		IdempotencyKey:   req.IdempotencyKey,
 		Status:           "PENDING",
 	}
-	if err := s.txRepo.Create(ctx, txRecord); err != nil {
+
+	initTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+	defer initTx.Rollback()
+
+	if err := s.txRepo.CreateTx(ctx, initTx, txRecord); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+	if err := initTx.Commit(); err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
+	// 5. Contact Wallet Service & Ledger Service via gRPC for balance mutations (OUTSIDE LOCAL DATABASE TRANSACTION)
+	// We apply Saga Orchestration with manual rollback orchestration if any step fails.
+	if err := s.executeGrpcTransferChain(ctx, txID, senderUserID, receiverUser.Id, req.Amount, senderWallet); err != nil {
+		// If failed, update status to FAILED
+		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
+		return nil, err
+	}
+
+	// 6. If gRPC chain succeeds: Start new super-fast local SQL transaction
+	// to update transaction status to SUCCESS and insert outbox event.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+	defer tx.Rollback()
+
+	txRecord.Status = "SUCCESS"
+	if err := s.txRepo.UpdateStatusTx(ctx, tx, txID, "SUCCESS"); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	// Compose Event Payload for Outbox
+	eventPayload := fmt.Sprintf(`{
+		"transaction_id": "%s",
+		"sender_user_id": "%s",
+		"receiver_user_id": "%s",
+		"amount": %s,
+		"description": "%s"
+	}`, txID, senderUserID, receiverUser.Id, req.Amount.String(), req.Description)
+
+	outboxEvent := &model.OutboxEvent{
+		ID:        uuid.New().String(),
+		EventType: "transfer.completed",
+		Payload:   eventPayload,
+		Status:    "pending",
+	}
+
+	// Save event to outbox table in the same local transaction
+	if err := s.txRepo.CreateOutboxTx(ctx, tx, outboxEvent); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	// Commit local transaction (Lock released in milliseconds!)
+	if err := tx.Commit(); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	return txRecord, nil
+}
+
+// executeGrpcTransferChain performs the full balance-mutation + ledger saga
+// entirely OUTSIDE any local database transaction. On failure it orchestrates
+// manual compensation (refund) and returns the originating error so the caller
+// can mark the transaction record as FAILED.
+func (s *transactionService) executeGrpcTransferChain(
+	ctx context.Context,
+	txID, senderUserID, receiverUserID string,
+	amount decimal.Decimal,
+	senderWallet *pbWallet.WalletResponse,
+) error {
+	debitAmount := amount.Neg()
+
 	// 5. Deduct Sender Balance (Debit) via Wallet Service gRPC
-	debitAmount := req.Amount.Neg()
-	err = s.walletBreaker.Call(func() error {
+	err := s.walletBreaker.Call(func() error {
 		var callErr error
 		_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
 			UserId:          senderUserID,
@@ -133,18 +206,17 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return callErr
 	})
 	if err != nil {
-		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
 		if err.Error() == "circuit breaker is open — service unavailable" {
-			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+			return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
 		}
-		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENT_ERROR", "Failed to process transaction. Try again.")
+		return customErr.NewAppError(http.StatusConflict, "CONCURRENT_ERROR", "Failed to process transaction. Try again.")
 	}
 
 	// 6. Add Receiver Balance (Credit) via Wallet Service gRPC
 	var receiverWallet *pbWallet.WalletResponse
 	err = s.walletBreaker.Call(func() error {
 		var callErr error
-		receiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUser.Id})
+		receiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUserID})
 		return callErr
 	})
 	if err != nil {
@@ -157,37 +229,34 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		})
 		if compReadErr != nil {
 			logger.Error(ctx, "CRITICAL: compensation re-read sender failed", slog.String("transaction_id", txID), slog.Any("error", compReadErr))
-			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "get_sender_wallet_for_compensation", "error": compReadErr.Error()})
-			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 		compRefundErr := s.walletBreaker.Call(func() error {
 			var callErr error
 			_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
 				UserId:          senderUserID,
-				Amount:          req.Amount.String(),
+				Amount:          amount.String(),
 				ExpectedVersion: compSenderWallet.Version,
 			})
 			return callErr
 		})
 		if compRefundErr != nil {
 			logger.Error(ctx, "CRITICAL: compensation refund sender failed", slog.String("transaction_id", txID), slog.Any("error", compRefundErr))
-			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "refund_sender_after_receiver_wallet_not_found", "error": compRefundErr.Error()})
-			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
-		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
 		if err.Error() == "circuit breaker is open — service unavailable" {
-			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+			return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
 		}
-		return nil, customErr.NewAppError(http.StatusNotFound, "RECEIVER_WALLET_NOT_FOUND", "Receiver wallet not found.")
+		return customErr.NewAppError(http.StatusNotFound, "RECEIVER_WALLET_NOT_FOUND", "Receiver wallet not found.")
 	}
 
 	err = s.walletBreaker.Call(func() error {
 		var callErr error
 		_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
-			UserId:          receiverUser.Id,
-			Amount:          req.Amount.String(),
+			UserId:          receiverUserID,
+			Amount:          amount.String(),
 			ExpectedVersion: receiverWallet.Version,
 		})
 		return callErr
@@ -202,30 +271,27 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		})
 		if compReadErr != nil {
 			logger.Error(ctx, "CRITICAL: compensation re-read sender failed", slog.String("transaction_id", txID), slog.Any("error", compReadErr))
-			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "get_sender_wallet_for_compensation", "error": compReadErr.Error()})
-			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 		compRefundErr := s.walletBreaker.Call(func() error {
 			var callErr error
 			_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
 				UserId:          senderUserID,
-				Amount:          req.Amount.String(),
+				Amount:          amount.String(),
 				ExpectedVersion: compSenderWallet.Version,
 			})
 			return callErr
 		})
 		if compRefundErr != nil {
 			logger.Error(ctx, "CRITICAL: compensation refund sender failed", slog.String("transaction_id", txID), slog.Any("error", compRefundErr))
-			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "refund_sender_after_credit_fail", "error": compRefundErr.Error()})
-			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
-		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
 		if err.Error() == "circuit breaker is open — service unavailable" {
-			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+			return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
 		}
-		return nil, customErr.ErrInternalServer
+		return customErr.ErrInternalServer
 	}
 
 	// 7. Record Financial Audit Trail in Ledger Service gRPC
@@ -235,7 +301,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 			TransactionId: txID,
 			WalletId:      senderWallet.Id,
 			Type:          "debit",
-			Amount:        req.Amount.String(),
+			Amount:        amount.String(),
 		})
 		return callErr
 	})
@@ -246,7 +312,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		var compReceiverWallet *pbWallet.WalletResponse
 		compRecvReadErr := s.walletBreaker.Call(func() error {
 			var callErr error
-			compReceiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUser.Id})
+			compReceiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUserID})
 			return callErr
 		})
 		if compRecvReadErr != nil {
@@ -256,7 +322,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 			if compDebitErr := s.walletBreaker.Call(func() error {
 				var callErr error
 				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
-					UserId:          receiverUser.Id,
+					UserId:          receiverUserID,
 					Amount:          debitAmount.String(),
 					ExpectedVersion: compReceiverWallet.Version,
 				})
@@ -281,7 +347,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 				var callErr error
 				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
 					UserId:          senderUserID,
-					Amount:          req.Amount.String(),
+					Amount:          amount.String(),
 					ExpectedVersion: compSenderWallet.Version,
 				})
 				return callErr
@@ -292,16 +358,14 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		}
 
 		if compFailed {
-			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "compensation_after_ledger_debit_fail"})
-			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 
-		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
 		if err.Error() == "circuit breaker is open — service unavailable" {
-			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
+			return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
 		}
-		return nil, customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record audit log. Transaction cancelled.")
+		return customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record audit log. Transaction cancelled.")
 	}
 
 	err = s.ledgerBreaker.Call(func() error {
@@ -310,7 +374,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 			TransactionId: txID,
 			WalletId:      receiverWallet.Id,
 			Type:          "credit",
-			Amount:        req.Amount.String(),
+			Amount:        amount.String(),
 		})
 		return callErr
 	})
@@ -321,7 +385,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		var compReceiverWallet *pbWallet.WalletResponse
 		compRecvReadErr := s.walletBreaker.Call(func() error {
 			var callErr error
-			compReceiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUser.Id})
+			compReceiverWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUserID})
 			return callErr
 		})
 		if compRecvReadErr != nil {
@@ -331,7 +395,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 			if compDebitErr := s.walletBreaker.Call(func() error {
 				var callErr error
 				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
-					UserId:          receiverUser.Id,
+					UserId:          receiverUserID,
 					Amount:          debitAmount.String(),
 					ExpectedVersion: compReceiverWallet.Version,
 				})
@@ -356,7 +420,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 				var callErr error
 				_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
 					UserId:          senderUserID,
-					Amount:          req.Amount.String(),
+					Amount:          amount.String(),
 					ExpectedVersion: compSenderWallet.Version,
 				})
 				return callErr
@@ -373,7 +437,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 				TransactionId: txID,
 				WalletId:      senderWallet.Id,
 				Type:          "credit",
-				Amount:        req.Amount.String(),
+				Amount:        amount.String(),
 			})
 			return callErr
 		}); compLedgerErr != nil {
@@ -382,28 +446,17 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		}
 
 		if compFailed {
-			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "compensation_after_ledger_credit_fail"})
-			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 
-		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
 		if err.Error() == "circuit breaker is open — service unavailable" {
-			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
+			return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
 		}
-		return nil, customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record receiver audit log. Transaction cancelled.")
+		return customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record receiver audit log. Transaction cancelled.")
 	}
 
-	// 8. Update transaction status to SUCCESS
-	txRecord.Status = "SUCCESS"
-	if err := s.txRepo.UpdateStatus(ctx, txID, "SUCCESS"); err != nil {
-		logger.Error(ctx, "Failed to update transaction status to success",
-			slog.String("transaction_id", txID),
-			slog.Any("error", err),
-		)
-	}
-
-	return txRecord, nil
+	return nil
 }
 
 func (s *transactionService) GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error) {

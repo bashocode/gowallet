@@ -9,10 +9,13 @@ import (
 
 type TransactionRepository interface {
 	Create(ctx context.Context, t *model.Transaction) error
+	CreateTx(ctx context.Context, tx *sql.Tx, t *model.Transaction) error
 	GetByIdempotencyKey(ctx context.Context, key string) (*model.Transaction, error)
 	GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, error)
 	UpdateStatus(ctx context.Context, id, status string) error
+	UpdateStatusTx(ctx context.Context, tx *sql.Tx, id, status string) error
 	CountToday(ctx context.Context) (int64, error)
+	CreateOutboxTx(ctx context.Context, tx *sql.Tx, event *model.OutboxEvent) error
 }
 
 type mysqlTransactionRepository struct {
@@ -26,6 +29,12 @@ func NewMySQLTransactionRepository(db *sql.DB) TransactionRepository {
 func (r *mysqlTransactionRepository) Create(ctx context.Context, t *model.Transaction) error {
 	query := `INSERT INTO transactions (id, sender_wallet_id, receiver_wallet_id, amount, description, idempotency_key, status) VALUES (?, ?, ?, ?, ?, ?, ?)`
 	_, err := r.db.ExecContext(ctx, query, t.ID, t.SenderWalletID, t.ReceiverWalletID, t.Amount, t.Description, t.IdempotencyKey, t.Status)
+	return err
+}
+
+func (r *mysqlTransactionRepository) CreateTx(ctx context.Context, tx *sql.Tx, t *model.Transaction) error {
+	query := `INSERT INTO transactions (id, sender_wallet_id, receiver_wallet_id, amount, description, idempotency_key, status) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err := tx.ExecContext(ctx, query, t.ID, t.SenderWalletID, t.ReceiverWalletID, t.Amount, t.Description, t.IdempotencyKey, t.Status)
 	return err
 }
 
@@ -58,6 +67,18 @@ func (r *mysqlTransactionRepository) GetByIdempotencyKey(ctx context.Context, ke
 func (r *mysqlTransactionRepository) UpdateStatus(ctx context.Context, id, status string) error {
 	query := `UPDATE transactions SET status = ? WHERE id = ?`
 	_, err := r.db.ExecContext(ctx, query, status, id)
+	return err
+}
+
+func (r *mysqlTransactionRepository) UpdateStatusTx(ctx context.Context, tx *sql.Tx, id, status string) error {
+	query := `UPDATE transactions SET status = ? WHERE id = ?`
+	_, err := tx.ExecContext(ctx, query, status, id)
+	return err
+}
+
+func (r *mysqlTransactionRepository) CreateOutboxTx(ctx context.Context, tx *sql.Tx, event *model.OutboxEvent) error {
+	query := `INSERT INTO outbox_events (id, event_type, payload, status) VALUES (?, ?, ?, ?)`
+	_, err := tx.ExecContext(ctx, query, event.ID, event.EventType, event.Payload, event.Status)
 	return err
 }
 

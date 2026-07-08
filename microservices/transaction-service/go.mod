@@ -11,6 +11,7 @@ replace github.com/bashocode/gowallet/microservices/wallet-service => ../wallet-
 replace github.com/bashocode/gowallet/microservices/ledger-service => ../ledger-service
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/bashocode/gowallet/microservices/ledger-service v0.0.0-00010101000000-000000000000
 	github.com/bashocode/gowallet/microservices/shared v0.0.0-00010101000000-000000000000
 	github.com/bashocode/gowallet/microservices/user-service v0.0.0-00010101000000-000000000000
