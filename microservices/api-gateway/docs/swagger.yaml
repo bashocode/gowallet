@@ -1,0 +1,19 @@
+basePath: /api/v1
+host: localhost:8080
+info:
+  contact:
+    email: support@gowallet.com
+    name: GoWallet API Support
+  description: Unified API documentation for all GoWallet microservices proxied through
+    the API Gateway.
+  termsOfService: http://swagger.io/terms/
+  title: GoWallet API (Microservices)
+  version: "2.0"
+paths: {}
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

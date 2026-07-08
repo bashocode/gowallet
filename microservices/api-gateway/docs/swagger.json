@@ -1,0 +1,24 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Unified API documentation for all GoWallet microservices proxied through the API Gateway.",
+        "title": "GoWallet API (Microservices)",
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "GoWallet API Support",
+            "email": "support@gowallet.com"
+        },
+        "version": "2.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/api/v1",
+    "paths": {},
+    "securityDefinitions": {
+        "BearerAuth": {
+            "description": "Type \"Bearer\" followed by a space and JWT token.",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

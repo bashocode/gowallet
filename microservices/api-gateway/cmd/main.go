@@ -1,21 +1,57 @@
 package main
 
 import (
+	"context"
 	"net/http"
+	"time"
 
+	_ "github.com/bashocode/gowallet/microservices/api-gateway/docs" // swagger docs (blank import)
 	"github.com/bashocode/gowallet/microservices/api-gateway/internal/middleware"
 	"github.com/bashocode/gowallet/microservices/api-gateway/internal/proxy"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
+	sharedMiddleware "github.com/bashocode/gowallet/microservices/shared/middleware"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
+// @title           GoWallet API (Microservices)
+// @version         2.0
+// @description     Unified API documentation for all GoWallet microservices proxied through the API Gateway.
+// @termsOfService  http://swagger.io/terms/
+
+// @contact.name   GoWallet API Support
+// @contact.email  support@gowallet.com
+
+// @host      localhost:8080
+// @BasePath  /api/v1
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
 func main() {
-	// Load configuration
 	cfg := config.LoadConfig()
 	logger.Log.Info("Starting API Gateway on port " + cfg.GatewayPort + "...")
 
-	// 2. Create reverse proxy for each target microservice
+	// 1. Connect to Redis for RateLimiter (fail-open: skip if unavailable)
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.RedisAddr,
+		Password: "",
+		DB:       0,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		logger.Log.Warn("Redis unavailable — rate limiter will skip. addr=" + cfg.RedisAddr + " err=" + err.Error())
+		rdb = nil
+	} else {
+		logger.Log.Info("Connected to Redis successfully!")
+	}
+
+	// 2. Create proxy routers for each target microservice
 	authProxy, err := proxy.NewReverseProxy(cfg.AuthServiceURL)
 	if err != nil {
 		logger.Fatal(nil, "Failed to initialize auth proxy", "error", err)
@@ -47,13 +83,32 @@ func main() {
 	}
 
 	r := gin.New()
-	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 
-	// Enable CORS Middleware
+	// 3. Register middleware chain (ORDER MATTERS!)
+	//    ErrorHandler must be first so it catches errors from all subsequent middleware
+	r.Use(sharedMiddleware.ErrorHandler())
+	//    CorrelationID assigns a unique ID to every request
+	r.Use(sharedMiddleware.CorrelationID())
+	//    CORS allows browser-based clients
 	r.Use(middleware.CORSMiddleware())
+	//    RateLimiter throttles abusive clients (60 req/min per IP)
+	if rdb != nil {
+		r.Use(sharedMiddleware.RateLimiter(rdb, 60, time.Minute))
+	}
 
-	// 3. Define proxy routing rules
+	// Swagger UI — registered before proxy routes so it's excluded from rate limiting
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+	// Health check endpoint
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "healthy",
+			"service": "api-gateway",
+		})
+	})
+
+	// 4. Define proxy routing rules
 	// /api/v1/auth/* is forwarded to Auth Service (login, refresh, logout, Google OAuth)
 	r.Any("/api/v1/auth/*path", func(c *gin.Context) {
 		authProxy.ServeHTTP(c.Writer, c.Request)
@@ -87,14 +142,6 @@ func main() {
 	// /api/v1/payments/* is forwarded to Payment Service on port 8083
 	r.Any("/api/v1/payments/*path", func(c *gin.Context) {
 		paymentProxy.ServeHTTP(c.Writer, c.Request)
-	})
-
-	// Health check endpoint
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"service": "api-gateway",
-		})
 	})
 
 	logger.Log.Info("API Gateway listening on port " + cfg.GatewayPort + "...")
