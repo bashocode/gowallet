@@ -108,9 +108,8 @@ const file_proto_auth_auth_proto_rawDesc = "" +
 	"\x15proto/auth/auth.proto\x12\x04auth\"\x10\n" +
 	"\x0eCleanupRequest\"6\n" +
 	"\x0fCleanupResponse\x12#\n" +
-	"\rdeleted_count\x18\x01 \x01(\x05R\fdeletedCount2\x9c\x01\n" +
-	"\vAuthService\x12A\n" +
-	"\x12CleanupExpiredOTPs\x12\x14.auth.CleanupRequest\x1a\x15.auth.CleanupResponse\x12J\n" +
+	"\rdeleted_count\x18\x01 \x01(\x05R\fdeletedCount2Y\n" +
+	"\vAuthService\x12J\n" +
 	"\x1bCleanupExpiredRefreshTokens\x12\x14.auth.CleanupRequest\x1a\x15.auth.CleanupResponseBEZCgithub.com/bashocode/gowallet/microservices/auth-service/proto/authb\x06proto3"
 
 var (
@@ -131,12 +130,10 @@ var file_proto_auth_auth_proto_goTypes = []any{
 	(*CleanupResponse)(nil), // 1: auth.CleanupResponse
 }
 var file_proto_auth_auth_proto_depIdxs = []int32{
-	0, // 0: auth.AuthService.CleanupExpiredOTPs:input_type -> auth.CleanupRequest
-	0, // 1: auth.AuthService.CleanupExpiredRefreshTokens:input_type -> auth.CleanupRequest
-	1, // 2: auth.AuthService.CleanupExpiredOTPs:output_type -> auth.CleanupResponse
-	1, // 3: auth.AuthService.CleanupExpiredRefreshTokens:output_type -> auth.CleanupResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	0, // 0: auth.AuthService.CleanupExpiredRefreshTokens:input_type -> auth.CleanupRequest
+	1, // 1: auth.AuthService.CleanupExpiredRefreshTokens:output_type -> auth.CleanupResponse
+	1, // [1:2] is the sub-list for method output_type
+	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name

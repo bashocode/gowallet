@@ -5,7 +5,6 @@ package auth;
 option go_package = "github.com/bashocode/gowallet/microservices/auth-service/proto/auth";
 
 service AuthService {
-  rpc CleanupExpiredOTPs (CleanupRequest) returns (CleanupResponse);
   rpc CleanupExpiredRefreshTokens (CleanupRequest) returns (CleanupResponse);
 }
 

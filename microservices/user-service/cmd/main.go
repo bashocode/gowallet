@@ -120,7 +120,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	pb.RegisterUserServiceServer(grpcServer, userGRPC.NewUserGRPCServer(userRepo))
+	pb.RegisterUserServiceServer(grpcServer, userGRPC.NewUserGRPCServer(userRepo, otpRepo))
 
 	go func() {
 		logger.Log.Info("User gRPC Server running on port " + port + "...")
