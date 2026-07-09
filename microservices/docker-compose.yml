@@ -219,9 +219,14 @@ services:
       - USER_GRPC_ADDR=${USER_GRPC_ADDR}
       - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
       - LEDGER_GRPC_ADDR=${LEDGER_GRPC_ADDR}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
     depends_on:
       - mysql
       - redis
+      - rabbitmq
       - user-service
       - wallet-service
       - ledger-service
