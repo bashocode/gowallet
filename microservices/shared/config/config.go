@@ -38,6 +38,7 @@ type Config struct {
 	UserPort              string
 	LedgerPort            string
 	TransactionPort       string
+	WebhookSecretKey      string
 }
 
 func LoadConfig() *Config {
@@ -166,6 +167,11 @@ func LoadConfig() *Config {
 		baseURL = "http://localhost:8080"
 	}
 
+	webhookSecretKey := os.Getenv("WEBHOOK_SECRET_KEY")
+	if webhookSecretKey == "" {
+		webhookSecretKey = "super-secret-key-change-this"
+	}
+
 	gatewayPort := os.Getenv("GATEWAY_PORT")
 	if gatewayPort == "" {
 		gatewayPort = "8080"
@@ -232,5 +238,6 @@ func LoadConfig() *Config {
 		UserPort:              userPort,
 		LedgerPort:            ledgerPort,
 		TransactionPort:       transactionPort,
+		WebhookSecretKey:      webhookSecretKey,
 	}
 }
