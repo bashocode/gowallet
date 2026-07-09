@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
 
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
 	pbUser "github.com/bashocode/gowallet/microservices/user-service/proto/user"
@@ -14,10 +16,45 @@ import (
 	"google.golang.org/grpc"
 )
 
+// newTestDB returns a *sql.DB backed by sqlmock that accepts any BeginTx -> Exec* -> Commit
+// sequence (used by the Outbox-pattern Transfer flow which the mock repository records).
+func newTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open sqlmock db: %v", err)
+	}
+	mock.MatchExpectationsInOrder(false)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO transactions").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE transactions").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO outbox_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	return db
+}
+
+// newTestDBPendingOnly is like newTestDB but only expects the initial PENDING insert transaction.
+// Used by failure-path tests where the gRPC chain aborts before the SUCCESS+outbox commit.
+func newTestDBPendingOnly(t *testing.T) *sql.DB {
+	t.Helper()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open sqlmock db: %v", err)
+	}
+	mock.MatchExpectationsInOrder(false)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO transactions").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	return db
+}
+
 // Mock repository
 type MockTxRepo struct {
 	mu           sync.Mutex
 	transactions map[string]*model.Transaction
+	outboxEvents []*model.OutboxEvent
 }
 
 func NewMockTxRepo() *MockTxRepo {
@@ -27,6 +64,13 @@ func NewMockTxRepo() *MockTxRepo {
 }
 
 func (m *MockTxRepo) Create(ctx context.Context, t *model.Transaction) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.transactions[t.ID] = t
+	return nil
+}
+
+func (m *MockTxRepo) CreateTx(ctx context.Context, tx *sql.Tx, t *model.Transaction) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.transactions[t.ID] = t
@@ -57,8 +101,32 @@ func (m *MockTxRepo) UpdateStatus(ctx context.Context, id, status string) error 
 	return nil
 }
 
+func (m *MockTxRepo) UpdateStatusTx(ctx context.Context, tx *sql.Tx, id, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t, ok := m.transactions[id]; ok {
+		t.Status = status
+	}
+	return nil
+}
+
 func (m *MockTxRepo) CountToday(ctx context.Context) (int64, error) {
 	return 0, nil
+}
+
+func (m *MockTxRepo) CreateOutboxTx(ctx context.Context, tx *sql.Tx, event *model.OutboxEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.outboxEvents = append(m.outboxEvents, event)
+	return nil
+}
+
+func (m *MockTxRepo) GetOutboxEvents() []*model.OutboxEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*model.OutboxEvent, len(m.outboxEvents))
+	copy(out, m.outboxEvents)
+	return out
 }
 
 // Mock gRPC User Client
@@ -129,7 +197,7 @@ func TestTransfer_HappyPath(t *testing.T) {
 	wClient := &MockWalletClient{}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
+	svc := NewTransactionService(newTestDB(t), txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -151,6 +219,22 @@ func TestTransfer_HappyPath(t *testing.T) {
 	if savedTx == nil || savedTx.Status != "SUCCESS" {
 		t.Errorf("Expected saved transaction status to be SUCCESS")
 	}
+
+	// Outbox: a single pending "transfer.completed" event must be recorded.
+	events := txRepo.GetOutboxEvents()
+	if len(events) != 1 {
+		t.Fatalf("Expected 1 outbox event, got %d", len(events))
+	}
+	ev := events[0]
+	if ev.EventType != "transfer.completed" {
+		t.Errorf("Expected event_type transfer.completed, got %s", ev.EventType)
+	}
+	if ev.Status != "pending" {
+		t.Errorf("Expected outbox status pending, got %s", ev.Status)
+	}
+	if ev.ID == "" {
+		t.Errorf("Expected outbox event to have a non-empty ID")
+	}
 }
 
 func TestTransfer_DebitFails(t *testing.T) {
@@ -163,7 +247,7 @@ func TestTransfer_DebitFails(t *testing.T) {
 	}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
+	svc := NewTransactionService(newTestDBPendingOnly(t), txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -181,6 +265,11 @@ func TestTransfer_DebitFails(t *testing.T) {
 	savedTx, _ := txRepo.GetByIdempotencyKey(context.Background(), "idem-key-2")
 	if savedTx == nil || savedTx.Status != "FAILED" {
 		t.Errorf("Expected saved transaction status to be FAILED, got: %v", savedTx)
+	}
+
+	// No outbox event should be written when the transfer fails.
+	if events := txRepo.GetOutboxEvents(); len(events) != 0 {
+		t.Errorf("Expected no outbox events on failure, got %d", len(events))
 	}
 }
 
@@ -221,7 +310,7 @@ func TestTransfer_CreditFails_CompensationSucceeds(t *testing.T) {
 	}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
+	svc := NewTransactionService(newTestDBPendingOnly(t), txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -287,7 +376,7 @@ func TestTransfer_LedgerFails_CompensationSucceeds(t *testing.T) {
 		},
 	}
 
-	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
+	svc := NewTransactionService(newTestDBPendingOnly(t), txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
