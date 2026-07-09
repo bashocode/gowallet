@@ -46,6 +46,16 @@ services:
       - gowallet-network
     restart: always
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: gowallet-rabbitmq
+    ports:
+      - "${RABBITMQ_PORT}:${RABBITMQ_PORT}"     # AMQP port for application connections
+      - "${RABBITMQ_MGMT_PORT}:${RABBITMQ_MGMT_PORT}"   # Web UI Management Console port
+    networks:
+      - gowallet-network
+    restart: always
+
   # === Application Services ===
   api-gateway:
     build:
@@ -273,4 +283,3 @@ volumes:
 networks:
   gowallet-network:
     driver: bridge
-    

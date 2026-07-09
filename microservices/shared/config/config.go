@@ -10,6 +10,7 @@ import (
 type Config struct {
 	DBDSN                 string
 	RedisAddr             string
+	RabbitMQURL           string
 	SMTPHost              string
 	SMTPPort              string
 	SMTPFrom              string
@@ -52,6 +53,24 @@ func LoadConfig() *Config {
 		os.Getenv("DB_NAME") + "?parseTime=true"
 
 	redisAddr := os.Getenv("REDIS_HOST") + ":" + os.Getenv("REDIS_PORT")
+
+	rabbitmqHost := os.Getenv("RABBITMQ_HOST")
+	if rabbitmqHost == "" {
+		rabbitmqHost = "localhost"
+	}
+	rabbitmqPort := os.Getenv("RABBITMQ_PORT")
+	if rabbitmqPort == "" {
+		rabbitmqPort = "5672"
+	}
+	rabbitmqUser := os.Getenv("RABBITMQ_USER")
+	if rabbitmqUser == "" {
+		rabbitmqUser = "guest"
+	}
+	rabbitmqPassword := os.Getenv("RABBITMQ_PASSWORD")
+	if rabbitmqPassword == "" {
+		rabbitmqPassword = "guest"
+	}
+	rabbitmqURL := "amqp://" + rabbitmqUser + ":" + rabbitmqPassword + "@" + rabbitmqHost + ":" + rabbitmqPort + "/"
 
 	smtpHost := os.Getenv("SMTP_HOST")
 	if smtpHost == "" {
@@ -185,6 +204,7 @@ func LoadConfig() *Config {
 	return &Config{
 		DBDSN:                 dsn,
 		RedisAddr:             redisAddr,
+		RabbitMQURL:           rabbitmqURL,
 		SMTPHost:              smtpHost,
 		SMTPPort:              smtpPort,
 		SMTPFrom:              smtpFrom,
