@@ -46,6 +46,16 @@ services:
       - gowallet-network
     restart: always
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: gowallet-rabbitmq
+    ports:
+      - "${RABBITMQ_PORT}:${RABBITMQ_PORT}"     # AMQP port for application connections
+      - "${RABBITMQ_MGMT_PORT}:${RABBITMQ_MGMT_PORT}"   # Web UI Management Console port
+    networks:
+      - gowallet-network
+    restart: always
+
   # === Application Services ===
   api-gateway:
     build:
@@ -209,6 +219,10 @@ services:
       - USER_GRPC_ADDR=${USER_GRPC_ADDR}
       - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
       - LEDGER_GRPC_ADDR=${LEDGER_GRPC_ADDR}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
     depends_on:
       - mysql
       - redis
@@ -273,4 +287,3 @@ volumes:
 networks:
   gowallet-network:
     driver: bridge
-    
