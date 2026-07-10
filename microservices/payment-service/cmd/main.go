@@ -68,6 +68,7 @@ func main() {
 		cfg.BaseURL,
 	)
 	payHandler := paymentHandler.NewPaymentHandler(paySvc)
+	webhookHandler := paymentHandler.NewWebhookHandler(cfg.RabbitMQURL, cfg.WebhookSecretKey)
 
 	// Setup HTTP Server
 	r := gin.New()
@@ -82,6 +83,9 @@ func main() {
 		v1.POST("/payments/webhook", payHandler.ProcessWebhook)
 		v1.GET("/payments/success", payHandler.SuccessCallback)
 		v1.GET("/payments/cancel", payHandler.CancelCallback)
+
+		// custom callback only for testing
+		v1.POST("/payments/callback", webhookHandler.HandleWebhookCallback)
 
 		// Protected endpoints (JWT required)
 		protected := v1.Group("")
