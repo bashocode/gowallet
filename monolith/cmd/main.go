@@ -119,6 +119,7 @@ func main() {
 		v1.POST("/users/verify-password-reset", uHandler.VerifyPasswordReset)
 		v1.GET("/auth/google/login", uHandler.GoogleLogin)
 		v1.GET("/auth/google/callback", uHandler.GoogleCallback)
+		v1.POST("/wallets/inquiry", wHandler.EmailInquiry)
 
 		// Protected routes (requires valid JWT token)
 		protected := v1.Group("")

@@ -12,6 +12,7 @@ import (
 type WalletRepository interface {
 	CreateTx(ctx context.Context, tx *sql.Tx, w *model.Wallet) error
 	GetByUserID(ctx context.Context, userID string) (*model.Wallet, error)
+	GetByEmail(ctx context.Context, email string) (*model.WalletInquiry, error)
 	UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, amount decimal.Decimal, currentVersion int) error
 }
 
@@ -71,4 +72,32 @@ func (r *mysqlWalletRepository) UpdateBalanceTx(ctx context.Context, tx *sql.Tx,
 	}
 
 	return nil
+}
+
+func (r *mysqlWalletRepository) GetByEmail(ctx context.Context, email string) (*model.WalletInquiry, error) {
+	query := `
+		SELECT w.id, u.full_name, u.email
+		FROM wallets w
+		JOIN users u ON u.id = w.user_id
+		WHERE LOWER(u.email) = LOWER(?)
+		  AND u.deleted_at IS NULL
+		  AND w.deleted_at IS NULL
+		  AND w.status = 'active'
+		LIMIT 1
+	`
+	inquiry := &model.WalletInquiry{}
+	err := r.db.QueryRowContext(ctx, query, email).Scan(
+		&inquiry.AccountID,
+		&inquiry.Name,
+		&inquiry.Email,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("Account not found")
+		}
+		return nil, err
+	}
+
+	inquiry.Valid = true
+	return inquiry, nil
 }

@@ -642,6 +642,59 @@ const (
 	maxTransferAmount = 500000
 )
 
+func (s *transactionService) validateReceiverEmail(ctx context.Context, email string) (*transferModel.EmailInquiryResponse, error) {
+	reqBody := transferModel.EmailInquiryRequest{Email: email}
+	reqJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to marshal inquiry request")
+	}
+
+	inquiryURL := fmt.Sprintf("%s/api/v1/wallets/inquiry", s.monolithBaseURL)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, inquiryURL, bytes.NewBuffer(reqJSON))
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create inquiry request")
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-API-Key", s.webhookSecret)
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		logger.Error(ctx, "Failed to call monolith inquiry endpoint", slog.Any("error", err))
+		return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Monolith service temporarily unavailable")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_RECEIVER", "Receiver email not found in monolith system")
+	}
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Monolith service temporarily unavailable")
+	}
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		logger.Error(ctx, "Monolith inquiry returned error", slog.String("status", resp.Status), slog.String("body", string(bodyBytes)))
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "INQUIRY_FAILED", "Failed to validate receiver email")
+	}
+
+	var apiResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to decode inquiry response")
+	}
+
+	if data, ok := apiResp["data"].(map[string]interface{}); ok {
+		inquiry := &transferModel.EmailInquiryResponse{
+			Valid:     true,
+			AccountID: data["account_id"].(string),
+			Name:      data["name"].(string),
+			Email:     data["email"].(string),
+		}
+		return inquiry, nil
+	}
+
+	return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Invalid inquiry response format")
+}
+
 func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderUserID string, req transferModel.ExternalTransferRequest) (*transferModel.OutboundTransfer, error) {
 	if req.Amount.LessThan(decimal.NewFromInt(minTransferAmount)) {
 		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_AMOUNT",
@@ -677,6 +730,11 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 	if senderBalance.LessThan(req.Amount) {
 		return nil, customErr.NewAppError(http.StatusBadRequest, "INSUFFICIENT_BALANCE",
 			fmt.Sprintf("insufficient balance: have %s, need %s", senderBalance.String(), req.Amount.String()))
+	}
+
+	_, err = s.validateReceiverEmail(ctx, req.ReceiverEmail)
+	if err != nil {
+		return nil, err
 	}
 
 	debitAmount := req.Amount.Neg()

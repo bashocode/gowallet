@@ -78,3 +78,16 @@ type TransferOutboxEvent struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// EmailInquiryRequest is sent to monolith inquiry endpoint
+type EmailInquiryRequest struct {
+	Email string `json:"email"`
+}
+
+// EmailInquiryResponse is returned from monolith inquiry endpoint
+type EmailInquiryResponse struct {
+	Valid     bool   `json:"valid"`
+	AccountID string `json:"account_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Email     string `json:"email,omitempty"`
+}

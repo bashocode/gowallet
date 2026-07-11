@@ -203,7 +203,7 @@ func main() {
 	v1 := r.Group("/api/v1")
 	{
 		// Public webhook endpoint (called by monolith, no JWT)
-		v1.POST("/transfers/webhook", transferH.ProcessTransferWebhook)
+		v1.POST("/transactions/transfers/webhook", transferH.ProcessTransferWebhook)
 
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware(rdb))
@@ -211,8 +211,8 @@ func main() {
 			protected.POST("/transactions/transfer", txHandler.Transfer)
 			protected.GET("/transactions/history", txHandler.GetHistory)
 
-			protected.POST("/transfers/external", transferH.CreateExternalTransfer)
-			protected.GET("/transfers/external/:id", transferH.GetExternalTransfer)
+			protected.POST("/transactions/transfers/external", transferH.CreateExternalTransfer)
+			protected.GET("/transactions/transfers/external/:id", transferH.GetExternalTransfer)
 		}
 	}
 

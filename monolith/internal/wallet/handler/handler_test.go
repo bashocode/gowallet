@@ -32,6 +32,14 @@ func (m *MockWalletService) GetWalletByUserID(ctx context.Context, userID string
 	return args.Get(0).(*model.Wallet), args.Error(1)
 }
 
+func (m *MockWalletService) ValidateEmailInquiry(ctx context.Context, email string) (*model.WalletInquiry, error) {
+	args := m.Called(ctx, email)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.WalletInquiry), args.Error(1)
+}
+
 func TestGetMyWallet_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
