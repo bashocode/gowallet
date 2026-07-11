@@ -133,6 +133,8 @@ func main() {
 	txSvc := transactionService.NewTransactionService(db, txRepo, userClient, walletClient, ledgerClient, dlqPublisher)
 	txHandler := transactionHandler.NewTransactionHandler(txSvc)
 
+	externalHandler := transactionHandler.NewTransferHandler(txSvc, cfg.WebhookSecret, cfg.MonolithBaseURL)
+
 	// =========================================================
 	// Start gRPC Server (for internal service-to-service calls)
 	// =========================================================
@@ -177,6 +179,8 @@ func main() {
 		{
 			protected.POST("/transactions/transfer", txHandler.Transfer)
 			protected.GET("/transactions/history", txHandler.GetHistory)
+
+			protected.POST("/transactions/inquiry/external", externalHandler.InquiryExternal)
 		}
 	}
 

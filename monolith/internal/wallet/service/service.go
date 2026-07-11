@@ -16,6 +16,7 @@ import (
 
 type WalletService interface {
 	GetWalletByUserID(ctx context.Context, userID string) (*model.Wallet, error)
+	ValidateEmailInquiry(ctx context.Context, email string) (*model.WalletInquiry, error)
 }
 
 type walletService struct {
@@ -82,4 +83,13 @@ func (s *walletService) GetWalletByUserID(ctx context.Context, userID string) (*
 	}
 
 	return wallet, nil
+}
+
+func (s *walletService) ValidateEmailInquiry(ctx context.Context, email string) (*model.WalletInquiry, error) {
+	inquiry, err := s.repo.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusNotFound, "ACCOUNT_NOT_FOUND", "Account not found")
+	}
+
+	return inquiry, nil
 }

@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -25,6 +27,7 @@ type TransactionService interface {
 	GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error)
 	TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error)
 	GenerateDailyReport(ctx context.Context) (int, error)
+	ValidateExternalEmail(ctx context.Context, email string, webhookSecret string, monolithBaseURL string) (*model.WalletInquiry, error)
 }
 
 type DLQPublisher interface {
@@ -601,6 +604,55 @@ func (s *transactionService) GenerateDailyReport(ctx context.Context) (int, erro
 		return 0, err
 	}
 	return int(count), nil
+}
+
+func (s *transactionService) ValidateExternalEmail(ctx context.Context, email string, webhookSecret string, monolithBaseURL string) (*model.WalletInquiry, error) {
+	url := fmt.Sprintf("%s/api/v1/wallets/inquiry", monolithBaseURL)
+
+	// 1. Prepare JSON payload
+	payload := map[string]string{"email": email}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	// 2. Create HTTP request with timeout context
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", webhookSecret)
+
+	// 3. Send HTTP Request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusServiceUnavailable, "EXTERNAL_SERVICE_UNAVAILABLE", "Monolith service is currently unreachable.")
+	}
+	defer resp.Body.Close()
+
+	// 4. Handle response status codes
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, customErr.NewAppError(http.StatusNotFound, "EMAIL_NOT_FOUND", "Email is not registered in the system.")
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "Failed to authenticate with monolith service.")
+		}
+		return nil, customErr.NewAppError(resp.StatusCode, "EXTERNAL_SERVICE_ERROR", "Failed to validate email from external service.")
+	}
+
+	// 5. Decode response body
+	var apiResp struct {
+		Success bool                `json:"success"`
+		Data    model.WalletInquiry `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	return &apiResp.Data, nil
 }
 
 func (s *transactionService) markFailed(ctx context.Context, transactionID string) {
