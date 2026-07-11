@@ -38,6 +38,7 @@ services:
 
   mailhog:
     image: mailhog/mailhog:latest
+    platform: linux/amd64
     container_name: gowallet-mailhog-ms
     ports:
       - "${MAILHOG_PORT}:${MAILHOG_PORT}" # SMTP port
@@ -223,6 +224,9 @@ services:
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - RABBITMQ_USER=${RABBITMQ_USER}
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - MONOLITH_BASE_URL=${MONOLITH_BASE_URL}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - GATEWAY_CALLBACK_URL=${GATEWAY_CALLBACK_URL}
     depends_on:
       - mysql
       - redis

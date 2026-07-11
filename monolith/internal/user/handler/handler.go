@@ -164,6 +164,38 @@ func (h *UserHandler) GetProfileMe(c *gin.Context) {
 	})
 }
 
+// GetUserByEmail godoc
+// @Summary		Get User by Email
+// @Description	Look up a user by email. Used by GoWallet microservice for external transfer receiver validation.
+// @Tags		Users
+// @Produce		json
+// @Param		email path string true "User email"
+// @Success		200 {object} map[string]interface{}
+// @Failure		404 {object} customErr.AppError
+// @Router		/users/email/{email} [get]
+func (h *UserHandler) GetUserByEmail(c *gin.Context) {
+	email := c.Param("email")
+	if email == "" {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", "email is required"))
+		return
+	}
+
+	user, err := h.svc.GetUserByEmail(c.Request.Context(), email)
+	if err != nil || user == nil {
+		c.Error(customErr.NewAppError(http.StatusNotFound, "USER_NOT_FOUND", "User not found"))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"id":        user.ID,
+			"full_name": user.FullName,
+			"email":     user.Email,
+		},
+	})
+}
+
 // UploadAvatar godoc
 // @Summary		Upload Avatar
 // @Description	Upload profile picture avatar (JPG, JPEG, PNG, max 2MB)

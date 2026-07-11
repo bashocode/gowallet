@@ -145,6 +145,11 @@ func main() {
 		transactionProxy.ServeHTTP(c.Writer, c.Request)
 	})
 
+	// /api/v1/transfers/* is forwarded to Transaction Service (external transfer + webhook, Episode 35)
+	r.Any("/api/v1/transfers/*path", func(c *gin.Context) {
+		transactionProxy.ServeHTTP(c.Writer, c.Request)
+	})
+
 	// /api/v1/payments/* is forwarded to Payment Service on port 8083
 	r.Any("/api/v1/payments/*path", func(c *gin.Context) {
 		paymentProxy.ServeHTTP(c.Writer, c.Request)

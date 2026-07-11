@@ -127,6 +127,14 @@ func (m *MockUserService) GetAllUsers(ctx context.Context, params model.Paginati
 	return args.Get(0).([]*model.User), args.Get(1).(*model.PaginationMeta), args.Error(2)
 }
 
+func (m *MockUserService) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
+	args := m.Called(ctx, email)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.User), args.Error(1)
+}
+
 // ErrorHandler is copied from middleware for unit tests simplicity in this package
 func testErrorHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {

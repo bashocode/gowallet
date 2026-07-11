@@ -90,7 +90,7 @@ func main() {
 
 	uHandler := userHandler.NewUserHandler(uSvc)
 	wHandler := walletHandler.NewWalletHandler(wSvc)
-	tHandler := txHandler.NewTransactionHandler(tSvc)
+	tHandler := txHandler.NewTransactionHandler(tSvc, cfg.GatewayCallbackURL, cfg.WebhookSecret)
 	lHandler := ledgerHandler.NewLedgerHandler(lSvc)
 
 	cronSched := scheduler.NewScheduler(db, wRepo, lRepo)
@@ -119,6 +119,11 @@ func main() {
 		v1.POST("/users/verify-password-reset", uHandler.VerifyPasswordReset)
 		v1.GET("/auth/google/login", uHandler.GoogleLogin)
 		v1.GET("/auth/google/callback", uHandler.GoogleCallback)
+
+		// Public webhook: receive external transfer from GoWallet microservice (Episode 35)
+		v1.POST("/transfers/external", tHandler.ReceiveExternalTransfer)
+		v1.GET("/transfers/external/:idempotency_key/status", tHandler.GetExternalTransferStatus)
+		v1.GET("/users/email/:email", uHandler.GetUserByEmail)
 
 		// Protected routes (requires valid JWT token)
 		protected := v1.Group("")

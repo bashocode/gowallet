@@ -29,3 +29,14 @@ type TopUpRequest struct {
 	IdempotencyKey string          `json:"idempotency_key" binding:"required" example:"unique-uuid-key-abc"`
 }
 
+// ExternalTransferPayload is the payload GoWallet microservice sends to the
+// monolith when initiating a cross-ewallet transfer (Episode 35).
+type ExternalTransferPayload struct {
+	TransferID     string          `json:"transfer_id"`
+	ReceiverEmail  string          `json:"receiver_email" binding:"required,email"`
+	Amount         decimal.Decimal `json:"amount" binding:"required,gt=0"`
+	Currency       string          `json:"currency"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	SenderUserID   string          `json:"sender_user_id"`
+}
+

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 
 	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
@@ -20,6 +21,8 @@ type TransactionService interface {
 	Transfer(ctx context.Context, senderUserID string, req model.TransferRequest) (*model.Transaction, error)
 	GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error)
 	TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error)
+	ReceiveExternalTransfer(ctx context.Context, payload model.ExternalTransferPayload) (string, error)
+	GetExternalTransferStatus(ctx context.Context, idempotencyKey string) (string, error)
 }
 
 type transactionService struct {
@@ -258,4 +261,87 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 	}()
 
 	return transaction, nil
+}
+
+// ReceiveExternalTransfer is called when GoWallet microservice initiates a
+// cross-ewallet transfer. It credits the monolith receiver and returns the
+// status ("settled" or "failed"). The handler will call back GoWallet's webhook
+// with this status (Episode 35).
+func (s *transactionService) ReceiveExternalTransfer(ctx context.Context, payload model.ExternalTransferPayload) (string, error) {
+	// 1. Find receiver by email
+	receiverUser, err := s.userRepo.GetByEmail(ctx, payload.ReceiverEmail)
+	if err != nil {
+		return "failed", customErr.NewAppError(http.StatusNotFound, "RECEIVER_NOT_FOUND", "Receiver not found")
+	}
+
+	// 2. Get receiver wallet
+	receiverWallet, err := s.walletRepo.GetByUserID(ctx, receiverUser.ID)
+	if err != nil {
+		return "failed", customErr.NewAppError(http.StatusNotFound, "RECEIVER_WALLET_NOT_FOUND", "Receiver wallet not found")
+	}
+
+	// 3. Credit receiver wallet + record transaction + ledger entry
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "failed", customErr.ErrInternalServer
+	}
+	defer tx.Rollback()
+
+	err = s.walletRepo.UpdateBalanceTx(ctx, tx, receiverWallet.ID, payload.Amount.Neg(), receiverWallet.Version)
+	if err != nil {
+		return "failed", customErr.NewAppError(http.StatusConflict, "CONCURRENCY_CONFLICT", "Transaksi sedang sibuk, silakan coba lagi nanti.")
+	}
+
+	transactionID := uuid.New().String()
+	transaction := &model.Transaction{
+		ID:               transactionID,
+		SenderWalletID:   nil,
+		ReceiverWalletID: receiverWallet.ID,
+		Amount:           payload.Amount,
+		Description:      "External transfer from GoWallet",
+		IdempotencyKey:   payload.IdempotencyKey,
+		Status:           "success",
+	}
+	if err = s.txRepo.CreateTx(ctx, tx, transaction); err != nil {
+		return "failed", customErr.ErrInternalServer
+	}
+
+	creditEntry := &ledgerModel.LedgerEntry{
+		ID:            uuid.New().String(),
+		WalletID:      receiverWallet.ID,
+		TransactionID: transactionID,
+		EntryType:     "credit",
+		Amount:        payload.Amount,
+	}
+	if err := s.ledgerRepo.CreateTx(ctx, tx, creditEntry); err != nil {
+		return "failed", customErr.ErrInternalServer
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "failed", customErr.ErrInternalServer
+	}
+
+	// Invalidate cache
+	go func() {
+		s.rdb.Del(context.Background(), "wallet:user:"+receiverUser.ID)
+	}()
+
+	return "settled", nil
+}
+
+// GetExternalTransferStatus looks up a transfer by idempotency key and returns
+// its status. Used by GoWallet's reconciliation worker to check if a transfer
+// was settled when the callback was lost.
+func (s *transactionService) GetExternalTransferStatus(ctx context.Context, idempotencyKey string) (string, error) {
+	tx, err := s.txRepo.GetByIdempotencyKey(ctx, idempotencyKey)
+	if err != nil {
+		return "", err
+	}
+	if tx == nil {
+		return "", fmt.Errorf("transfer not found: %s", idempotencyKey)
+	}
+	if tx.Status == "success" {
+		return "settled", nil
+	}
+	return tx.Status, nil
 }

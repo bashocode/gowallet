@@ -19,8 +19,25 @@ endif
 # Names of the microservice directories to be built automatically
 SERVICES := api-gateway auth-service user-service wallet-service ledger-service transaction-service payment-service scheduler-service
 
+# Services that own a database and have migration files in db/migrations/
+DB_SERVICES := auth-service user-service wallet-service ledger-service transaction-service payment-service
+
+# MySQL connection details (read from .env, fallback to defaults)
+DB_USER_VAR     := $(shell grep '^DB_USER=' .env 2>/dev/null | cut -d'=' -f2)
+DB_PASSWORD_VAR := $(shell grep '^DB_PASSWORD=' .env 2>/dev/null | cut -d'=' -f2)
+DB_HOST_VAR     := $(shell grep '^DB_HOST=' .env 2>/dev/null | cut -d'=' -f2)
+DB_PORT_VAR     := $(shell grep '^DB_PORT=' .env 2>/dev/null | cut -d'=' -f2)
+
+MYSQL_USER     := $(or $(DB_USER_VAR),gowallet_user)
+MYSQL_PASSWORD := $(or $(DB_PASSWORD_VAR),gowallet_password)
+MYSQL_HOST     := $(or $(DB_HOST_VAR),localhost)
+MYSQL_PORT     := $(or $(DB_PORT_VAR),3306)
+
+# Container name for executing mysql CLI inside Docker
+MYSQL_CONTAINER := gowallet-mysql-ms
+
 # Mark the targets below as abstract commands (not physical files)
-.PHONY: all build-linux build-native clean help tidy tidy-shared
+.PHONY: all build-linux build-native clean help tidy tidy-shared migrate-up migrate-down migrate-status migrate-reset
 
 # Default target if you run the `make` command without any arguments
 all: help
@@ -84,16 +101,142 @@ tidy: tidy-shared
 	done
 	@echo "All services tidied successfully!"
 
+# ==============================================================================
+# DATABASE MIGRATIONS
+# ==============================================================================
+# All migration commands run .up.sql / .down.sql files inside each service's
+# db/migrations/ directory against the matching database. They try the Docker
+# container first (gowallet-mysql-ms); if Docker is not running they fall back
+# to the local mysql CLI.
+
+## migrate-up: Run all pending .up.sql migrations for every service
+# Loops through each DB-owned service, finds all *.up.sql files in
+# db/migrations/, and executes them in alphabetical order against the
+# service's database.
+migrate-up:
+	@echo "Running UP migrations for all services..."
+	@for service in $(DB_SERVICES); do \
+		case $$service in \
+			auth-service)        db_name=gowallet_auth ;; \
+			user-service)        db_name=gowallet_user ;; \
+			wallet-service)      db_name=gowallet_wallet ;; \
+			ledger-service)      db_name=gowallet_ledger ;; \
+			transaction-service) db_name=gowallet_transaction ;; \
+			payment-service)     db_name=gowallet_payment ;; \
+			*) db_name="" ;; \
+		esac; \
+		migration_dir="$$service/db/migrations"; \
+		if [ ! -d "$$migration_dir" ]; then \
+			echo "  $$service: no migrations directory, skipping"; \
+			continue; \
+		fi; \
+		files=$$(ls $$migration_dir/*.up.sql 2>/dev/null | sort); \
+		if [ -z "$$files" ]; then \
+			echo "  $$service: no .up.sql files, skipping"; \
+			continue; \
+		fi; \
+		echo "  $$service → database: $$db_name"; \
+		for f in $$files; do \
+			echo "    ↑ $$(basename $$f)"; \
+			if docker exec $(MYSQL_CONTAINER) mysql -u$(MYSQL_USER) -p$(MYSQL_PASSWORD) -e "SELECT 1" >/dev/null 2>&1; then \
+				docker exec -i $(MYSQL_CONTAINER) mysql -u$(MYSQL_USER) -p$(MYSQL_PASSWORD) $$db_name < $$f 2>/dev/null; \
+			else \
+				mysql -u$(MYSQL_USER) -p$(MYSQL_PASSWORD) -h$(MYSQL_HOST) -P$(MYSQL_PORT) $$db_name < $$f 2>/dev/null; \
+			fi; \
+		done; \
+	done
+	@echo "All UP migrations completed!"
+
+## migrate-down: Run all .down.sql migrations for every service (reverse order)
+# WARNING: This drops tables. Use with caution in production.
+migrate-down:
+	@echo "Running DOWN migrations for all services (reverse order)..."
+	@for service in $(DB_SERVICES); do \
+		case $$service in \
+			auth-service)        db_name=gowallet_auth ;; \
+			user-service)        db_name=gowallet_user ;; \
+			wallet-service)      db_name=gowallet_wallet ;; \
+			ledger-service)      db_name=gowallet_ledger ;; \
+			transaction-service) db_name=gowallet_transaction ;; \
+			payment-service)     db_name=gowallet_payment ;; \
+			*) db_name="" ;; \
+		esac; \
+		migration_dir="$$service/db/migrations"; \
+		if [ ! -d "$$migration_dir" ]; then \
+			echo "  $$service: no migrations directory, skipping"; \
+			continue; \
+		fi; \
+		files=$$(ls -r $$migration_dir/*.down.sql 2>/dev/null); \
+		if [ -z "$$files" ]; then \
+			echo "  $$service: no .down.sql files, skipping"; \
+			continue; \
+		fi; \
+		echo "  $$service → database: $$db_name"; \
+		for f in $$files; do \
+			echo "    ↓ $$(basename $$f)"; \
+			if docker exec $(MYSQL_CONTAINER) mysql -u$(MYSQL_USER) -p$(MYSQL_PASSWORD) -e "SELECT 1" >/dev/null 2>&1; then \
+				docker exec -i $(MYSQL_CONTAINER) mysql -u$(MYSQL_USER) -p$(MYSQL_PASSWORD) $$db_name < $$f 2>/dev/null; \
+			else \
+				mysql -u$(MYSQL_USER) -p$(MYSQL_PASSWORD) -h$(MYSQL_HOST) -P$(MYSQL_PORT) $$db_name < $$f 2>/dev/null; \
+			fi; \
+		done; \
+	done
+	@echo "All DOWN migrations completed!"
+
+## migrate-status: Show migration files for every service
+migrate-status:
+	@echo "Migration status for all services:"
+	@echo ""
+	@for service in $(DB_SERVICES); do \
+		case $$service in \
+			auth-service)        db_name=gowallet_auth ;; \
+			user-service)        db_name=gowallet_user ;; \
+			wallet-service)      db_name=gowallet_wallet ;; \
+			ledger-service)      db_name=gowallet_ledger ;; \
+			transaction-service) db_name=gowallet_transaction ;; \
+			payment-service)     db_name=gowallet_payment ;; \
+			*) db_name="" ;; \
+		esac; \
+		migration_dir="$$service/db/migrations"; \
+		if [ ! -d "$$migration_dir" ]; then \
+			echo "  $$service: no migrations directory"; \
+			continue; \
+		fi; \
+		echo "  $$service (database: $$db_name):"; \
+		files=$$(ls $$migration_dir/*.up.sql 2>/dev/null | sort); \
+		if [ -z "$$files" ]; then \
+			echo "    (no migration files)"; \
+		else \
+			for f in $$files; do \
+				echo "    $$(basename $$f)"; \
+			done; \
+		fi; \
+		echo ""; \
+	done
+
+## migrate-reset: Run all down migrations, then all up migrations (fresh start)
+migrate-reset: migrate-down migrate-up
+	@echo "Database reset complete (down + up)."
+
 ## help: Display the usage guide for available make commands
 help:
 	@echo "Usage:"
 	@echo "  make [target]"
 	@echo ""
-	@echo "Targets:"
-	@echo "  make build-linux   - Compile all services for Linux ($(GOARCH)) to run in Docker (RAM-efficient)"
-	@echo "  make build-native  - Compile all services natively for macOS ($(ARCH)) to run locally"
+	@echo "Build:"
+	@echo "  make build-linux   - Compile all services for Linux ($(GOARCH)) to run in Docker"
+	@echo "  make build-native  - Compile all services natively for macOS ($(ARCH))"
+	@echo "  make clean         - Remove all compiled binaries"
+	@echo ""
+	@echo "Dependencies:"
 	@echo "  make tidy          - Run go mod tidy on shared and all services"
 	@echo "  make tidy-shared   - Run go mod tidy on the shared package only"
-	@echo "  make clean         - Remove all compiled binaries"
+	@echo ""
+	@echo "Migrations:"
+	@echo "  make migrate-up     - Run all .up.sql migrations for every service"
+	@echo "  make migrate-down   - Run all .down.sql migrations (reverse order, drops tables)"
+	@echo "  make migrate-status - List all migration files per service"
+	@echo "  make migrate-reset  - Run down then up (fresh start)"
+	@echo ""
 	@echo "  make help          - Show this help message"
 

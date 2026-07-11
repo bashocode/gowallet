@@ -1,8 +1,14 @@
 package handler
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"reflect"
+	"time"
 
 	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
 	"github.com/bashocode/gowallet/monolith/internal/transaction/model"
@@ -27,11 +33,22 @@ func init() {
 }
 
 type TransactionHandler struct {
-	svc service.TransactionService
+	svc           service.TransactionService
+	callbackURL   string
+	webhookSecret string
+	httpClient   *http.Client
 }
 
-func NewTransactionHandler(s service.TransactionService) *TransactionHandler {
-	return &TransactionHandler{svc: s}
+func NewTransactionHandler(s service.TransactionService, callbackURL string, webhookSecret string) *TransactionHandler {
+	if callbackURL == "" {
+		callbackURL = "http://localhost:8080"
+	}
+	return &TransactionHandler{
+		svc:           s,
+		callbackURL:   callbackURL,
+		webhookSecret: webhookSecret,
+		httpClient:   &http.Client{Timeout: 10 * time.Second},
+	}
 }
 
 // Transfer godoc
@@ -169,5 +186,102 @@ func (h *TransactionHandler) TopUp(c *gin.Context) {
 		"success": true,
 		"message": "Top up successful",
 		"data":    tx,
+	})
+}
+
+// ReceiveExternalTransfer godoc
+// @Summary		Receive External Transfer
+// @Description	Receive a transfer from GoWallet microservice. Credits the receiver wallet and calls back GoWallet's webhook with the result.
+// @Tags		Transactions
+// @Accept		json
+// @Produce		json
+// @Param		request body model.ExternalTransferPayload true "external transfer payload"
+// @Success		200 {object} map[string]interface{}
+// @Failure		400 {object} customErr.AppError
+// @Router		/transfers/external [post]
+func (h *TransactionHandler) ReceiveExternalTransfer(c *gin.Context) {
+	var req model.ExternalTransferPayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", err.Error()))
+		return
+	}
+
+	status, err := h.svc.ReceiveExternalTransfer(c.Request.Context(), req)
+	if err != nil {
+		// Even on failure, we call back GoWallet so it can mark the transfer as failed.
+		go h.callbackGoWallet(req, "failed")
+		c.Error(err)
+		return
+	}
+
+	// Async callback to GoWallet microservice webhook.
+	go h.callbackGoWallet(req, status)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "External transfer received, callback dispatched",
+		"data": gin.H{
+			"transfer_id": req.TransferID,
+			"status":      status,
+		},
+	})
+}
+
+// callbackGoWallet POSTs the transfer result back to GoWallet's webhook with
+// an HMAC-SHA256 signature so GoWallet can verify authenticity.
+func (h *TransactionHandler) callbackGoWallet(req model.ExternalTransferPayload, status string) {
+	payload, _ := json.Marshal(map[string]any{
+		"transfer_id":     req.TransferID,
+		"status":          status,
+		"receiver_email":  req.ReceiverEmail,
+		"amount":          req.Amount,
+		"idempotency_key": req.IdempotencyKey,
+	})
+
+	// Compute HMAC-SHA256 signature
+	mac := hmac.New(sha256.New, []byte(h.webhookSecret))
+	mac.Write(payload)
+	signature := hex.EncodeToString(mac.Sum(nil))
+
+	reqHTTP, err := http.NewRequest("POST", h.callbackURL+"/api/v1/transfers/webhook", bytes.NewBuffer(payload))
+	if err != nil {
+		return
+	}
+	reqHTTP.Header.Set("Content-Type", "application/json")
+	reqHTTP.Header.Set("X-Webhook-Signature", signature)
+
+	resp, err := h.httpClient.Do(reqHTTP)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+}
+
+// GetExternalTransferStatus godoc
+// @Summary		Get External Transfer Status
+// @Description	Query the status of an external transfer by idempotency key. Used by GoWallet's reconciliation worker.
+// @Tags		Transactions
+// @Produce		json
+// @Param		idempotency_key path string true "Idempotency Key"
+// @Success		200 {object} map[string]interface{}
+// @Router		/transfers/external/{idempotency_key}/status [get]
+func (h *TransactionHandler) GetExternalTransferStatus(c *gin.Context) {
+	idempotencyKey := c.Param("idempotency_key")
+	if idempotencyKey == "" {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", "idempotency_key is required"))
+		return
+	}
+
+	status, err := h.svc.GetExternalTransferStatus(c.Request.Context(), idempotencyKey)
+	if err != nil {
+		c.Error(customErr.NewAppError(http.StatusNotFound, "NOT_FOUND", "Transfer not found"))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"status": status,
+		},
 	})
 }

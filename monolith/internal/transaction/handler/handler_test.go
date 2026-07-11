@@ -49,13 +49,23 @@ func (m *MockTransactionService) TopUp(ctx context.Context, userID string, req m
 	return args.Get(0).(*model.Transaction), args.Error(1)
 }
 
+func (m *MockTransactionService) ReceiveExternalTransfer(ctx context.Context, payload model.ExternalTransferPayload) (string, error) {
+	args := m.Called(ctx, payload)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockTransactionService) GetExternalTransferStatus(ctx context.Context, idempotencyKey string) (string, error) {
+	args := m.Called(ctx, idempotencyKey)
+	return args.String(0), args.Error(1)
+}
+
 
 func TestTransferHandler_Validation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Run("Valid request should bind correctly", func(t *testing.T) {
 		mockSvc := new(MockTransactionService)
-		h := NewTransactionHandler(mockSvc)
+		h := NewTransactionHandler(mockSvc, "http://localhost:8080", "test-secret")
 
 		router := gin.New()
 		router.Use(middleware.ErrorHandler())
@@ -97,7 +107,7 @@ func TestTransferHandler_Validation(t *testing.T) {
 
 	t.Run("Invalid negative amount should fail validation", func(t *testing.T) {
 		mockSvc := new(MockTransactionService)
-		h := NewTransactionHandler(mockSvc)
+		h := NewTransactionHandler(mockSvc, "http://localhost:8080", "test-secret")
 
 		router := gin.New()
 		router.Use(middleware.ErrorHandler())
@@ -132,7 +142,7 @@ func TestTopUpHandler_Validation(t *testing.T) {
 
 	t.Run("Valid topup request should bind correctly", func(t *testing.T) {
 		mockSvc := new(MockTransactionService)
-		h := NewTransactionHandler(mockSvc)
+		h := NewTransactionHandler(mockSvc, "http://localhost:8080", "test-secret")
 
 		router := gin.New()
 		router.Use(middleware.ErrorHandler())
@@ -171,7 +181,7 @@ func TestTopUpHandler_Validation(t *testing.T) {
 
 	t.Run("Invalid negative topup amount should fail validation", func(t *testing.T) {
 		mockSvc := new(MockTransactionService)
-		h := NewTransactionHandler(mockSvc)
+		h := NewTransactionHandler(mockSvc, "http://localhost:8080", "test-secret")
 
 		router := gin.New()
 		router.Use(middleware.ErrorHandler())
@@ -204,7 +214,7 @@ func TestHandler_InvalidUserIDType(t *testing.T) {
 
 	t.Run("Transfer should return unauthorized if user_id is not string", func(t *testing.T) {
 		mockSvc := new(MockTransactionService)
-		h := NewTransactionHandler(mockSvc)
+		h := NewTransactionHandler(mockSvc, "http://localhost:8080", "test-secret")
 
 		router := gin.New()
 		router.Use(middleware.ErrorHandler())
@@ -235,7 +245,7 @@ func TestHandler_InvalidUserIDType(t *testing.T) {
 
 	t.Run("GetHistory should return unauthorized if user_id is not string", func(t *testing.T) {
 		mockSvc := new(MockTransactionService)
-		h := NewTransactionHandler(mockSvc)
+		h := NewTransactionHandler(mockSvc, "http://localhost:8080", "test-secret")
 
 		router := gin.New()
 		router.Use(middleware.ErrorHandler())
@@ -257,7 +267,7 @@ func TestHandler_InvalidUserIDType(t *testing.T) {
 
 	t.Run("TopUp should return unauthorized if user_id is not string", func(t *testing.T) {
 		mockSvc := new(MockTransactionService)
-		h := NewTransactionHandler(mockSvc)
+		h := NewTransactionHandler(mockSvc, "http://localhost:8080", "test-secret")
 
 		router := gin.New()
 		router.Use(middleware.ErrorHandler())

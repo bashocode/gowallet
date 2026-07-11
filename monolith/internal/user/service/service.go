@@ -36,6 +36,7 @@ import (
 type UserService interface {
 	Register(ctx context.Context, req model.CreateUserRequest) (*model.User, error)
 	GetProfile(ctx context.Context, id string) (*model.User, error)
+	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
 	UpdateProfile(ctx context.Context, id string, req model.UpdateUserRequest) (*model.User, error)
 	Login(ctx context.Context, req model.LoginRequest) (*model.LoginResponse, error)
 	UpdateAvatar(ctx context.Context, id string, path string) error
@@ -654,4 +655,14 @@ func (s *userService) GetAllUsers(ctx context.Context, params model.PaginationPa
 	}
 
 	return users, meta, nil
+}
+
+// GetUserByEmail looks up a user by email. Used by the external transfer
+// receiver validation endpoint (Episode 35).
+func (s *userService) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
 }
