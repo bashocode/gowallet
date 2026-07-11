@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -15,7 +16,9 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/circuitbreaker"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
+	transferModel "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
+	transferRepo "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
 	pbUser "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/google/uuid"
@@ -28,42 +31,68 @@ type TransactionService interface {
 	TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error)
 	GenerateDailyReport(ctx context.Context) (int, error)
 	ValidateExternalEmail(ctx context.Context, email string, webhookSecret string, monolithBaseURL string) (*model.WalletInquiry, error)
+	CreateExternalTransfer(ctx context.Context, senderUserID string, req transferModel.ExternalTransferRequest) (*transferModel.OutboundTransfer, error)
 }
 
 type DLQPublisher interface {
 	Publish(ctx context.Context, topic string, payload map[string]string) error
 }
 
+type monolithAPIResponse struct {
+	Success bool            `json:"success"`
+	Data    json.RawMessage `json:"data"`
+}
+
+type monolithTransferResult struct {
+	TransferID     string `json:"transfer_id"`
+	Status         string `json:"status"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
 type transactionService struct {
-	db            *sql.DB
-	txRepo        repository.TransactionRepository
-	userClient    pbUser.UserServiceClient
-	walletClient  pbWallet.WalletServiceClient
-	ledgerClient  pbLedger.LedgerServiceClient
-	userBreaker   *circuitbreaker.CircuitBreaker
-	walletBreaker *circuitbreaker.CircuitBreaker
-	ledgerBreaker *circuitbreaker.CircuitBreaker
-	dlqPublisher  DLQPublisher
+	db              *sql.DB
+	txRepo          repository.TransactionRepository
+	transferRepo    transferRepo.OutboundTransferRepository
+	outboxRepo      transferRepo.TransferOutboxRepository
+	userClient      pbUser.UserServiceClient
+	walletClient    pbWallet.WalletServiceClient
+	ledgerClient    pbLedger.LedgerServiceClient
+	userBreaker     *circuitbreaker.CircuitBreaker
+	walletBreaker   *circuitbreaker.CircuitBreaker
+	ledgerBreaker   *circuitbreaker.CircuitBreaker
+	dlqPublisher    DLQPublisher
+	monolithBaseURL string
+	webhookSecret   string
+	httpClient      *http.Client
 }
 
 func NewTransactionService(
 	db *sql.DB,
 	txRepo repository.TransactionRepository,
+	transferRepo transferRepo.OutboundTransferRepository,
+	outboxRepo transferRepo.TransferOutboxRepository,
 	userClient pbUser.UserServiceClient,
 	walletClient pbWallet.WalletServiceClient,
 	ledgerClient pbLedger.LedgerServiceClient,
 	dlq DLQPublisher,
+	monolithBaseURL string,
+	webhookSecret string,
 ) TransactionService {
 	return &transactionService{
-		db:            db,
-		txRepo:        txRepo,
-		userClient:    userClient,
-		walletClient:  walletClient,
-		ledgerClient:  ledgerClient,
-		userBreaker:   circuitbreaker.New(3, 30*time.Second),
-		walletBreaker: circuitbreaker.New(3, 30*time.Second),
-		ledgerBreaker: circuitbreaker.New(3, 30*time.Second),
-		dlqPublisher:  dlq,
+		db:              db,
+		txRepo:          txRepo,
+		transferRepo:    transferRepo,
+		outboxRepo:      outboxRepo,
+		userClient:      userClient,
+		walletClient:    walletClient,
+		ledgerClient:    ledgerClient,
+		userBreaker:     circuitbreaker.New(3, 30*time.Second),
+		walletBreaker:   circuitbreaker.New(3, 30*time.Second),
+		ledgerBreaker:   circuitbreaker.New(3, 30*time.Second),
+		dlqPublisher:    dlq,
+		monolithBaseURL: monolithBaseURL,
+		webhookSecret:   webhookSecret,
+		httpClient:      &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -655,6 +684,204 @@ func (s *transactionService) ValidateExternalEmail(ctx context.Context, email st
 	return &apiResp.Data, nil
 }
 
+const (
+	minTransferAmount = 1000
+	maxTransferAmount = 500000
+)
+
+func (s *transactionService) validateReceiverEmail(ctx context.Context, email string) (*transferModel.EmailInquiryResponse, error) {
+	reqBody := transferModel.EmailInquiryRequest{Email: email}
+	reqJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to marshal inquiry request")
+	}
+
+	inquiryURL := fmt.Sprintf("%s/api/v1/wallets/inquiry", s.monolithBaseURL)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, inquiryURL, bytes.NewBuffer(reqJSON))
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create inquiry request")
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-API-Key", s.webhookSecret)
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		logger.Error(ctx, "Failed to call monolith inquiry endpoint", slog.Any("error", err))
+		return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Monolith service temporarily unavailable")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_RECEIVER", "Receiver email not found in monolith system")
+	}
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Monolith service temporarily unavailable")
+	}
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		logger.Error(ctx, "Monolith inquiry returned error", slog.String("status", resp.Status), slog.String("body", string(bodyBytes)))
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "INQUIRY_FAILED", "Failed to validate receiver email")
+	}
+
+	var apiResp struct {
+		Success bool                               `json:"success"`
+		Data    transferModel.EmailInquiryResponse `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to decode inquiry response")
+	}
+
+	if !apiResp.Success || !apiResp.Data.Valid || apiResp.Data.AccountID == "" || apiResp.Data.Email == "" {
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Invalid inquiry response format")
+	}
+
+	return &apiResp.Data, nil
+}
+
+func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderUserID string, req transferModel.ExternalTransferRequest) (*transferModel.OutboundTransfer, error) {
+	if req.Amount.LessThan(decimal.NewFromInt(minTransferAmount)) {
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_AMOUNT",
+			fmt.Sprintf("amount below minimum transfer limit of %d IDR", minTransferAmount))
+	}
+	if req.Amount.GreaterThan(decimal.NewFromInt(maxTransferAmount)) {
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_AMOUNT",
+			fmt.Sprintf("amount exceeds maximum transfer limit of %d IDR", maxTransferAmount))
+	}
+
+	existing, _ := s.transferRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
+	if existing != nil {
+		return existing, nil
+	}
+
+	var senderWallet *pbWallet.WalletResponse
+	err := s.walletBreaker.Call(func() error {
+		var callErr error
+		senderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
+		return callErr
+	})
+	if err != nil {
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusNotFound, "SENDER_WALLET_NOT_FOUND", "Sender wallet not found.")
+	}
+
+	senderBalance, err := decimal.NewFromString(senderWallet.Balance)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+	if senderBalance.LessThan(req.Amount) {
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INSUFFICIENT_BALANCE",
+			fmt.Sprintf("insufficient balance: have %s, need %s", senderBalance.String(), req.Amount.String()))
+	}
+
+	_, err = s.validateReceiverEmail(ctx, req.ReceiverEmail)
+	if err != nil {
+		return nil, err
+	}
+
+	debitAmount := req.Amount.Neg()
+	err = s.walletBreaker.Call(func() error {
+		_, callErr := s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+			UserId:          senderUserID,
+			Amount:          debitAmount.String(),
+			ExpectedVersion: senderWallet.Version,
+		})
+		return callErr
+	})
+	if err != nil {
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENT_ERROR", "Failed to process transfer. Try again.")
+	}
+
+	transferID := uuid.New().String()
+	err = s.ledgerBreaker.Call(func() error {
+		var callErr error
+		_, callErr = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
+			TransactionId: transferID,
+			WalletId:      senderWallet.Id,
+			Type:          "debit",
+			Amount:        req.Amount.String(),
+		})
+		return callErr
+	})
+	if err != nil {
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record debit audit log. Sender refunded.")
+	}
+
+	now := time.Now().UTC()
+	transfer := &transferModel.OutboundTransfer{
+		ID:              transferID,
+		SenderUserID:    senderUserID,
+		SenderWalletID:  senderWallet.Id,
+		ReceiverEmail:   req.ReceiverEmail,
+		Amount:          req.Amount,
+		Currency:        "IDR",
+		ExternalEwallet: "monolith",
+		Status:          "pending",
+		IdempotencyKey:  req.IdempotencyKey,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	event := transferModel.TransferInitiatedEvent{
+		EventID:        uuid.NewString(),
+		EventType:      "transfer.initiated",
+		TransferID:     transferID,
+		SenderUserID:   senderUserID,
+		ReceiverEmail:  req.ReceiverEmail,
+		Amount:         req.Amount.String(),
+		Currency:       "IDR",
+		IdempotencyKey: req.IdempotencyKey,
+		OccurredAt:     now,
+	}
+	payload, _ := json.Marshal(event)
+	outboxEvent := &transferModel.TransferOutboxEvent{
+		ID:          event.EventID,
+		EventType:   event.EventType,
+		AggregateID: transferID,
+		Payload:     string(payload),
+		Status:      "pending",
+	}
+
+	dbTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
+	}
+	defer dbTx.Rollback()
+
+	if err := s.transferRepo.CreateTx(ctx, dbTx, transfer); err != nil {
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
+	}
+	if err := s.outboxRepo.CreateTx(ctx, dbTx, outboxEvent); err != nil {
+		logger.Log.Error("Failed to publish transfer.initiated event to outbox",
+			slog.String("transfer_id", transferID),
+			slog.Any("error", err),
+		)
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to queue transfer for processing.")
+	}
+	if err := dbTx.Commit(); err != nil {
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to commit transfer record. Sender refunded.")
+	}
+
+	logger.Log.Info("External transfer initiated, event queued",
+		slog.String("transfer_id", transferID),
+		slog.String("event_id", event.EventID),
+	)
+
+	return transfer, nil
+}
+
 func (s *transactionService) markFailed(ctx context.Context, transactionID string) {
 	if err := s.txRepo.UpdateStatus(ctx, transactionID, "failed"); err != nil {
 		logger.Error(ctx, "Failed to mark transaction as failed",
@@ -662,4 +889,62 @@ func (s *transactionService) markFailed(ctx context.Context, transactionID strin
 			slog.Any("error", err),
 		)
 	}
+}
+
+func (s *transactionService) refundSender(ctx context.Context, senderUserID string, amount decimal.Decimal, originalVersion int32, transferID string) {
+	var senderWallet *pbWallet.WalletResponse
+	err := s.walletBreaker.Call(func() error {
+		var callErr error
+		senderWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: senderUserID})
+		return callErr
+	})
+	if err != nil {
+		logger.Log.Error("CRITICAL: compensation failed — cannot re-read sender wallet for refund",
+			slog.String("user_id", senderUserID),
+			slog.Any("error", err),
+		)
+		return
+	}
+
+	err = s.walletBreaker.Call(func() error {
+		_, callErr := s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+			UserId:          senderUserID,
+			Amount:          amount.String(),
+			ExpectedVersion: senderWallet.Version,
+		})
+		return callErr
+	})
+	if err != nil {
+		logger.Log.Error("CRITICAL: compensation failed — cannot refund sender",
+			slog.String("user_id", senderUserID),
+			slog.String("amount", amount.String()),
+			slog.Any("error", err),
+		)
+		return
+	}
+
+	ledgerErr := s.ledgerBreaker.Call(func() error {
+		var callErr error
+		_, callErr = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
+			TransactionId: transferID,
+			WalletId:      senderWallet.Id,
+			Type:          "credit",
+			Amount:        amount.String(),
+		})
+		return callErr
+	})
+	if ledgerErr != nil {
+		logger.Log.Error("CRITICAL: compensation failed — cannot record balancing ledger credit",
+			slog.String("transfer_id", transferID),
+			slog.String("user_id", senderUserID),
+			slog.String("amount", amount.String()),
+			slog.Any("error", ledgerErr),
+		)
+	}
+
+	logger.Log.Info("Compensation: sender refunded after failed transfer",
+		slog.String("transfer_id", transferID),
+		slog.String("user_id", senderUserID),
+		slog.String("amount", amount.String()),
+	)
 }
