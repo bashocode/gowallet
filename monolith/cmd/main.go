@@ -124,6 +124,8 @@ func main() {
 		internal.Use(middleware.APIKeyMiddleware(cfg.WebhookSecret))
 		{
 			internal.POST("/wallets/inquiry", wHandler.EmailInquiry)
+			internal.POST("/transfers/external", tHandler.ReceiveExternalTransfer)
+			internal.GET("/transfers/external/:id/status", tHandler.GetExternalTransferStatus)
 		}
 
 		// Protected routes (requires valid JWT token)

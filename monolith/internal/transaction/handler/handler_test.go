@@ -49,6 +49,21 @@ func (m *MockTransactionService) TopUp(ctx context.Context, userID string, req m
 	return args.Get(0).(*model.Transaction), args.Error(1)
 }
 
+func (m *MockTransactionService) ReceiveExternalTransfer(ctx context.Context, req model.ExternalTransferRequest) (*model.ExternalTransferStatus, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.ExternalTransferStatus), args.Error(1)
+}
+
+func (m *MockTransactionService) GetExternalTransferStatus(ctx context.Context, transferID string) (*model.ExternalTransferStatus, error) {
+	args := m.Called(ctx, transferID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.ExternalTransferStatus), args.Error(1)
+}
 
 func TestTransferHandler_Validation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -284,4 +299,3 @@ func TestHandler_InvalidUserIDType(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 }
-

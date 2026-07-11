@@ -14,6 +14,7 @@ type WalletRepository interface {
 	GetByUserID(ctx context.Context, userID string) (*model.Wallet, error)
 	UpdateBalanceTx(ctx context.Context, tx *sql.Tx, walletID string, amount decimal.Decimal, currentVersion int) error
 	GetByEmail(ctx context.Context, email string) (*model.WalletInquiry, error)
+	GetWalletByEmail(ctx context.Context, email string) (*model.Wallet, error)
 }
 
 type mysqlWalletRepository struct {
@@ -100,4 +101,35 @@ func (r *mysqlWalletRepository) GetByEmail(ctx context.Context, email string) (*
 
 	inquiry.Valid = true
 	return inquiry, nil
+}
+
+func (r *mysqlWalletRepository) GetWalletByEmail(ctx context.Context, email string) (*model.Wallet, error) {
+	query := `
+		SELECT w.id, w.user_id, w.balance, w.currency, w.status, w.version, w.created_at, w.updated_at
+		FROM wallets w
+		JOIN users u ON u.id = w.user_id
+		WHERE LOWER(u.email) = LOWER(?)
+		  AND u.deleted_at IS NULL
+		  AND w.deleted_at IS NULL
+		  AND w.status = 'active'
+		LIMIT 1
+	`
+	w := &model.Wallet{}
+	err := r.db.QueryRowContext(ctx, query, email).Scan(
+		&w.ID,
+		&w.UserID,
+		&w.Balance,
+		&w.Currency,
+		&w.Status,
+		&w.Version,
+		&w.CreatedAt,
+		&w.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("Wallet not found")
+		}
+		return nil, err
+	}
+	return w, nil
 }

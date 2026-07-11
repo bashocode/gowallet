@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 
 	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
@@ -20,6 +21,8 @@ type TransactionService interface {
 	Transfer(ctx context.Context, senderUserID string, req model.TransferRequest) (*model.Transaction, error)
 	GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error)
 	TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error)
+	ReceiveExternalTransfer(ctx context.Context, req model.ExternalTransferRequest) (*model.ExternalTransferStatus, error)
+	GetExternalTransferStatus(ctx context.Context, transferID string) (*model.ExternalTransferStatus, error)
 }
 
 type transactionService struct {
@@ -258,4 +261,90 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 	}()
 
 	return transaction, nil
+}
+
+func (s *transactionService) ReceiveExternalTransfer(ctx context.Context, req model.ExternalTransferRequest) (*model.ExternalTransferStatus, error) {
+	existing, err := s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
+	if err == nil && existing != nil {
+		return &model.ExternalTransferStatus{
+			TransferID:     existing.ID,
+			Status:         existing.Status,
+			IdempotencyKey: existing.IdempotencyKey,
+		}, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, customErr.ErrInternalServer
+	}
+
+	receiverWallet, err := s.walletRepo.GetWalletByEmail(ctx, req.ReceiverEmail)
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusNotFound, "RECEIVER_WALLET_NOT_FOUND", "Receiver wallet not found")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+	defer tx.Rollback()
+
+	if err := s.walletRepo.UpdateBalanceTx(ctx, tx, receiverWallet.ID, req.Amount.Neg(), receiverWallet.Version); err != nil {
+		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENCY_CONFLICT", "Receiver wallet is busy, please retry.")
+	}
+
+	transaction := &model.Transaction{
+		ID:               req.TransferID,
+		SenderWalletID:   nil,
+		ReceiverWalletID: receiverWallet.ID,
+		Amount:           req.Amount,
+		Description:      "External transfer from GoWallet",
+		IdempotencyKey:   req.IdempotencyKey,
+		Status:           "settled",
+	}
+	if err := s.txRepo.CreateTx(ctx, tx, transaction); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	creditEntry := &ledgerModel.LedgerEntry{
+		ID:            uuid.New().String(),
+		WalletID:      receiverWallet.ID,
+		TransactionID: req.TransferID,
+		EntryType:     "credit",
+		Amount:        req.Amount,
+	}
+	if err := s.ledgerRepo.CreateTx(ctx, tx, creditEntry); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+
+	cacheKey := "wallet:user:" + receiverWallet.UserID
+	if s.rdb != nil {
+		go func() {
+			s.rdb.Del(context.Background(), cacheKey)
+		}()
+	}
+
+	return &model.ExternalTransferStatus{
+		TransferID:     req.TransferID,
+		Status:         "settled",
+		IdempotencyKey: req.IdempotencyKey,
+	}, nil
+}
+
+func (s *transactionService) GetExternalTransferStatus(ctx context.Context, transferID string) (*model.ExternalTransferStatus, error) {
+	transaction, err := s.txRepo.GetByID(ctx, transferID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, customErr.NewAppError(http.StatusNotFound, "TRANSFER_NOT_FOUND", "Transfer not found")
+		}
+		return nil, customErr.ErrInternalServer
+	}
+
+	return &model.ExternalTransferStatus{
+		TransferID:     transaction.ID,
+		Status:         transaction.Status,
+		IdempotencyKey: transaction.IdempotencyKey,
+	}, nil
 }

@@ -32,3 +32,11 @@ func (m *MockTransactionRepository) GetHistory(ctx context.Context, walletID str
 	}
 	return args.Get(0).([]model.Transaction), args.Get(1).(int64), args.Error(2)
 }
+
+func (m *MockTransactionRepository) GetByID(ctx context.Context, id string) (*model.Transaction, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Transaction), args.Error(1)
+}
