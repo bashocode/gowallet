@@ -516,6 +516,7 @@ func (s *transactionService) GetHistory(ctx context.Context, userID string, para
 
 	txs, total, err := s.txRepo.GetHistory(ctx, wallet.Id, params)
 	if err != nil {
+		logger.Error(ctx, "Failed to get history from repository", "error", err)
 		return nil, nil, customErr.ErrInternalServer
 	}
 
