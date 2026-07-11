@@ -157,7 +157,7 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":8000",
 		Handler: r,
 	}
 
@@ -169,7 +169,7 @@ func main() {
 	}()
 
 	// start server
-	logger.Log.Info("Server running on port 8080....")
+	logger.Log.Info("Server running on port 8000....")
 
 	// graceful shutdown - wait for signal from os
 	quit := make(chan os.Signal, 1)
