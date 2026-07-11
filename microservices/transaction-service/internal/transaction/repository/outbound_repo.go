@@ -10,6 +10,7 @@ import (
 
 type OutboundTransferRepository interface {
 	Create(ctx context.Context, t *model.OutboundTransfer) error
+	CreateTx(ctx context.Context, tx *sql.Tx, t *model.OutboundTransfer) error
 	GetByID(ctx context.Context, id string) (*model.OutboundTransfer, error)
 	GetByIdempotencyKey(ctx context.Context, key string) (*model.OutboundTransfer, error)
 	GetByIdempotencyKeyTx(ctx context.Context, tx *sql.Tx, key string) (*model.OutboundTransfer, error)
@@ -25,8 +26,18 @@ func NewMySQLOutboundTransferRepository(db *sql.DB) OutboundTransferRepository {
 }
 
 func (r *mysqlOutboundTransferRepository) Create(ctx context.Context, t *model.OutboundTransfer) error {
+	return r.create(ctx, r.db, t)
+}
+
+func (r *mysqlOutboundTransferRepository) CreateTx(ctx context.Context, tx *sql.Tx, t *model.OutboundTransfer) error {
+	return r.create(ctx, tx, t)
+}
+
+func (r *mysqlOutboundTransferRepository) create(ctx context.Context, q interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}, t *model.OutboundTransfer) error {
 	query := `INSERT INTO transactions (id, type, sender_wallet_id, receiver_email, amount, currency, external_ewallet, status, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := r.db.ExecContext(ctx, query, t.ID, "external_transfer", t.SenderWalletID, t.ReceiverEmail, t.Amount, t.Currency, t.ExternalEwallet, t.Status, t.IdempotencyKey)
+	_, err := q.ExecContext(ctx, query, t.ID, "external_transfer", t.SenderWalletID, t.ReceiverEmail, t.Amount, t.Currency, t.ExternalEwallet, t.Status, t.IdempotencyKey)
 	return err
 }
 

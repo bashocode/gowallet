@@ -32,7 +32,7 @@ type TransactionService interface {
 	TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error)
 	GenerateDailyReport(ctx context.Context) (int, error)
 	CreateExternalTransfer(ctx context.Context, senderUserID string, req transferModel.ExternalTransferRequest) (*transferModel.OutboundTransfer, error)
-	GetExternalTransfer(ctx context.Context, transferID string) (*transferModel.OutboundTransfer, error)
+	GetExternalTransfer(ctx context.Context, senderUserID string, transferID string) (*transferModel.OutboundTransfer, error)
 	ProcessTransferInitiated(ctx context.Context, event transferModel.TransferInitiatedEvent) error
 	SettleTransferTx(ctx context.Context, cb transferModel.TransferCallback) error
 	ReconcilePendingTransfers(ctx context.Context) error
@@ -40,6 +40,17 @@ type TransactionService interface {
 
 type DLQPublisher interface {
 	Publish(ctx context.Context, topic string, payload map[string]string) error
+}
+
+type monolithAPIResponse struct {
+	Success bool            `json:"success"`
+	Data    json.RawMessage `json:"data"`
+}
+
+type monolithTransferResult struct {
+	TransferID     string `json:"transfer_id"`
+	Status         string `json:"status"`
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 type transactionService struct {
@@ -677,22 +688,19 @@ func (s *transactionService) validateReceiverEmail(ctx context.Context, email st
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "INQUIRY_FAILED", "Failed to validate receiver email")
 	}
 
-	var apiResp map[string]interface{}
+	var apiResp struct {
+		Success bool                               `json:"success"`
+		Data    transferModel.EmailInquiryResponse `json:"data"`
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to decode inquiry response")
 	}
 
-	if data, ok := apiResp["data"].(map[string]interface{}); ok {
-		inquiry := &transferModel.EmailInquiryResponse{
-			Valid:     true,
-			AccountID: data["account_id"].(string),
-			Name:      data["name"].(string),
-			Email:     data["email"].(string),
-		}
-		return inquiry, nil
+	if !apiResp.Success || !apiResp.Data.Valid || apiResp.Data.AccountID == "" || apiResp.Data.Email == "" {
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Invalid inquiry response format")
 	}
 
-	return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Invalid inquiry response format")
+	return &apiResp.Data, nil
 }
 
 func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderUserID string, req transferModel.ExternalTransferRequest) (*transferModel.OutboundTransfer, error) {
@@ -786,11 +794,6 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	if err := s.transferRepo.Create(ctx, transfer); err != nil {
-		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
-		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
-	}
-
 	event := transferModel.TransferInitiatedEvent{
 		EventID:        uuid.NewString(),
 		EventType:      "transfer.initiated",
@@ -810,12 +813,29 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		Payload:     string(payload),
 		Status:      "pending",
 	}
-	if err := s.outboxRepo.Create(ctx, outboxEvent); err != nil {
+
+	dbTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
+	}
+	defer dbTx.Rollback()
+
+	if err := s.transferRepo.CreateTx(ctx, dbTx, transfer); err != nil {
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
+	}
+	if err := s.outboxRepo.CreateTx(ctx, dbTx, outboxEvent); err != nil {
 		logger.Log.Error("Failed to publish transfer.initiated event to outbox",
 			slog.String("transfer_id", transferID),
 			slog.Any("error", err),
 		)
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to queue transfer for processing.")
+	}
+	if err := dbTx.Commit(); err != nil {
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to commit transfer record. Sender refunded.")
 	}
 
 	logger.Log.Info("External transfer initiated, event queued",
@@ -826,12 +846,15 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 	return transfer, nil
 }
 
-func (s *transactionService) GetExternalTransfer(ctx context.Context, transferID string) (*transferModel.OutboundTransfer, error) {
+func (s *transactionService) GetExternalTransfer(ctx context.Context, senderUserID string, transferID string) (*transferModel.OutboundTransfer, error) {
 	transfer, err := s.transferRepo.GetByID(ctx, transferID)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 	if transfer == nil {
+		return nil, customErr.NewAppError(http.StatusNotFound, "TRANSFER_NOT_FOUND", "Transfer not found.")
+	}
+	if transfer.SenderUserID != senderUserID {
 		return nil, customErr.NewAppError(http.StatusNotFound, "TRANSFER_NOT_FOUND", "Transfer not found.")
 	}
 	return transfer, nil
@@ -843,13 +866,18 @@ func (s *transactionService) ProcessTransferInitiated(ctx context.Context, event
 		slog.String("event_id", event.EventID),
 	)
 
-	if err := s.validateReceiver(ctx, event.ReceiverEmail); err != nil {
+	if _, err := s.validateReceiverEmail(ctx, event.ReceiverEmail); err != nil {
 		logger.Log.Error("Receiver validation failed, refunding sender",
 			slog.String("transfer_id", event.TransferID),
 			slog.Any("error", err),
 		)
-		s.failTransfer(ctx, event.TransferID, event.SenderUserID, event.Amount)
-		return err
+		return s.SettleTransferTx(ctx, transferModel.TransferCallback{
+			TransferID:     event.TransferID,
+			Status:         "failed",
+			ReceiverEmail:  event.ReceiverEmail,
+			Amount:         event.Amount,
+			IdempotencyKey: event.IdempotencyKey,
+		})
 	}
 
 	transfer := &transferModel.OutboundTransfer{
@@ -860,17 +888,37 @@ func (s *transactionService) ProcessTransferInitiated(ctx context.Context, event
 		Currency:       event.Currency,
 		IdempotencyKey: event.IdempotencyKey,
 	}
-	if err := s.notifyMonolith(ctx, transfer); err != nil {
+	status, err := s.notifyMonolith(ctx, transfer)
+	if err != nil {
 		logger.Log.Error("Monolith notification failed, refunding sender",
 			slog.String("transfer_id", event.TransferID),
 			slog.Any("error", err),
 		)
-		s.failTransfer(ctx, event.TransferID, event.SenderUserID, event.Amount)
+		return s.SettleTransferTx(ctx, transferModel.TransferCallback{
+			TransferID:     event.TransferID,
+			Status:         "failed",
+			ReceiverEmail:  event.ReceiverEmail,
+			Amount:         event.Amount,
+			IdempotencyKey: event.IdempotencyKey,
+		})
+	}
+
+	if status == "" {
+		status = "settled"
+	}
+	if err := s.SettleTransferTx(ctx, transferModel.TransferCallback{
+		TransferID:     event.TransferID,
+		Status:         status,
+		ReceiverEmail:  event.ReceiverEmail,
+		Amount:         event.Amount,
+		IdempotencyKey: event.IdempotencyKey,
+	}); err != nil {
 		return err
 	}
 
-	logger.Log.Info("Monolith accepted external transfer, awaiting callback",
+	logger.Log.Info("Monolith processed external transfer",
 		slog.String("transfer_id", event.TransferID),
+		slog.String("status", status),
 	)
 	return nil
 }
@@ -880,29 +928,7 @@ func (s *transactionService) failTransfer(ctx context.Context, transferID, sende
 	s.refundSender(ctx, senderUserID, decimal.RequireFromString(amount), 0, transferID)
 }
 
-func (s *transactionService) validateReceiver(ctx context.Context, receiverEmail string) error {
-	url := fmt.Sprintf("%s/api/v1/users/email/%s", s.monolithBaseURL, receiverEmail)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return customErr.ErrInternalServer
-	}
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Monolith service is currently unavailable.")
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return customErr.NewAppError(http.StatusNotFound, "RECEIVER_NOT_FOUND", "Receiver email not found.")
-	}
-	if resp.StatusCode >= 300 {
-		return customErr.NewAppError(http.StatusBadGateway, "MONOLITH_ERROR", "Monolith returned an error during receiver validation.")
-	}
-	return nil
-}
-
-func (s *transactionService) notifyMonolith(ctx context.Context, transfer *transferModel.OutboundTransfer) error {
+func (s *transactionService) notifyMonolith(ctx context.Context, transfer *transferModel.OutboundTransfer) (string, error) {
 	payload, _ := json.Marshal(map[string]any{
 		"transfer_id":     transfer.ID,
 		"receiver_email":  transfer.ReceiverEmail,
@@ -916,25 +942,39 @@ func (s *transactionService) notifyMonolith(ctx context.Context, transfer *trans
 		s.monolithBaseURL+"/api/v1/transfers/external",
 		bytes.NewBuffer(payload))
 	if err != nil {
-		return err
+		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", s.webhookSecret)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("monolith rejected transfer with status %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("monolith rejected transfer with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	logger.Log.Info("Monolith accepted external transfer, awaiting callback",
+	var apiResp monolithAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return "", err
+	}
+
+	var result monolithTransferResult
+	if len(apiResp.Data) > 0 {
+		if err := json.Unmarshal(apiResp.Data, &result); err != nil {
+			return "", err
+		}
+	}
+
+	logger.Log.Info("Monolith accepted external transfer",
 		slog.String("transfer_id", transfer.ID),
+		slog.String("status", result.Status),
 	)
-	return nil
+	return result.Status, nil
 }
 
 func (s *transactionService) refundSender(ctx context.Context, senderUserID string, amount decimal.Decimal, originalVersion int32, transferID string) {
@@ -1022,9 +1062,7 @@ func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferMo
 		status = "failed"
 	}
 
-	if status == "failed" {
-		s.refundSender(ctx, transfer.SenderUserID, transfer.Amount, 0, transfer.ID)
-	}
+	needsRefund := status == "failed"
 
 	if err := s.transferRepo.UpdateStatusTx(ctx, tx, transfer.ID, status); err != nil {
 		return err
@@ -1066,6 +1104,10 @@ func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferMo
 
 	if err := tx.Commit(); err != nil {
 		return err
+	}
+
+	if needsRefund {
+		s.refundSender(ctx, transfer.SenderUserID, transfer.Amount, 0, transfer.ID)
 	}
 
 	logger.Log.Info("Transfer settled and outbox event queued",
@@ -1135,6 +1177,7 @@ func (s *transactionService) queryMonolithTransferStatus(ctx context.Context, tr
 	if err != nil {
 		return "", err
 	}
+	req.Header.Set("X-API-Key", s.webhookSecret)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -1149,11 +1192,18 @@ func (s *transactionService) queryMonolithTransferStatus(ctx context.Context, tr
 		return "", fmt.Errorf("monolith returned status %d", resp.StatusCode)
 	}
 
-	var result struct {
-		Status string `json:"status"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	var apiResp monolithAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		return "", err
+	}
+	var result monolithTransferResult
+	if len(apiResp.Data) > 0 {
+		if err := json.Unmarshal(apiResp.Data, &result); err != nil {
+			return "", err
+		}
+	}
+	if result.Status == "" {
+		return "", fmt.Errorf("monolith returned empty transfer status")
 	}
 	return result.Status, nil
 }

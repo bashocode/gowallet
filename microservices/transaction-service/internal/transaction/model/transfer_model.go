@@ -67,7 +67,7 @@ type TransferInitiatedEvent struct {
 	OccurredAt     time.Time `json:"occurred_at"`
 }
 
-// TransferOutboxEvent mirrors a row in transfer_outbox_events.
+// TransferOutboxEvent mirrors transfer events stored in the shared outbox_events table.
 type TransferOutboxEvent struct {
 	ID          string    `json:"id"`
 	EventType   string    `json:"event_type"`

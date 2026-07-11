@@ -25,6 +25,14 @@ func (m *MockTransactionRepository) GetByIdempotencyKey(ctx context.Context, key
 	return args.Get(0).(*model.Transaction), args.Error(1)
 }
 
+func (m *MockTransactionRepository) GetByID(ctx context.Context, id string) (*model.Transaction, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Transaction), args.Error(1)
+}
+
 func (m *MockTransactionRepository) GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, error) {
 	args := m.Called(ctx, walletID, params)
 	if args.Get(0) == nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net"
+	"time"
 
 	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
 	"github.com/bashocode/gowallet/microservices/shared/config"
@@ -138,30 +139,30 @@ func main() {
 	txHandler := transactionHandler.NewTransactionHandler(txSvc)
 	transferH := transferHandler.NewTransferHandler(txSvc, cfg.WebhookSecret)
 
-	// // Start the transfer outbox publisher worker (publishes transfer.* events to transfer.events).
-	// transferOutboxWorker := transferWorker.NewTransferOutboxWorker(db, cfg.RabbitMQURL, transferOutboxRepo)
-	// go transferOutboxWorker.Start(bgCtx)
+	// Start the transfer outbox publisher worker (publishes transfer.* events to transfer.events).
+	transferOutboxWorker := worker.NewTransferOutboxWorker(db, cfg.RabbitMQURL, transferOutboxRepo)
+	go transferOutboxWorker.Start(bgCtx)
 
-	// // Start the transfer consumer worker (consumes transfer.initiated from queue,
-	// // async validates receiver + notifies monolith).
-	// transferConsumerWorker := transferWorker.NewTransferConsumerWorker(cfg.RabbitMQURL, txSvc)
-	// go transferConsumerWorker.Start(bgCtx)
+	// Start the transfer consumer worker (consumes transfer.initiated from queue,
+	// validates receiver, notifies monolith, then settles the outbound transfer).
+	transferConsumerWorker := worker.NewTransferConsumerWorker(cfg.RabbitMQURL, txSvc)
+	go transferConsumerWorker.Start(bgCtx)
 
-	// // Start reconciliation worker: checks for stale pending transfers every 2 minutes.
-	// go func() {
-	// 	ticker := time.NewTicker(2 * time.Minute)
-	// 	defer ticker.Stop()
-	// 	for {
-	// 		select {
-	// 		case <-bgCtx.Done():
-	// 			return
-	// 		case <-ticker.C:
-	// 			if err := txSvc.ReconcilePendingTransfers(bgCtx); err != nil {
-	// 				logger.Log.Error("Transfer reconciliation failed", "error", err)
-	// 			}
-	// 		}
-	// 	}
-	// }()
+	// Start reconciliation worker: checks for stale pending transfers every 2 minutes.
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-bgCtx.Done():
+				return
+			case <-ticker.C:
+				if err := txSvc.ReconcilePendingTransfers(bgCtx); err != nil {
+					logger.Log.Error("Transfer reconciliation failed", "error", err)
+				}
+			}
+		}
+	}()
 
 	// =========================================================
 	// Start gRPC Server (for internal service-to-service calls)

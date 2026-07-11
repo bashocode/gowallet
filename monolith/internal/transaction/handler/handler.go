@@ -128,6 +128,67 @@ func (h *TransactionHandler) GetHistory(c *gin.Context) {
 	})
 }
 
+// ReceiveExternalTransfer godoc
+// @Summary		Receive External Transfer
+// @Description	Service-to-service endpoint used by transaction-service to credit a monolith wallet.
+// @Tags		Transactions
+// @Accept		json
+// @Produce		json
+// @Param		request body model.ExternalTransferRequest true "external transfer payload"
+// @Success		200 {object} map[string]interface{}
+// @Failure		400 {object} customErr.AppError
+// @Failure		401 {object} customErr.AppError
+// @Router		/transfers/external [post]
+// @Security	ApiKeyAuth
+func (h *TransactionHandler) ReceiveExternalTransfer(c *gin.Context) {
+	var req model.ExternalTransferRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", err.Error()))
+		return
+	}
+
+	result, err := h.svc.ReceiveExternalTransfer(c.Request.Context(), req)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    result,
+	})
+}
+
+// GetExternalTransferStatus godoc
+// @Summary		Get External Transfer Status
+// @Description	Service-to-service endpoint used by transaction-service reconciliation.
+// @Tags		Transactions
+// @Produce		json
+// @Param		id path string true "Transfer ID"
+// @Success		200 {object} map[string]interface{}
+// @Failure		401 {object} customErr.AppError
+// @Failure		404 {object} customErr.AppError
+// @Router		/transfers/external/{id}/status [get]
+// @Security	ApiKeyAuth
+func (h *TransactionHandler) GetExternalTransferStatus(c *gin.Context) {
+	transferID := c.Param("id")
+	if transferID == "" {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", "transfer id is required"))
+		return
+	}
+
+	result, err := h.svc.GetExternalTransferStatus(c.Request.Context(), transferID)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    result,
+	})
+}
+
 // TopUp godoc
 // @Summary		Top Up Wallet Balance
 // @Description	Top up authenticated user's own wallet balance

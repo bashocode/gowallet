@@ -36,7 +36,7 @@ func (r *mysqlTransferOutboxRepository) CreateTx(ctx context.Context, tx *sql.Tx
 }
 
 func (r *mysqlTransferOutboxRepository) FetchPending(ctx context.Context, limit int) ([]model.TransferOutboxEvent, error) {
-	query := `SELECT id, event_type, payload FROM outbox_events WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?`
+	query := `SELECT id, event_type, payload FROM outbox_events WHERE status = 'pending' AND event_type LIKE 'transfer.%' ORDER BY created_at ASC LIMIT ?`
 	rows, err := r.db.QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, err

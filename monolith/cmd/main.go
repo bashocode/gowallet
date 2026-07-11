@@ -119,7 +119,14 @@ func main() {
 		v1.POST("/users/verify-password-reset", uHandler.VerifyPasswordReset)
 		v1.GET("/auth/google/login", uHandler.GoogleLogin)
 		v1.GET("/auth/google/callback", uHandler.GoogleCallback)
-		v1.POST("/wallets/inquiry", wHandler.EmailInquiry)
+
+		internal := v1.Group("")
+		internal.Use(middleware.APIKeyMiddleware(cfg.WebhookSecret))
+		{
+			internal.POST("/wallets/inquiry", wHandler.EmailInquiry)
+			internal.POST("/transfers/external", tHandler.ReceiveExternalTransfer)
+			internal.GET("/transfers/external/:id/status", tHandler.GetExternalTransferStatus)
+		}
 
 		// Protected routes (requires valid JWT token)
 		protected := v1.Group("")

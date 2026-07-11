@@ -76,13 +76,25 @@ func (h *TransferHandler) CreateExternalTransfer(c *gin.Context) {
 // @Router		/transfers/external/{id} [get]
 // @Security	BearerAuth
 func (h *TransferHandler) GetExternalTransfer(c *gin.Context) {
+	senderUserID, exist := c.Get("user_id")
+	if !exist {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "User context not found"))
+		return
+	}
+
+	senderUserIDStr, ok := utils.SafeString(senderUserID)
+	if !ok {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "Invalid user context"))
+		return
+	}
+
 	transferID := c.Param("id")
 	if transferID == "" {
 		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", "transfer id is required"))
 		return
 	}
 
-	transfer, err := h.svc.GetExternalTransfer(c.Request.Context(), transferID)
+	transfer, err := h.svc.GetExternalTransfer(c.Request.Context(), senderUserIDStr, transferID)
 	if err != nil {
 		c.Error(err)
 		return
