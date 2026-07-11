@@ -8,6 +8,7 @@ import (
 )
 
 type TransferOutboxRepository interface {
+	Create(ctx context.Context, event *model.TransferOutboxEvent) error
 	CreateTx(ctx context.Context, tx *sql.Tx, event *model.TransferOutboxEvent) error
 	FetchPending(ctx context.Context, limit int) ([]model.TransferOutboxEvent, error)
 	MarkProcessed(ctx context.Context, id string) error
@@ -20,6 +21,12 @@ type mysqlTransferOutboxRepository struct {
 
 func NewMySQLTransferOutboxRepository(db *sql.DB) TransferOutboxRepository {
 	return &mysqlTransferOutboxRepository{db: db}
+}
+
+func (r *mysqlTransferOutboxRepository) Create(ctx context.Context, event *model.TransferOutboxEvent) error {
+	query := `INSERT INTO transfer_outbox_events (id, event_type, aggregate_id, payload, status) VALUES (?, ?, ?, ?, ?)`
+	_, err := r.db.ExecContext(ctx, query, event.ID, event.EventType, event.AggregateID, event.Payload, event.Status)
+	return err
 }
 
 func (r *mysqlTransferOutboxRepository) CreateTx(ctx context.Context, tx *sql.Tx, event *model.TransferOutboxEvent) error {

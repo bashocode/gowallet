@@ -146,9 +146,14 @@ func main() {
 	transferSvc := transferService.NewTransferService(db, outboundTransferRepo, transferOutboxRepo, walletClient, cfg.MonolithBaseURL, cfg.WebhookSecret)
 	transferH := transferHandler.NewTransferHandler(transferSvc, cfg.WebhookSecret)
 
-	// Start the transfer outbox publisher worker (publishes transfer.settled to transfer.events).
+	// Start the transfer outbox publisher worker (publishes transfer.* events to transfer.events).
 	transferOutboxWorker := transferWorker.NewTransferOutboxWorker(db, cfg.RabbitMQURL, transferOutboxRepo)
 	go transferOutboxWorker.Start(bgCtx)
+
+	// Start the transfer consumer worker (consumes transfer.initiated from queue,
+	// async validates receiver + notifies monolith).
+	transferConsumerWorker := transferWorker.NewTransferConsumerWorker(cfg.RabbitMQURL, transferSvc)
+	go transferConsumerWorker.Start(bgCtx)
 
 	// Start reconciliation worker: checks for stale pending transfers every 2 minutes.
 	go func() {

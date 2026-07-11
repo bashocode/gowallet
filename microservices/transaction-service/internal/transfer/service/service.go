@@ -31,6 +31,7 @@ const (
 type TransferService interface {
 	CreateExternalTransfer(ctx context.Context, senderUserID string, req model.ExternalTransferRequest) (*model.OutboundTransfer, error)
 	GetExternalTransfer(ctx context.Context, transferID string) (*model.OutboundTransfer, error)
+	ProcessTransferInitiated(ctx context.Context, event model.TransferInitiatedEvent) error
 	SettleTransferTx(ctx context.Context, cb model.TransferCallback) error
 	ReconcilePendingTransfers(ctx context.Context) error
 }
@@ -72,16 +73,16 @@ func NewTransferService(
 	}
 }
 
-// CreateExternalTransfer implements a production-like cross-ewallet transfer:
+// CreateExternalTransfer implements an async cross-ewallet transfer:
 //
 //  1. Validate amount limits (min/max).
-//  2. Validate receiver exists in the monolith (pre-flight check, no debit yet).
-//  3. Get sender wallet + check balance sufficient.
-//  4. Debit sender + create outbound_transfers row in one logical unit
-//     (gRPC debit first, then record; if record fails, refund = saga compensation).
-//  5. Notify monolith synchronously (not fire-and-forget). If monolith is
-//     unreachable, refund sender and mark transfer as failed.
-//  6. Return the transfer record. Settlement happens when monolith calls back.
+//  2. Get sender wallet + check balance sufficient.
+//  3. Debit sender + create outbound_transfers row.
+//  4. Publish transfer.initiated event to outbox (consumed async by worker).
+//  5. Return pending transfer immediately — client polls GET /transfers/external/:id.
+//
+// The consumer worker validates the receiver, notifies the monolith, and
+// refunds the sender if anything fails (saga compensation).
 func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUserID string, req model.ExternalTransferRequest) (*model.OutboundTransfer, error) {
 	// 1. Validate amount limits
 	if req.Amount.LessThan(decimal.NewFromInt(minTransferAmount)) {
@@ -99,12 +100,7 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 		return existing, nil
 	}
 
-	// 3. Pre-flight: validate receiver exists in monolith (no debit yet)
-	if err := s.validateReceiver(ctx, req.ReceiverEmail); err != nil {
-		return nil, err
-	}
-
-	// 4. Get sender wallet + check balance
+	// 3. Get sender wallet + check balance
 	var senderWallet *pbWallet.WalletResponse
 	err := s.walletBreaker.Call(func() error {
 		var callErr error
@@ -127,7 +123,7 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 			fmt.Sprintf("insufficient balance: have %s, need %s", senderBalance.String(), req.Amount.String()))
 	}
 
-	// 5. Debit sender wallet
+	// 4. Debit sender wallet
 	debitAmount := req.Amount.Neg()
 	err = s.walletBreaker.Call(func() error {
 		_, callErr := s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
@@ -144,8 +140,7 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENT_ERROR", "Failed to process transfer. Try again.")
 	}
 
-	// 6. Create outbound transfer record. If this fails after debit, we must
-	//    refund the sender (saga compensation).
+	// 5. Create outbound transfer record. If this fails after debit, refund.
 	transferID := uuid.New().String()
 	now := time.Now().UTC()
 	transfer := &model.OutboundTransfer{
@@ -161,24 +156,44 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 		UpdatedAt:       now,
 	}
 	if err := s.transferRepo.Create(ctx, transfer); err != nil {
-		// Compensation: refund sender
 		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version)
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
 	}
 
-	// 7. Notify monolith synchronously. If it fails, refund sender and mark
-	//    transfer as failed.
-	if err := s.notifyMonolith(ctx, transfer); err != nil {
-		logger.Log.Error("Monolith notification failed, refunding sender",
+	// 6. Publish transfer.initiated event to outbox. The consumer will async
+	//    validate the receiver and notify the monolith. If this fails, the
+	//    reconciliation worker will eventually pick up the pending transfer.
+	event := model.TransferInitiatedEvent{
+		EventID:        uuid.NewString(),
+		EventType:      "transfer.initiated",
+		TransferID:     transferID,
+		SenderUserID:   senderUserID,
+		ReceiverEmail:  req.ReceiverEmail,
+		Amount:         req.Amount.String(),
+		Currency:       "IDR",
+		IdempotencyKey: req.IdempotencyKey,
+		OccurredAt:     now,
+	}
+	payload, _ := json.Marshal(event)
+	outboxEvent := &model.TransferOutboxEvent{
+		ID:          event.EventID,
+		EventType:   event.EventType,
+		AggregateID: transferID,
+		Payload:     string(payload),
+		Status:      "pending",
+	}
+	if err := s.outboxRepo.Create(ctx, outboxEvent); err != nil {
+		logger.Log.Error("Failed to publish transfer.initiated event to outbox",
 			slog.String("transfer_id", transferID),
 			slog.Any("error", err),
 		)
-		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version)
-		_ = s.transferRepo.UpdateStatusTx(ctx, nil, transferID, "failed")
-		// UpdateStatusTx needs a tx; use a direct update instead:
-		_, _ = s.db.ExecContext(ctx, `UPDATE outbound_transfers SET status = 'failed' WHERE id = ?`, transferID)
-		return nil, customErr.NewAppError(http.StatusServiceUnavailable, "MONOLITH_UNREACHABLE", "Monolith unreachable, sender refunded.")
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to queue transfer for processing.")
 	}
+
+	logger.Log.Info("External transfer initiated, event queued",
+		slog.String("transfer_id", transferID),
+		slog.String("event_id", event.EventID),
+	)
 
 	return transfer, nil
 }
@@ -194,6 +209,55 @@ func (s *transferService) GetExternalTransfer(ctx context.Context, transferID st
 		return nil, customErr.NewAppError(http.StatusNotFound, "TRANSFER_NOT_FOUND", "Transfer not found.")
 	}
 	return transfer, nil
+}
+
+// ProcessTransferInitiated is called by the consumer worker when it picks up a
+// transfer.initiated event from the queue. It validates the receiver, notifies
+// the monolith, and refunds the sender if anything fails (saga compensation).
+func (s *transferService) ProcessTransferInitiated(ctx context.Context, event model.TransferInitiatedEvent) error {
+	logger.Log.Info("Processing transfer.initiated event",
+		slog.String("transfer_id", event.TransferID),
+		slog.String("event_id", event.EventID),
+	)
+
+	// 1. Validate receiver exists in monolith
+	if err := s.validateReceiver(ctx, event.ReceiverEmail); err != nil {
+		logger.Log.Error("Receiver validation failed, refunding sender",
+			slog.String("transfer_id", event.TransferID),
+			slog.Any("error", err),
+		)
+		s.failTransfer(ctx, event.TransferID, event.SenderUserID, event.Amount)
+		return err
+	}
+
+	// 2. Notify monolith
+	transfer := &model.OutboundTransfer{
+		ID:             event.TransferID,
+		SenderUserID:   event.SenderUserID,
+		ReceiverEmail:  event.ReceiverEmail,
+		Amount:         decimal.RequireFromString(event.Amount),
+		Currency:       event.Currency,
+		IdempotencyKey: event.IdempotencyKey,
+	}
+	if err := s.notifyMonolith(ctx, transfer); err != nil {
+		logger.Log.Error("Monolith notification failed, refunding sender",
+			slog.String("transfer_id", event.TransferID),
+			slog.Any("error", err),
+		)
+		s.failTransfer(ctx, event.TransferID, event.SenderUserID, event.Amount)
+		return err
+	}
+
+	logger.Log.Info("Monolith accepted external transfer, awaiting callback",
+		slog.String("transfer_id", event.TransferID),
+	)
+	return nil
+}
+
+// failTransfer marks a transfer as failed and refunds the sender.
+func (s *transferService) failTransfer(ctx context.Context, transferID, senderUserID, amount string) {
+	_, _ = s.db.ExecContext(ctx, `UPDATE outbound_transfers SET status = 'failed' WHERE id = ?`, transferID)
+	s.refundSender(ctx, senderUserID, decimal.RequireFromString(amount), 0)
 }
 
 // validateReceiver does a pre-flight GET to the monolith to verify the receiver

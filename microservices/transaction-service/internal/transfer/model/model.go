@@ -51,6 +51,21 @@ type TransferSettledEvent struct {
 	OccurredAt      time.Time `json:"occurred_at"`
 }
 
+// TransferInitiatedEvent is published to RabbitMQ when a transfer is created.
+// The consumer picks it up to asynchronously validate the receiver and notify
+// the monolith, keeping the API response fast.
+type TransferInitiatedEvent struct {
+	EventID        string    `json:"event_id"`
+	EventType      string    `json:"event_type"`
+	TransferID     string    `json:"transfer_id"`
+	SenderUserID   string    `json:"sender_user_id"`
+	ReceiverEmail  string    `json:"receiver_email"`
+	Amount         string    `json:"amount"`
+	Currency       string    `json:"currency"`
+	IdempotencyKey string    `json:"idempotency_key"`
+	OccurredAt     time.Time `json:"occurred_at"`
+}
+
 // TransferOutboxEvent mirrors a row in transfer_outbox_events.
 type TransferOutboxEvent struct {
 	ID          string    `json:"id"`
