@@ -12,6 +12,7 @@ import (
 type OutboundTransfer struct {
 	ID              string          `json:"id"`
 	SenderUserID    string          `json:"sender_user_id"`
+	SenderWalletID  string          `json:"sender_wallet_id"`
 	ReceiverEmail   string          `json:"receiver_email"`
 	Amount          decimal.Decimal `json:"amount"`
 	Currency        string          `json:"currency"`
@@ -25,7 +26,6 @@ type OutboundTransfer struct {
 type ExternalTransferRequest struct {
 	ReceiverEmail  string          `json:"receiver_email" binding:"required,email" example:"receiver@monolith.test"`
 	Amount         decimal.Decimal `json:"amount" binding:"required,gt=0" example:"50000"`
-	Description    string          `json:"description" example:"Dinner split"`
 	IdempotencyKey string          `json:"idempotency_key" binding:"required" example:"unique-key-123"`
 }
 

@@ -7,17 +7,17 @@ import (
 
 	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
 	"github.com/bashocode/gowallet/microservices/shared/utils"
-	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transfer/model"
-	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transfer/service"
+	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
+	transactionService "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/service"
 	"github.com/gin-gonic/gin"
 )
 
 type TransferHandler struct {
-	svc           service.TransferService
+	svc           transactionService.TransactionService
 	webhookSecret string
 }
 
-func NewTransferHandler(svc service.TransferService, webhookSecret string) *TransferHandler {
+func NewTransferHandler(svc transactionService.TransactionService, webhookSecret string) *TransferHandler {
 	return &TransferHandler{svc: svc, webhookSecret: webhookSecret}
 }
 
@@ -114,7 +114,7 @@ func (h *TransferHandler) ProcessTransferWebhook(c *gin.Context) {
 
 	// Verify HMAC-SHA256 signature from header
 	signature := c.GetHeader("X-Webhook-Signature")
-	if err := service.VerifyWebhookSignature(rawBody, signature, h.webhookSecret); err != nil {
+	if err := transactionService.VerifyWebhookSignature(rawBody, signature, h.webhookSecret); err != nil {
 		c.Error(customErr.NewAppError(http.StatusUnauthorized, "INVALID_SIGNATURE", "Webhook signature verification failed"))
 		return
 	}
