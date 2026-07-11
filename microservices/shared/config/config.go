@@ -32,6 +32,9 @@ type Config struct {
 	StripeWebhookSecret   string
 	BaseURL               string
 	GatewayPort           string
+	MonolithBaseURL       string
+	WebhookSecret         string
+	GatewayCallbackURL    string
 	AuthPort              string
 	WalletPort            string
 	PaymentPort           string
@@ -166,6 +169,21 @@ func LoadConfig() *Config {
 		baseURL = "http://localhost:8080"
 	}
 
+	monolithBaseURL := os.Getenv("MONOLITH_BASE_URL")
+	if monolithBaseURL == "" {
+		monolithBaseURL = "http://localhost:8080"
+	}
+
+	webhookSecret := os.Getenv("WEBHOOK_SECRET")
+	if webhookSecret == "" {
+		webhookSecret = "gowallet-webhook-secret-change-me"
+	}
+
+	gatewayCallbackURL := os.Getenv("GATEWAY_CALLBACK_URL")
+	if gatewayCallbackURL == "" {
+		gatewayCallbackURL = "http://localhost:8080"
+	}
+
 	gatewayPort := os.Getenv("GATEWAY_PORT")
 	if gatewayPort == "" {
 		gatewayPort = "8080"
@@ -225,6 +243,9 @@ func LoadConfig() *Config {
 		StripeSecretKey:       stripeSecretKey,
 		StripeWebhookSecret:   stripeWebhookSecret,
 		BaseURL:               baseURL,
+		MonolithBaseURL:       monolithBaseURL,
+		WebhookSecret:         webhookSecret,
+		GatewayCallbackURL:    gatewayCallbackURL,
 		GatewayPort:           gatewayPort,
 		AuthPort:              authPort,
 		WalletPort:            walletPort,
