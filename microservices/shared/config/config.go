@@ -38,7 +38,6 @@ type Config struct {
 	UserPort              string
 	LedgerPort            string
 	TransactionPort       string
-	WebhookSecretKey      string
 }
 
 func LoadConfig() *Config {
@@ -202,11 +201,6 @@ func LoadConfig() *Config {
 		transactionPort = "8086"
 	}
 
-	webhookSecretKey := os.Getenv("WEBHOOK_SECRET_KEY")
-	if webhookSecretKey == "" {
-		webhookSecretKey = "super-secret-key-change-this"
-	}
-
 	return &Config{
 		DBDSN:                 dsn,
 		RedisAddr:             redisAddr,
@@ -238,6 +232,5 @@ func LoadConfig() *Config {
 		UserPort:              userPort,
 		LedgerPort:            ledgerPort,
 		TransactionPort:       transactionPort,
-		WebhookSecretKey:      webhookSecretKey,
 	}
 }
