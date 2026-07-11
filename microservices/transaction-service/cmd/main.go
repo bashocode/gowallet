@@ -143,7 +143,7 @@ func main() {
 	// =========================================================
 	outboundTransferRepo := transferRepository.NewMySQLOutboundTransferRepository(db)
 	transferOutboxRepo := transferRepository.NewMySQLTransferOutboxRepository(db)
-	transferSvc := transferService.NewTransferService(db, outboundTransferRepo, transferOutboxRepo, walletClient, cfg.MonolithBaseURL, cfg.WebhookSecret)
+	transferSvc := transferService.NewTransferService(db, outboundTransferRepo, transferOutboxRepo, walletClient, ledgerClient, cfg.MonolithBaseURL, cfg.WebhookSecret)
 	transferH := transferHandler.NewTransferHandler(transferSvc, cfg.WebhookSecret)
 
 	// Start the transfer outbox publisher worker (publishes transfer.* events to transfer.events).

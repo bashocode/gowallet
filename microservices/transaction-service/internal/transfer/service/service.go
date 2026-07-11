@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
 	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
 	"github.com/bashocode/gowallet/microservices/shared/hmac"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
@@ -42,6 +43,8 @@ type transferService struct {
 	outboxRepo      repository.TransferOutboxRepository
 	walletClient    pbWallet.WalletServiceClient
 	walletBreaker   *circuitbreaker.CircuitBreaker
+	ledgerClient    pbLedger.LedgerServiceClient
+	ledgerBreaker   *circuitbreaker.CircuitBreaker
 	monolithBaseURL string
 	webhookSecret   string
 	httpClient      *http.Client
@@ -52,6 +55,7 @@ func NewTransferService(
 	transferRepo repository.OutboundTransferRepository,
 	outboxRepo repository.TransferOutboxRepository,
 	walletClient pbWallet.WalletServiceClient,
+	ledgerClient pbLedger.LedgerServiceClient,
 	monolithBaseURL string,
 	webhookSecret string,
 ) TransferService {
@@ -67,6 +71,8 @@ func NewTransferService(
 		outboxRepo:      outboxRepo,
 		walletClient:    walletClient,
 		walletBreaker:   circuitbreaker.New(3, 30*time.Second),
+		ledgerClient:    ledgerClient,
+		ledgerBreaker:   circuitbreaker.New(3, 30*time.Second),
 		monolithBaseURL: monolithBaseURL,
 		webhookSecret:   webhookSecret,
 		httpClient:      &http.Client{Timeout: httpClientTimeout},
@@ -140,8 +146,28 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENT_ERROR", "Failed to process transfer. Try again.")
 	}
 
-	// 5. Create outbound transfer record. If this fails after debit, refund.
+	// 5. Record ledger debit entry for sender (financial audit trail)
 	transferID := uuid.New().String()
+	err = s.ledgerBreaker.Call(func() error {
+		var callErr error
+		_, callErr = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
+			TransactionId: transferID,
+			WalletId:      senderWallet.Id,
+			Type:          "debit",
+			Amount:        req.Amount.String(),
+		})
+		return callErr
+	})
+	if err != nil {
+		// Compensation: refund the sender wallet, then record a balancing credit
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record debit audit log. Sender refunded.")
+	}
+
+	// 6. Create outbound transfer record. If this fails after debit, refund.
 	now := time.Now().UTC()
 	transfer := &model.OutboundTransfer{
 		ID:              transferID,
@@ -156,11 +182,11 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 		UpdatedAt:       now,
 	}
 	if err := s.transferRepo.Create(ctx, transfer); err != nil {
-		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version)
+		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
 	}
 
-	// 6. Publish transfer.initiated event to outbox. The consumer will async
+	// 7. Publish transfer.initiated event to outbox. The consumer will async
 	//    validate the receiver and notify the monolith. If this fails, the
 	//    reconciliation worker will eventually pick up the pending transfer.
 	event := model.TransferInitiatedEvent{
@@ -257,7 +283,7 @@ func (s *transferService) ProcessTransferInitiated(ctx context.Context, event mo
 // failTransfer marks a transfer as failed and refunds the sender.
 func (s *transferService) failTransfer(ctx context.Context, transferID, senderUserID, amount string) {
 	_, _ = s.db.ExecContext(ctx, `UPDATE outbound_transfers SET status = 'failed' WHERE id = ?`, transferID)
-	s.refundSender(ctx, senderUserID, decimal.RequireFromString(amount), 0)
+	s.refundSender(ctx, senderUserID, decimal.RequireFromString(amount), 0, transferID)
 }
 
 // validateReceiver does a pre-flight GET to the monolith to verify the receiver
@@ -323,9 +349,10 @@ func (s *transferService) notifyMonolith(ctx context.Context, transfer *model.Ou
 	return nil
 }
 
-// refundSender credits the sender back the debited amount. Used in saga
+// refundSender credits the sender back the debited amount and records a
+// balancing ledger credit entry (ledger is immutable). Used in saga
 // compensation when the transfer cannot proceed after debit.
-func (s *transferService) refundSender(ctx context.Context, senderUserID string, amount decimal.Decimal, originalVersion int32) {
+func (s *transferService) refundSender(ctx context.Context, senderUserID string, amount decimal.Decimal, originalVersion int32, transferID string) {
 	// Re-read wallet to get latest version (optimistic lock may have changed)
 	var senderWallet *pbWallet.WalletResponse
 	err := s.walletBreaker.Call(func() error {
@@ -358,7 +385,28 @@ func (s *transferService) refundSender(ctx context.Context, senderUserID string,
 		return
 	}
 
+	// Record balancing ledger credit (ledger is immutable — can't delete the debit)
+	ledgerErr := s.ledgerBreaker.Call(func() error {
+		var callErr error
+		_, callErr = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
+			TransactionId: transferID,
+			WalletId:      senderWallet.Id,
+			Type:          "credit",
+			Amount:        amount.String(),
+		})
+		return callErr
+	})
+	if ledgerErr != nil {
+		logger.Log.Error("CRITICAL: compensation failed — cannot record balancing ledger credit",
+			slog.String("transfer_id", transferID),
+			slog.String("user_id", senderUserID),
+			slog.String("amount", amount.String()),
+			slog.Any("error", ledgerErr),
+		)
+	}
+
 	logger.Log.Info("Compensation: sender refunded after failed transfer",
+		slog.String("transfer_id", transferID),
 		slog.String("user_id", senderUserID),
 		slog.String("amount", amount.String()),
 	)
@@ -397,7 +445,7 @@ func (s *transferService) SettleTransferTx(ctx context.Context, cb model.Transfe
 
 	// If monolith says transfer failed, refund the sender
 	if status == "failed" {
-		s.refundSender(ctx, transfer.SenderUserID, transfer.Amount, 0)
+		s.refundSender(ctx, transfer.SenderUserID, transfer.Amount, 0, transfer.ID)
 	}
 
 	if err := s.transferRepo.UpdateStatusTx(ctx, tx, transfer.ID, status); err != nil {
