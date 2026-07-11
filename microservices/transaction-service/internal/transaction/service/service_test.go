@@ -197,7 +197,7 @@ func TestTransfer_HappyPath(t *testing.T) {
 	wClient := &MockWalletClient{}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(newTestDB(t), txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
+	svc := NewTransactionService(newTestDB(t), txRepo, nil, nil, uClient, wClient, lClient, &MockDLQPublisher{}, "", "")
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -247,7 +247,7 @@ func TestTransfer_DebitFails(t *testing.T) {
 	}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(newTestDBPendingOnly(t), txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
+	svc := NewTransactionService(newTestDBPendingOnly(t), txRepo, nil, nil, uClient, wClient, lClient, &MockDLQPublisher{}, "", "")
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -310,7 +310,7 @@ func TestTransfer_CreditFails_CompensationSucceeds(t *testing.T) {
 	}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(newTestDBPendingOnly(t), txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
+	svc := NewTransactionService(newTestDBPendingOnly(t), txRepo, nil, nil, uClient, wClient, lClient, &MockDLQPublisher{}, "", "")
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -376,7 +376,7 @@ func TestTransfer_LedgerFails_CompensationSucceeds(t *testing.T) {
 		},
 	}
 
-	svc := NewTransactionService(newTestDBPendingOnly(t), txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
+	svc := NewTransactionService(newTestDBPendingOnly(t), txRepo, nil, nil, uClient, wClient, lClient, &MockDLQPublisher{}, "", "")
 
 	req := model.TransferRequest{
 		ReceiverEmail:  "receiver@example.com",
@@ -413,7 +413,7 @@ func TestTransfer_CircuitBreaker(t *testing.T) {
 	}
 	lClient := &MockLedgerClient{}
 
-	svc := NewTransactionService(nil, txRepo, uClient, wClient, lClient, &MockDLQPublisher{})
+	svc := NewTransactionService(nil, txRepo, nil, nil, uClient, wClient, lClient, &MockDLQPublisher{}, "", "")
 
 	// Call 1
 	_, err := svc.Transfer(context.Background(), "sender-123", model.TransferRequest{

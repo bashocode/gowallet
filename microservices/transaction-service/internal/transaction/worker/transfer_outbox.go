@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/bashocode/gowallet/microservices/shared/logger"
-	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transfer/repository"
+	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

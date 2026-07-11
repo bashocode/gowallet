@@ -16,10 +16,9 @@ import (
 	transactionRepository "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
 	transactionService "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/service"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/worker"
-	transferHandler "github.com/bashocode/gowallet/microservices/transaction-service/internal/transfer/handler"
-	transferRepository "github.com/bashocode/gowallet/microservices/transaction-service/internal/transfer/repository"
-	transferService "github.com/bashocode/gowallet/microservices/transaction-service/internal/transfer/service"
-	transferWorker "github.com/bashocode/gowallet/microservices/transaction-service/internal/transfer/worker"
+	transferHandler "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/handler"
+	transferRepository "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
+	transferWorker "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/worker"
 	pb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	pbUser "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
@@ -135,16 +134,11 @@ func main() {
 
 	// Initialize layers
 	txRepo := transactionRepository.NewMySQLTransactionRepository(db)
-	txSvc := transactionService.NewTransactionService(db, txRepo, userClient, walletClient, ledgerClient, dlqPublisher)
-	txHandler := transactionHandler.NewTransactionHandler(txSvc)
-
-	// =========================================================
-	// Episode 35: External transfer (outbound) event-driven
-	// =========================================================
 	outboundTransferRepo := transferRepository.NewMySQLOutboundTransferRepository(db)
 	transferOutboxRepo := transferRepository.NewMySQLTransferOutboxRepository(db)
-	transferSvc := transferService.NewTransferService(db, outboundTransferRepo, transferOutboxRepo, walletClient, ledgerClient, cfg.MonolithBaseURL, cfg.WebhookSecret)
-	transferH := transferHandler.NewTransferHandler(transferSvc, cfg.WebhookSecret)
+	txSvc := transactionService.NewTransactionService(db, txRepo, outboundTransferRepo, transferOutboxRepo, userClient, walletClient, ledgerClient, dlqPublisher, cfg.MonolithBaseURL, cfg.WebhookSecret)
+	txHandler := transactionHandler.NewTransactionHandler(txSvc)
+	transferH := transferHandler.NewTransferHandler(txSvc, cfg.WebhookSecret)
 
 	// Start the transfer outbox publisher worker (publishes transfer.* events to transfer.events).
 	transferOutboxWorker := transferWorker.NewTransferOutboxWorker(db, cfg.RabbitMQURL, transferOutboxRepo)
@@ -152,7 +146,7 @@ func main() {
 
 	// Start the transfer consumer worker (consumes transfer.initiated from queue,
 	// async validates receiver + notifies monolith).
-	transferConsumerWorker := transferWorker.NewTransferConsumerWorker(cfg.RabbitMQURL, transferSvc)
+	transferConsumerWorker := transferWorker.NewTransferConsumerWorker(cfg.RabbitMQURL, txSvc)
 	go transferConsumerWorker.Start(bgCtx)
 
 	// Start reconciliation worker: checks for stale pending transfers every 2 minutes.
@@ -164,7 +158,7 @@ func main() {
 			case <-bgCtx.Done():
 				return
 			case <-ticker.C:
-				if err := transferSvc.ReconcilePendingTransfers(bgCtx); err != nil {
+				if err := txSvc.ReconcilePendingTransfers(bgCtx); err != nil {
 					logger.Log.Error("Transfer reconciliation failed", "error", err)
 				}
 			}

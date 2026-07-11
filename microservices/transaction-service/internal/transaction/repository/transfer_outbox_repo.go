@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transfer/model"
+	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
 )
 
 type TransferOutboxRepository interface {
@@ -24,19 +24,19 @@ func NewMySQLTransferOutboxRepository(db *sql.DB) TransferOutboxRepository {
 }
 
 func (r *mysqlTransferOutboxRepository) Create(ctx context.Context, event *model.TransferOutboxEvent) error {
-	query := `INSERT INTO transfer_outbox_events (id, event_type, aggregate_id, payload, status) VALUES (?, ?, ?, ?, ?)`
+	query := `INSERT INTO outbox_events (id, event_type, aggregate_id, payload, status) VALUES (?, ?, ?, ?, ?)`
 	_, err := r.db.ExecContext(ctx, query, event.ID, event.EventType, event.AggregateID, event.Payload, event.Status)
 	return err
 }
 
 func (r *mysqlTransferOutboxRepository) CreateTx(ctx context.Context, tx *sql.Tx, event *model.TransferOutboxEvent) error {
-	query := `INSERT INTO transfer_outbox_events (id, event_type, aggregate_id, payload, status) VALUES (?, ?, ?, ?, ?)`
+	query := `INSERT INTO outbox_events (id, event_type, aggregate_id, payload, status) VALUES (?, ?, ?, ?, ?)`
 	_, err := tx.ExecContext(ctx, query, event.ID, event.EventType, event.AggregateID, event.Payload, event.Status)
 	return err
 }
 
 func (r *mysqlTransferOutboxRepository) FetchPending(ctx context.Context, limit int) ([]model.TransferOutboxEvent, error) {
-	query := `SELECT id, event_type, payload FROM transfer_outbox_events WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?`
+	query := `SELECT id, event_type, payload FROM outbox_events WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?`
 	rows, err := r.db.QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, err
@@ -55,11 +55,11 @@ func (r *mysqlTransferOutboxRepository) FetchPending(ctx context.Context, limit 
 }
 
 func (r *mysqlTransferOutboxRepository) MarkProcessed(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE transfer_outbox_events SET status = 'processed' WHERE id = ?`, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE outbox_events SET status = 'processed' WHERE id = ?`, id)
 	return err
 }
 
 func (r *mysqlTransferOutboxRepository) IncrementAttempts(ctx context.Context, id string, lastError string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE transfer_outbox_events SET attempts = attempts + 1, last_error = ? WHERE id = ?`, lastError, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE outbox_events SET attempts = attempts + 1, last_error = ? WHERE id = ?`, lastError, id)
 	return err
 }

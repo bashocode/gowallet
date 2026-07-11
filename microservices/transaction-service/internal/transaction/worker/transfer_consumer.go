@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/bashocode/gowallet/microservices/shared/logger"
-	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transfer/model"
-	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transfer/service"
+	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
+	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/service"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -18,12 +18,12 @@ import (
 // for the final status.
 type TransferConsumerWorker struct {
 	rabbitmqURL string
-	svc         service.TransferService
+	svc service.TransactionService
 	amqpConn    *amqp.Connection
 	channel     *amqp.Channel
 }
 
-func NewTransferConsumerWorker(rabbitmqURL string, svc service.TransferService) *TransferConsumerWorker {
+func NewTransferConsumerWorker(rabbitmqURL string, svc service.TransactionService) *TransferConsumerWorker {
 	w := &TransferConsumerWorker{
 		rabbitmqURL: rabbitmqURL,
 		svc:         svc,

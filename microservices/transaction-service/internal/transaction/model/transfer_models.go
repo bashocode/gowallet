@@ -12,6 +12,7 @@ import (
 type OutboundTransfer struct {
 	ID              string          `json:"id"`
 	SenderUserID    string          `json:"sender_user_id"`
+	SenderWalletID  string          `json:"sender_wallet_id"`
 	ReceiverEmail   string          `json:"receiver_email"`
 	Amount          decimal.Decimal `json:"amount"`
 	Currency        string          `json:"currency"`
