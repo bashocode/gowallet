@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"database/sql"
-	"sync"
 	"time"
 
 	"github.com/bashocode/gowallet/microservices/shared/logger"
@@ -16,7 +15,6 @@ type OutboxWorker struct {
 	rabbitmqURL string
 	amqpConn    *amqp.Connection
 	channel     *amqp.Channel
-	mu          sync.Mutex
 }
 
 func NewOutboxWorker(db *sql.DB, rabbitmqURL string) *OutboxWorker {
@@ -34,9 +32,6 @@ func NewOutboxWorker(db *sql.DB, rabbitmqURL string) *OutboxWorker {
 }
 
 func (w *OutboxWorker) ensureConnection() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	if w.amqpConn == nil || w.amqpConn.IsClosed() {
 		logger.Log.Info("Connecting/Reconnecting to RabbitMQ...")
 		conn, err := amqp.Dial(w.rabbitmqURL)
@@ -84,14 +79,12 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			w.mu.Lock()
 			if w.channel != nil {
 				w.channel.Close()
 			}
 			if w.amqpConn != nil {
 				w.amqpConn.Close()
 			}
-			w.mu.Unlock()
 			return
 		case <-ticker.C:
 			w.processPendingEvents(ctx)
@@ -132,7 +125,6 @@ func (w *OutboxWorker) processPendingEvents(ctx context.Context) {
 
 	// 2. Publish one by one to RabbitMQ
 	for _, event := range events {
-		w.mu.Lock()
 		err = w.channel.PublishWithContext(
 			ctx,
 			"wallet.events", // exchange
@@ -145,13 +137,11 @@ func (w *OutboxWorker) processPendingEvents(ctx context.Context) {
 				MessageId:   event.ID,
 			},
 		)
-		w.mu.Unlock()
 
 		if err != nil {
 			logger.Error(ctx, "Failed to publish event to RabbitMQ", "event_id", event.ID, "error", err.Error())
-
+			
 			// Close connection and channel to trigger reconnect next time
-			w.mu.Lock()
 			if w.channel != nil {
 				_ = w.channel.Close()
 				w.channel = nil
@@ -160,7 +150,6 @@ func (w *OutboxWorker) processPendingEvents(ctx context.Context) {
 				_ = w.amqpConn.Close()
 				w.amqpConn = nil
 			}
-			w.mu.Unlock()
 
 			// Increment attempts count in database
 			_, _ = w.db.ExecContext(ctx, "UPDATE outbox_events SET attempts = attempts + 1 WHERE id = ?", event.ID)

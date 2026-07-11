@@ -26,11 +26,3 @@ type StripeCheckoutResponse struct {
 	CheckoutURL string `json:"checkout_url"`
 	SessionID   string `json:"session_id"`
 }
-
-type PaymentGatewayCallback struct {
-	OrderID        string  `json:"order_id"`
-	UserID         string  `json:"user_id"`
-	Amount         float64 `json:"amount"`
-	PaymentStatus  string  `json:"payment_status"`  // settled, pending, deny
-	PaymentGateway string  `json:"payment_gateway"` // midtrans, stripe
-}
