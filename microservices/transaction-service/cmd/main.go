@@ -216,6 +216,7 @@ func main() {
 
 			// Episode 35: external transfer to monolith ewallet
 			protected.POST("/transfers/external", transferH.CreateExternalTransfer)
+			protected.GET("/transfers/external/:id", transferH.GetExternalTransfer)
 		}
 	}
 

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
 	"github.com/bashocode/gowallet/microservices/shared/hmac"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/circuitbreaker"
@@ -29,6 +30,7 @@ const (
 
 type TransferService interface {
 	CreateExternalTransfer(ctx context.Context, senderUserID string, req model.ExternalTransferRequest) (*model.OutboundTransfer, error)
+	GetExternalTransfer(ctx context.Context, transferID string) (*model.OutboundTransfer, error)
 	SettleTransferTx(ctx context.Context, cb model.TransferCallback) error
 	ReconcilePendingTransfers(ctx context.Context) error
 }
@@ -83,10 +85,12 @@ func NewTransferService(
 func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUserID string, req model.ExternalTransferRequest) (*model.OutboundTransfer, error) {
 	// 1. Validate amount limits
 	if req.Amount.LessThan(decimal.NewFromInt(minTransferAmount)) {
-		return nil, fmt.Errorf("amount below minimum transfer limit of %d IDR", minTransferAmount)
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_AMOUNT",
+			fmt.Sprintf("amount below minimum transfer limit of %d IDR", minTransferAmount))
 	}
 	if req.Amount.GreaterThan(decimal.NewFromInt(maxTransferAmount)) {
-		return nil, fmt.Errorf("amount exceeds maximum transfer limit of %d IDR", maxTransferAmount)
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_AMOUNT",
+			fmt.Sprintf("amount exceeds maximum transfer limit of %d IDR", maxTransferAmount))
 	}
 
 	// 2. Idempotency check
@@ -97,7 +101,7 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 
 	// 3. Pre-flight: validate receiver exists in monolith (no debit yet)
 	if err := s.validateReceiver(ctx, req.ReceiverEmail); err != nil {
-		return nil, fmt.Errorf("receiver validation failed: %w", err)
+		return nil, err
 	}
 
 	// 4. Get sender wallet + check balance
@@ -108,15 +112,19 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 		return callErr
 	})
 	if err != nil {
-		return nil, fmt.Errorf("sender wallet not found: %w", err)
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusNotFound, "SENDER_WALLET_NOT_FOUND", "Sender wallet not found.")
 	}
 
 	senderBalance, err := decimal.NewFromString(senderWallet.Balance)
 	if err != nil {
-		return nil, fmt.Errorf("invalid sender balance: %w", err)
+		return nil, customErr.ErrInternalServer
 	}
 	if senderBalance.LessThan(req.Amount) {
-		return nil, fmt.Errorf("insufficient balance: have %s, need %s", senderBalance.String(), req.Amount.String())
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INSUFFICIENT_BALANCE",
+			fmt.Sprintf("insufficient balance: have %s, need %s", senderBalance.String(), req.Amount.String()))
 	}
 
 	// 5. Debit sender wallet
@@ -130,12 +138,16 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 		return callErr
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to debit sender: %w", err)
+		if err.Error() == "circuit breaker is open — service unavailable" {
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+		}
+		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENT_ERROR", "Failed to process transfer. Try again.")
 	}
 
 	// 6. Create outbound transfer record. If this fails after debit, we must
 	//    refund the sender (saga compensation).
 	transferID := uuid.New().String()
+	now := time.Now().UTC()
 	transfer := &model.OutboundTransfer{
 		ID:              transferID,
 		SenderUserID:    senderUserID,
@@ -145,11 +157,13 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 		ExternalEwallet: "monolith",
 		Status:          "pending",
 		IdempotencyKey:  req.IdempotencyKey,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	if err := s.transferRepo.Create(ctx, transfer); err != nil {
 		// Compensation: refund sender
 		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version)
-		return nil, fmt.Errorf("failed to create transfer record (sender refunded): %w", err)
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
 	}
 
 	// 7. Notify monolith synchronously. If it fails, refund sender and mark
@@ -163,9 +177,22 @@ func (s *transferService) CreateExternalTransfer(ctx context.Context, senderUser
 		_ = s.transferRepo.UpdateStatusTx(ctx, nil, transferID, "failed")
 		// UpdateStatusTx needs a tx; use a direct update instead:
 		_, _ = s.db.ExecContext(ctx, `UPDATE outbound_transfers SET status = 'failed' WHERE id = ?`, transferID)
-		return nil, fmt.Errorf("monolith unreachable, sender refunded: %w", err)
+		return nil, customErr.NewAppError(http.StatusServiceUnavailable, "MONOLITH_UNREACHABLE", "Monolith unreachable, sender refunded.")
 	}
 
+	return transfer, nil
+}
+
+// GetExternalTransfer retrieves an outbound transfer by its ID. Used by clients
+// to poll the status of an async external transfer (pending → settled/failed).
+func (s *transferService) GetExternalTransfer(ctx context.Context, transferID string) (*model.OutboundTransfer, error) {
+	transfer, err := s.transferRepo.GetByID(ctx, transferID)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
+	if transfer == nil {
+		return nil, customErr.NewAppError(http.StatusNotFound, "TRANSFER_NOT_FOUND", "Transfer not found.")
+	}
 	return transfer, nil
 }
 
@@ -176,20 +203,20 @@ func (s *transferService) validateReceiver(ctx context.Context, receiverEmail st
 	url := fmt.Sprintf("%s/api/v1/users/email/%s", s.monolithBaseURL, receiverEmail)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return fmt.Errorf("build receiver validation request: %w", err)
+		return customErr.ErrInternalServer
 	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("monolith unreachable during receiver validation: %w", err)
+		return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Monolith service is currently unavailable.")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("receiver email not found in monolith: %s", receiverEmail)
+		return customErr.NewAppError(http.StatusNotFound, "RECEIVER_NOT_FOUND", "Receiver email not found.")
 	}
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("monolith returned status %d during receiver validation", resp.StatusCode)
+		return customErr.NewAppError(http.StatusBadGateway, "MONOLITH_ERROR", "Monolith returned an error during receiver validation.")
 	}
 	return nil
 }
@@ -288,7 +315,7 @@ func (s *transferService) SettleTransferTx(ctx context.Context, cb model.Transfe
 		return err
 	}
 	if transfer == nil {
-		return fmt.Errorf("transfer not found: %s", cb.IdempotencyKey)
+		return customErr.NewAppError(http.StatusNotFound, "TRANSFER_NOT_FOUND", "Transfer not found.")
 	}
 
 	// Idempotency: already settled

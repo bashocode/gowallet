@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 
@@ -64,6 +65,35 @@ func (h *TransferHandler) CreateExternalTransfer(c *gin.Context) {
 	})
 }
 
+// GetExternalTransfer godoc
+// @Summary		Get External Transfer Status
+// @Description	Get the current status of an external transfer by its ID. Use this to poll whether a pending transfer has been settled or failed.
+// @Tags		Transfers
+// @Produce		json
+// @Param		id path string true "Transfer ID"
+// @Success		200 {object} map[string]interface{}
+// @Failure		404 {object} customErr.AppError
+// @Router		/transfers/external/{id} [get]
+// @Security	BearerAuth
+func (h *TransferHandler) GetExternalTransfer(c *gin.Context) {
+	transferID := c.Param("id")
+	if transferID == "" {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", "transfer id is required"))
+		return
+	}
+
+	transfer, err := h.svc.GetExternalTransfer(c.Request.Context(), transferID)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    transfer,
+	})
+}
+
 // ProcessTransferWebhook godoc
 // @Summary		External Transfer Webhook
 // @Description	Handle callback from external ewallet (monolith) when an outbound transfer is settled or failed.
@@ -90,13 +120,13 @@ func (h *TransferHandler) ProcessTransferWebhook(c *gin.Context) {
 	}
 
 	var cb model.TransferCallback
-	if err := c.ShouldBindJSON(rawBody); err != nil {
+	if err := json.Unmarshal(rawBody, &cb); err != nil {
 		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", err.Error()))
 		return
 	}
 
 	if err := h.svc.SettleTransferTx(c.Request.Context(), cb); err != nil {
-		c.Error(customErr.NewAppError(http.StatusBadRequest, "WEBHOOK_FAILED", err.Error()))
+		c.Error(err)
 		return
 	}
 
