@@ -154,7 +154,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		Amount:           req.Amount,
 		Description:      req.Description,
 		IdempotencyKey:   req.IdempotencyKey,
-		Status:           "PENDING",
+		Status:           "success",
 	}
 	initTx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -185,8 +185,8 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 	}
 	defer tx.Rollback()
 
-	txRecord.Status = "SUCCESS"
-	if err := s.txRepo.UpdateStatusTx(ctx, tx, txID, "SUCCESS"); err != nil {
+	txRecord.Status = "success"
+	if err := s.txRepo.UpdateStatusTx(ctx, tx, txID, "success"); err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
@@ -946,7 +946,7 @@ func (s *transactionService) ProcessTransferInitiated(ctx context.Context, event
 	}
 
 	if status == "" {
-		status = "settled"
+		status = "success"
 	}
 	if err := s.SettleTransferTx(ctx, transferModel.TransferCallback{
 		TransferID:     event.TransferID,
@@ -1092,15 +1092,15 @@ func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferMo
 		return customErr.NewAppError(http.StatusNotFound, "TRANSFER_NOT_FOUND", "Transfer not found.")
 	}
 
-	if transfer.Status == "settled" || transfer.Status == "failed" {
+	if transfer.Status == "success" || transfer.Status == "failed" {
 		return tx.Commit()
 	}
 
 	status := cb.Status
 	if status == "" {
-		status = "settled"
+		status = "success"
 	}
-	if status != "settled" && status != "failed" {
+	if status != "success" && status != "failed" {
 		status = "failed"
 	}
 
@@ -1195,7 +1195,7 @@ func (s *transactionService) ReconcilePendingTransfers(ctx context.Context) erro
 			continue
 		}
 
-		if status == "settled" || status == "failed" {
+		if status == "success" || status == "failed" {
 			logger.Log.Info("Reconciliation: settling stale transfer",
 				slog.String("transfer_id", t.ID),
 				slog.String("status", status),

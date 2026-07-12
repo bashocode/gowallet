@@ -36,17 +36,17 @@ func (r *mysqlOutboundTransferRepository) CreateTx(ctx context.Context, tx *sql.
 func (r *mysqlOutboundTransferRepository) create(ctx context.Context, q interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }, t *model.OutboundTransfer) error {
-	query := `INSERT INTO transactions (id, type, sender_wallet_id, receiver_email, amount, currency, external_ewallet, status, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := q.ExecContext(ctx, query, t.ID, "external_transfer", t.SenderWalletID, t.ReceiverEmail, t.Amount, t.Currency, t.ExternalEwallet, t.Status, t.IdempotencyKey)
+	query := `INSERT INTO transactions (id, type, sender_user_id, sender_wallet_id, receiver_email, amount, currency, external_ewallet, status, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := q.ExecContext(ctx, query, t.ID, "external_transfer", t.SenderUserID, t.SenderWalletID, t.ReceiverEmail, t.Amount, t.Currency, t.ExternalEwallet, t.Status, t.IdempotencyKey)
 	return err
 }
 
 func (r *mysqlOutboundTransferRepository) GetByID(ctx context.Context, id string) (*model.OutboundTransfer, error) {
-	query := `SELECT id, sender_wallet_id, receiver_email, amount, currency, external_ewallet, status, idempotency_key, created_at, updated_at FROM transactions WHERE id = ? AND type = 'external_transfer'`
+	query := `SELECT id, sender_user_id, sender_wallet_id, receiver_email, amount, currency, external_ewallet, status, idempotency_key, created_at, updated_at FROM transactions WHERE id = ? AND type = 'external_transfer'`
 	row := r.db.QueryRowContext(ctx, query, id)
 
 	var t model.OutboundTransfer
-	err := row.Scan(&t.ID, &t.SenderWalletID, &t.ReceiverEmail, &t.Amount, &t.Currency, &t.ExternalEwallet, &t.Status, &t.IdempotencyKey, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.SenderUserID, &t.SenderWalletID, &t.ReceiverEmail, &t.Amount, &t.Currency, &t.ExternalEwallet, &t.Status, &t.IdempotencyKey, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -67,11 +67,11 @@ func (r *mysqlOutboundTransferRepository) GetByIdempotencyKeyTx(ctx context.Cont
 func (r *mysqlOutboundTransferRepository) getByIdempotencyKey(ctx context.Context, q interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }, key string) (*model.OutboundTransfer, error) {
-	query := `SELECT id, sender_wallet_id, receiver_email, amount, currency, external_ewallet, status, idempotency_key, created_at, updated_at FROM transactions WHERE idempotency_key = ? AND type = 'external_transfer'`
+	query := `SELECT id, sender_user_id, sender_wallet_id, receiver_email, amount, currency, external_ewallet, status, idempotency_key, created_at, updated_at FROM transactions WHERE idempotency_key = ? AND type = 'external_transfer'`
 	row := q.QueryRowContext(ctx, query, key)
 
 	var t model.OutboundTransfer
-	err := row.Scan(&t.ID, &t.SenderWalletID, &t.ReceiverEmail, &t.Amount, &t.Currency, &t.ExternalEwallet, &t.Status, &t.IdempotencyKey, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.SenderUserID, &t.SenderWalletID, &t.ReceiverEmail, &t.Amount, &t.Currency, &t.ExternalEwallet, &t.Status, &t.IdempotencyKey, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil

@@ -211,13 +211,13 @@ func TestTransfer_HappyPath(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	if tx.Status != "SUCCESS" {
-		t.Errorf("Expected status SUCCESS, got: %s", tx.Status)
+	if tx.Status != "success" {
+		t.Errorf("Expected status success, got: %s", tx.Status)
 	}
 
 	savedTx, _ := txRepo.GetByIdempotencyKey(context.Background(), "idem-key-1")
-	if savedTx == nil || savedTx.Status != "SUCCESS" {
-		t.Errorf("Expected saved transaction status to be SUCCESS")
+	if savedTx == nil || savedTx.Status != "success" {
+		t.Errorf("Expected saved transaction status to be success")
 	}
 
 	// Outbox: a single pending "transfer.completed" event must be recorded.
