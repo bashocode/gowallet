@@ -100,7 +100,7 @@ func (w *OutboxWorker) processPendingEvents(ctx context.Context) {
 	}
 
 	// 1. Get oldest pending events
-	query := `SELECT id, event_type, payload FROM outbox_events WHERE status = 'pending' ORDER BY created_at ASC LIMIT 20`
+	query := `SELECT id, event_type, payload FROM outbox_events WHERE status = 'pending' AND event_type NOT LIKE 'transfer.%' ORDER BY created_at ASC LIMIT 20`
 	rows, err := w.db.QueryContext(ctx, query)
 	if err != nil {
 		logger.Error(ctx, "Failed to query pending outbox events", "error", err.Error())
@@ -140,7 +140,7 @@ func (w *OutboxWorker) processPendingEvents(ctx context.Context) {
 
 		if err != nil {
 			logger.Error(ctx, "Failed to publish event to RabbitMQ", "event_id", event.ID, "error", err.Error())
-			
+
 			// Close connection and channel to trigger reconnect next time
 			if w.channel != nil {
 				_ = w.channel.Close()

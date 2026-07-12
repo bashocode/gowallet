@@ -99,3 +99,11 @@ func TestGetMyWallet_Error(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
+
+func (m *MockWalletService) ValidateEmailInquiry(ctx context.Context, email string) (*model.WalletInquiry, error) {
+	args := m.Called(ctx, email)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.WalletInquiry), args.Error(1)
+}

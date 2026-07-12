@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net"
+	"time"
 
 	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
 	"github.com/bashocode/gowallet/microservices/shared/config"
@@ -13,6 +14,7 @@ import (
 	transactionGRPC "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/grpc"
 	transactionHandler "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/handler"
 	transactionRepository "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
+	transferRepository "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
 	transactionService "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/service"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/worker"
 	pb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
@@ -130,8 +132,37 @@ func main() {
 
 	// Initialize layers
 	txRepo := transactionRepository.NewMySQLTransactionRepository(db)
-	txSvc := transactionService.NewTransactionService(db, txRepo, userClient, walletClient, ledgerClient, dlqPublisher)
+	outboundTransferRepo := transferRepository.NewMySQLOutboundTransferRepository(db)
+	transferOutboxRepo := transferRepository.NewMySQLTransferOutboxRepository(db)
+	txSvc := transactionService.NewTransactionService(db, txRepo, outboundTransferRepo, transferOutboxRepo, userClient, walletClient, ledgerClient, dlqPublisher, cfg.MonolithBaseURL, cfg.TransactionBaseURL, cfg.WebhookSecret)
 	txHandler := transactionHandler.NewTransactionHandler(txSvc)
+
+	externalHandler := transactionHandler.NewTransferHandler(txSvc, cfg.WebhookSecret, cfg.MonolithBaseURL)
+
+	// Start the transfer outbox publisher worker (publishes transfer.* events to transfer.events).
+	transferOutboxWorker := worker.NewTransferOutboxWorker(db, cfg.RabbitMQURL, transferOutboxRepo)
+	go transferOutboxWorker.Start(bgCtx)
+
+	// Start the transfer consumer worker (consumes transfer.initiated from queue,
+	// validates receiver, notifies monolith, then settles the outbound transfer).
+	transferConsumerWorker := worker.NewTransferConsumerWorker(cfg.RabbitMQURL, txSvc)
+	go transferConsumerWorker.Start(bgCtx)
+
+	// Start reconciliation worker: checks for stale pending transfers every 2 minutes.
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-bgCtx.Done():
+				return
+			case <-ticker.C:
+				if err := txSvc.ReconcilePendingTransfers(bgCtx); err != nil {
+					logger.Log.Error("Transfer reconciliation failed", "error", err)
+				}
+			}
+		}
+	}()
 
 	// =========================================================
 	// Start gRPC Server (for internal service-to-service calls)
@@ -177,6 +208,16 @@ func main() {
 		{
 			protected.POST("/transactions/transfer", txHandler.Transfer)
 			protected.GET("/transactions/history", txHandler.GetHistory)
+
+			protected.POST("/transactions/inquiry/external", externalHandler.InquiryExternal)
+			protected.POST("/transactions/transfers/external", externalHandler.CreateExternalTransfer)
+		}
+
+		// Webhook endpoint for external transfer callbacks (protected by API key, not JWT)
+		internal := v1.Group("")
+		internal.Use(middleware.APIKeyMiddleware(cfg.WebhookSecret))
+		{
+			internal.POST("/transactions/transfers/webhook", externalHandler.ProcessTransferWebhook)
 		}
 	}
 

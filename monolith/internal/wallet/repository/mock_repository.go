@@ -30,3 +30,19 @@ func (m *MockWalletRepository) UpdateBalanceTx(ctx context.Context, tx *sql.Tx, 
 	args := m.Called(ctx, tx, walletID, amount, currentVersion)
 	return args.Error(0)
 }
+
+func (m *MockWalletRepository) GetByEmail(ctx context.Context, email string) (*model.WalletInquiry, error) {
+	args := m.Called(ctx, email)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.WalletInquiry), args.Error(1)
+}
+
+func (m *MockWalletRepository) GetWalletByEmail(ctx context.Context, email string) (*model.Wallet, error) {
+	args := m.Called(ctx, email)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.Wallet), args.Error(1)
+}

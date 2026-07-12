@@ -42,12 +42,14 @@ func (r *mysqlTransactionRepository) GetByIdempotencyKey(ctx context.Context, ke
 	query := `SELECT id, sender_wallet_id, receiver_wallet_id, amount, description, idempotency_key, status, created_at FROM transactions WHERE idempotency_key = ?`
 	t := &model.Transaction{}
 	var sender sql.NullString
+	var receiver sql.NullString
+	var desc sql.NullString
 	err := r.db.QueryRowContext(ctx, query, key).Scan(
 		&t.ID,
 		&sender,
-		&t.ReceiverWalletID,
+		&receiver,
 		&t.Amount,
-		&t.Description,
+		&desc,
 		&t.IdempotencyKey,
 		&t.Status,
 		&t.CreatedAt,
@@ -59,6 +61,12 @@ func (r *mysqlTransactionRepository) GetByIdempotencyKey(ctx context.Context, ke
 
 	if sender.Valid {
 		t.SenderWalletID = &sender.String
+	}
+	if receiver.Valid {
+		t.ReceiverWalletID = receiver.String
+	}
+	if desc.Valid {
+		t.Description = desc.String
 	}
 
 	return t, nil
@@ -146,12 +154,14 @@ func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID st
 	for rows.Next() {
 		var t model.Transaction
 		var sender sql.NullString
+		var receiver sql.NullString
+		var desc sql.NullString
 		err := rows.Scan(
 			&t.ID,
 			&sender,
-			&t.ReceiverWalletID,
+			&receiver,
 			&t.Amount,
-			&t.Description,
+			&desc,
 			&t.IdempotencyKey,
 			&t.Status,
 			&t.CreatedAt,
@@ -161,6 +171,12 @@ func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID st
 		}
 		if sender.Valid {
 			t.SenderWalletID = &sender.String
+		}
+		if receiver.Valid {
+			t.ReceiverWalletID = receiver.String
+		}
+		if desc.Valid {
+			t.Description = desc.String
 		}
 		txs = append(txs, t)
 	}

@@ -85,7 +85,7 @@ func main() {
 	// inject db to user service for transaction
 	uSvc := userService.NewUserService(db, rdb, uRepo, wRepo, otpRepo, emailSender)
 	wSvc := walletService.NewWalletService(wRepo, rdb)
-	tSvc := txService.NewTransactionService(db, rdb, tRepo, uRepo, wRepo, lRepo)
+	tSvc := txService.NewTransactionService(db, rdb, tRepo, uRepo, wRepo, lRepo, cfg.WebhookSecret)
 	lSvc := ledgerService.NewLedgerService(lRepo, wRepo)
 
 	uHandler := userHandler.NewUserHandler(uSvc)
@@ -120,6 +120,14 @@ func main() {
 		v1.GET("/auth/google/login", uHandler.GoogleLogin)
 		v1.GET("/auth/google/callback", uHandler.GoogleCallback)
 
+		internal := v1.Group("")
+		internal.Use(middleware.APIKeyMiddleware(cfg.WebhookSecret))
+		{
+			internal.POST("/wallets/inquiry", wHandler.EmailInquiry)
+			internal.POST("/transfers/external", tHandler.ReceiveExternalTransfer)
+			internal.GET("/transfers/external/:id/status", tHandler.GetExternalTransferStatus)
+		}
+
 		// Protected routes (requires valid JWT token)
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware(rdb))
@@ -152,7 +160,7 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":8000",
 		Handler: r,
 	}
 
@@ -164,7 +172,7 @@ func main() {
 	}()
 
 	// start server
-	logger.Log.Info("Server running on port 8080....")
+	logger.Log.Info("Server running on port 8000....")
 
 	// graceful shutdown - wait for signal from os
 	quit := make(chan os.Signal, 1)

@@ -34,7 +34,7 @@ func TestTransfer_Success(t *testing.T) {
 	rdb, mockRedis := redismock.NewClientMock()
 	defer rdb.Close()
 
-	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo)
+	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo, "test-webhook-secret")
 
 	ctx := context.TODO()
 	senderUserID := "sender-123"
@@ -106,7 +106,7 @@ func TestTransfer_IdempotencyCached(t *testing.T) {
 	rdb, _ := redismock.NewClientMock()
 	defer rdb.Close()
 
-	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo)
+	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo, "test-webhook-secret")
 
 	ctx := context.TODO()
 	senderUserID := "sender-123"
@@ -137,7 +137,7 @@ func TestTransfer_ReceiverNotFound(t *testing.T) {
 	rdb, _ := redismock.NewClientMock()
 	defer rdb.Close()
 
-	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo)
+	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo, "test-webhook-secret")
 
 	ctx := context.TODO()
 	senderUserID := "sender-123"
@@ -166,7 +166,7 @@ func TestTransfer_SelfTransferNotAllowed(t *testing.T) {
 	rdb, _ := redismock.NewClientMock()
 	defer rdb.Close()
 
-	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo)
+	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo, "test-webhook-secret")
 
 	ctx := context.TODO()
 	senderUserID := "sender-123"
@@ -204,7 +204,7 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 	rdb, _ := redismock.NewClientMock()
 	defer rdb.Close()
 
-	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo)
+	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo, "test-webhook-secret")
 
 	ctx := context.TODO()
 	senderUserID := "sender-123"
@@ -241,7 +241,7 @@ func TestGetHistory_Success(t *testing.T) {
 	rdb, _ := redismock.NewClientMock()
 	defer rdb.Close()
 
-	svc := NewTransactionService(nil, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo)
+	svc := NewTransactionService(nil, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo, "test-webhook-secret")
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -271,7 +271,7 @@ func TestGetHistory_WalletNotFound(t *testing.T) {
 	rdb, _ := redismock.NewClientMock()
 	defer rdb.Close()
 
-	svc := NewTransactionService(nil, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo)
+	svc := NewTransactionService(nil, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo, "test-webhook-secret")
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -300,7 +300,7 @@ func TestTopUp_Success(t *testing.T) {
 	rdb, mockRedis := redismock.NewClientMock()
 	defer rdb.Close()
 
-	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo)
+	svc := NewTransactionService(db, rdb, mockTxRepo, mockUserRepo, mockWalletRepo, mockLedgerRepo, "test-webhook-secret")
 
 	ctx := context.TODO()
 	userID := "user-123"
@@ -343,4 +343,3 @@ func TestTopUp_Success(t *testing.T) {
 	assert.NoError(t, dbMock.ExpectationsWereMet())
 	assert.NoError(t, mockRedis.ExpectationsWereMet())
 }
-
