@@ -60,3 +60,22 @@ func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func APIKeyMiddleware(expectedKey string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		apiKey := c.GetHeader("X-API-Key")
+		if apiKey == "" {
+			c.Error(customErr.NewAppError(http.StatusUnauthorized, "MISSING_API_KEY", "API key is missing."))
+			c.Abort()
+			return
+		}
+
+		if apiKey != expectedKey {
+			c.Error(customErr.NewAppError(http.StatusUnauthorized, "INVALID_API_KEY", "API key is invalid."))
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}

@@ -36,6 +36,7 @@ type ExternalTransferRequest struct {
 	Currency       string          `json:"currency" example:"IDR"`
 	IdempotencyKey string          `json:"idempotency_key" binding:"required" example:"unique-uuid-key-123"`
 	SenderUserID   string          `json:"sender_user_id" binding:"required" example:"gowallet-user-id"`
+	CallbackURL    string          `json:"callback_url,omitempty"`
 }
 
 type ExternalTransferStatus struct {

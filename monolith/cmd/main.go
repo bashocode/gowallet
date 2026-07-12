@@ -85,7 +85,7 @@ func main() {
 	// inject db to user service for transaction
 	uSvc := userService.NewUserService(db, rdb, uRepo, wRepo, otpRepo, emailSender)
 	wSvc := walletService.NewWalletService(wRepo, rdb)
-	tSvc := txService.NewTransactionService(db, rdb, tRepo, uRepo, wRepo, lRepo)
+	tSvc := txService.NewTransactionService(db, rdb, tRepo, uRepo, wRepo, lRepo, cfg.WebhookSecret)
 	lSvc := ledgerService.NewLedgerService(lRepo, wRepo)
 
 	uHandler := userHandler.NewUserHandler(uSvc)

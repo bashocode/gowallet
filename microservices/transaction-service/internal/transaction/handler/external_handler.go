@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 
 	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
@@ -104,5 +106,52 @@ func (h *TransferHandler) CreateExternalTransfer(c *gin.Context) {
 		"success": true,
 		"message": "External transfer initiated, awaiting callback",
 		"data":    transfer,
+	})
+}
+
+// ProcessTransferWebhook godoc
+// @Summary		Process External Transfer Webhook Callback
+// @Description	Webhook endpoint called by monolith to notify transfer settlement status
+// @Tags		Transfers
+// @Accept		json
+// @Produce		json
+// @Param		request body model.TransferCallback true "webhook callback payload"
+// @Success		200 {object} map[string]interface{}
+// @Failure		400 {object} customErr.AppError
+// @Failure		401 {object} customErr.AppError
+// @Router		/transactions/transfers/webhook [post]
+// @Security	APIKeyAuth
+func (h *TransferHandler) ProcessTransferWebhook(c *gin.Context) {
+	signature := c.GetHeader("X-Webhook-Signature")
+	if signature == "" {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "MISSING_SIGNATURE", "webhook signature is required"))
+		return
+	}
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", "failed to read request body"))
+		return
+	}
+
+	if err := transactionService.VerifyWebhookSignature(body, signature, h.webhookSecret); err != nil {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "INVALID_SIGNATURE", "webhook signature verification failed"))
+		return
+	}
+
+	var cb model.TransferCallback
+	if err := json.Unmarshal(body, &cb); err != nil {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", err.Error()))
+		return
+	}
+
+	if err := h.svc.SettleTransferTx(c.Request.Context(), cb); err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "transfer callback processed",
 	})
 }

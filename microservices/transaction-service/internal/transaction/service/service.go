@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
@@ -55,20 +56,21 @@ type monolithTransferResult struct {
 }
 
 type transactionService struct {
-	db              *sql.DB
-	txRepo          repository.TransactionRepository
-	transferRepo    transferRepo.OutboundTransferRepository
-	outboxRepo      transferRepo.TransferOutboxRepository
-	userClient      pbUser.UserServiceClient
-	walletClient    pbWallet.WalletServiceClient
-	ledgerClient    pbLedger.LedgerServiceClient
-	userBreaker     *circuitbreaker.CircuitBreaker
-	walletBreaker   *circuitbreaker.CircuitBreaker
-	ledgerBreaker   *circuitbreaker.CircuitBreaker
-	dlqPublisher    DLQPublisher
-	monolithBaseURL string
-	webhookSecret   string
-	httpClient      *http.Client
+	db                 *sql.DB
+	txRepo             repository.TransactionRepository
+	transferRepo       transferRepo.OutboundTransferRepository
+	outboxRepo         transferRepo.TransferOutboxRepository
+	userClient         pbUser.UserServiceClient
+	walletClient       pbWallet.WalletServiceClient
+	ledgerClient       pbLedger.LedgerServiceClient
+	userBreaker        *circuitbreaker.CircuitBreaker
+	walletBreaker      *circuitbreaker.CircuitBreaker
+	ledgerBreaker      *circuitbreaker.CircuitBreaker
+	dlqPublisher       DLQPublisher
+	monolithBaseURL    string
+	transactionBaseURL string
+	webhookSecret      string
+	httpClient         *http.Client
 }
 
 func NewTransactionService(
@@ -81,23 +83,25 @@ func NewTransactionService(
 	ledgerClient pbLedger.LedgerServiceClient,
 	dlq DLQPublisher,
 	monolithBaseURL string,
+	transactionBaseURL string,
 	webhookSecret string,
 ) TransactionService {
 	return &transactionService{
-		db:              db,
-		txRepo:          txRepo,
-		transferRepo:    transferRepo,
-		outboxRepo:      outboxRepo,
-		userClient:      userClient,
-		walletClient:    walletClient,
-		ledgerClient:    ledgerClient,
-		userBreaker:     circuitbreaker.New(3, 30*time.Second),
-		walletBreaker:   circuitbreaker.New(3, 30*time.Second),
-		ledgerBreaker:   circuitbreaker.New(3, 30*time.Second),
-		dlqPublisher:    dlq,
-		monolithBaseURL: monolithBaseURL,
-		webhookSecret:   webhookSecret,
-		httpClient:      &http.Client{Timeout: 10 * time.Second},
+		db:                 db,
+		txRepo:             txRepo,
+		transferRepo:       transferRepo,
+		outboxRepo:         outboxRepo,
+		userClient:         userClient,
+		walletClient:       walletClient,
+		ledgerClient:       ledgerClient,
+		userBreaker:        circuitbreaker.New(3, 30*time.Second),
+		walletBreaker:      circuitbreaker.New(3, 30*time.Second),
+		ledgerBreaker:      circuitbreaker.New(3, 30*time.Second),
+		dlqPublisher:       dlq,
+		monolithBaseURL:    monolithBaseURL,
+		transactionBaseURL: transactionBaseURL,
+		webhookSecret:      webhookSecret,
+		httpClient:         &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -930,8 +934,8 @@ func (s *transactionService) ProcessTransferInitiated(ctx context.Context, event
 		Currency:       event.Currency,
 		IdempotencyKey: event.IdempotencyKey,
 	}
-	status, err := s.notifyMonolith(ctx, transfer)
-	if err != nil {
+
+	if _, err := s.notifyMonolith(ctx, transfer); err != nil {
 		logger.Log.Error("Monolith notification failed, refunding sender",
 			slog.String("transfer_id", event.TransferID),
 			slog.Any("error", err),
@@ -945,22 +949,9 @@ func (s *transactionService) ProcessTransferInitiated(ctx context.Context, event
 		})
 	}
 
-	if status == "" {
-		status = "success"
-	}
-	if err := s.SettleTransferTx(ctx, transferModel.TransferCallback{
-		TransferID:     event.TransferID,
-		Status:         status,
-		ReceiverEmail:  event.ReceiverEmail,
-		Amount:         event.Amount,
-		IdempotencyKey: event.IdempotencyKey,
-	}); err != nil {
-		return err
-	}
-
-	logger.Log.Info("Monolith processed external transfer",
+	logger.Log.Info(
+		"Monolith accepted external transfer; waiting for webhook callback",
 		slog.String("transfer_id", event.TransferID),
-		slog.String("status", status),
 	)
 	return nil
 }
@@ -968,6 +959,10 @@ func (s *transactionService) ProcessTransferInitiated(ctx context.Context, event
 func (s *transactionService) failTransfer(ctx context.Context, transferID, senderUserID, amount string) {
 	_, _ = s.db.ExecContext(ctx, `UPDATE transactions SET status = 'failed' WHERE id = ? AND type = 'external_transfer'`, transferID)
 	s.refundSender(ctx, senderUserID, decimal.RequireFromString(amount), 0, transferID)
+}
+
+func (s *transactionService) transactionWebhookURL() string {
+	return strings.TrimRight(s.transactionBaseURL, "/") + "/api/v1/transactions/transfers/webhook"
 }
 
 func (s *transactionService) notifyMonolith(ctx context.Context, transfer *transferModel.OutboundTransfer) (string, error) {
@@ -978,6 +973,7 @@ func (s *transactionService) notifyMonolith(ctx context.Context, transfer *trans
 		"currency":        transfer.Currency,
 		"idempotency_key": transfer.IdempotencyKey,
 		"sender_user_id":  transfer.SenderUserID,
+		"callback_url":    s.transactionWebhookURL(),
 	})
 
 	req, err := http.NewRequestWithContext(ctx, "POST",
@@ -1000,23 +996,11 @@ func (s *transactionService) notifyMonolith(ctx context.Context, transfer *trans
 		return "", fmt.Errorf("monolith rejected transfer with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var apiResp monolithAPIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return "", err
-	}
-
-	var result monolithTransferResult
-	if len(apiResp.Data) > 0 {
-		if err := json.Unmarshal(apiResp.Data, &result); err != nil {
-			return "", err
-		}
-	}
-
-	logger.Log.Info("Monolith accepted external transfer",
+	logger.Log.Info(
+		"Monolith accepted external transfer, waiting for webhook callback",
 		slog.String("transfer_id", transfer.ID),
-		slog.String("status", result.Status),
 	)
-	return result.Status, nil
+	return "", nil
 }
 
 func (s *transactionService) refundSender(ctx context.Context, senderUserID string, amount decimal.Decimal, originalVersion int32, transferID string) {

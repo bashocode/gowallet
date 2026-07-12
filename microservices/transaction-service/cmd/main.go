@@ -134,7 +134,7 @@ func main() {
 	txRepo := transactionRepository.NewMySQLTransactionRepository(db)
 	outboundTransferRepo := transferRepository.NewMySQLOutboundTransferRepository(db)
 	transferOutboxRepo := transferRepository.NewMySQLTransferOutboxRepository(db)
-	txSvc := transactionService.NewTransactionService(db, txRepo, outboundTransferRepo, transferOutboxRepo, userClient, walletClient, ledgerClient, dlqPublisher, cfg.MonolithBaseURL, cfg.WebhookSecret)
+	txSvc := transactionService.NewTransactionService(db, txRepo, outboundTransferRepo, transferOutboxRepo, userClient, walletClient, ledgerClient, dlqPublisher, cfg.MonolithBaseURL, cfg.TransactionBaseURL, cfg.WebhookSecret)
 	txHandler := transactionHandler.NewTransactionHandler(txSvc)
 
 	externalHandler := transactionHandler.NewTransferHandler(txSvc, cfg.WebhookSecret, cfg.MonolithBaseURL)
@@ -211,6 +211,13 @@ func main() {
 
 			protected.POST("/transactions/inquiry/external", externalHandler.InquiryExternal)
 			protected.POST("/transactions/transfers/external", externalHandler.CreateExternalTransfer)
+		}
+
+		// Webhook endpoint for external transfer callbacks (protected by API key, not JWT)
+		internal := v1.Group("")
+		internal.Use(middleware.APIKeyMiddleware(cfg.WebhookSecret))
+		{
+			internal.POST("/transactions/transfers/webhook", externalHandler.ProcessTransferWebhook)
 		}
 	}
 
