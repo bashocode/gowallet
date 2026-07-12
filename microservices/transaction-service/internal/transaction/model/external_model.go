@@ -41,17 +41,27 @@ type ExternalTransferRequest struct {
 	IdempotencyKey string          `json:"idempotency_key" binding:"required" example:"unique-key-123"`
 }
 
-// EmailInquiryRequest is sent to monolith inquiry endpoint
-type EmailInquiryRequest struct {
-	Email string `json:"email"`
+type TransferCallback struct {
+	TransferID     string `json:"transfer_id"`
+	Status         string `json:"status"`
+	ReceiverEmail  string `json:"receiver_email"`
+	Amount         string `json:"amount"`
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
-// EmailInquiryResponse is returned from monolith inquiry endpoint
-type EmailInquiryResponse struct {
-	Valid     bool   `json:"valid"`
-	AccountID string `json:"account_id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Email     string `json:"email,omitempty"`
+// TransferSettledEvent is the normalized event published to RabbitMQ when an
+// outbound transfer is settled or failed.
+type TransferSettledEvent struct {
+	EventID         string    `json:"event_id"`
+	EventType       string    `json:"event_type"`
+	TransferID      string    `json:"transfer_id"`
+	SenderUserID    string    `json:"sender_user_id"`
+	ReceiverEmail   string    `json:"receiver_email"`
+	Amount          string    `json:"amount"`
+	Currency        string    `json:"currency"`
+	Status          string    `json:"status"`
+	ExternalEwallet string    `json:"external_ewallet"`
+	OccurredAt      time.Time `json:"occurred_at"`
 }
 
 // TransferInitiatedEvent is published to RabbitMQ when a transfer is created.
@@ -79,4 +89,17 @@ type TransferOutboxEvent struct {
 	Attempts    int       `json:"attempts"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// EmailInquiryRequest is sent to monolith inquiry endpoint
+type EmailInquiryRequest struct {
+	Email string `json:"email"`
+}
+
+// EmailInquiryResponse is returned from monolith inquiry endpoint
+type EmailInquiryResponse struct {
+	Valid     bool   `json:"valid"`
+	AccountID string `json:"account_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Email     string `json:"email,omitempty"`
 }
