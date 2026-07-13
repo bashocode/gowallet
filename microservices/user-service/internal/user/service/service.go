@@ -42,6 +42,7 @@ type userService struct {
 	otpRepo      repository.OTPRepository
 	rtRepo       repository.RefreshTokenRepository
 	emailSender  email.EmailSender
+	baseURL      string
 }
 
 func NewUserService(
@@ -51,6 +52,7 @@ func NewUserService(
 	wClient pbWallet.WalletServiceClient,
 	otpRepo repository.OTPRepository,
 	emailSender email.EmailSender,
+	baseURL string,
 ) UserService {
 	return &userService{
 		db:           db,
@@ -60,6 +62,7 @@ func NewUserService(
 		otpRepo:      otpRepo,
 		rtRepo:       repository.NewMySQLRefreshTokenRepository(db),
 		emailSender:  emailSender,
+		baseURL:      baseURL,
 	}
 }
 
@@ -204,7 +207,7 @@ func (s *userService) GenerateAndSendOTP(ctx context.Context, userID string, ema
 		switch otpType {
 		case "email_verification":
 			subject = "GoWallet - Verify Your Email"
-			body = fmt.Sprintf("Please verify your email by clicking the following link:\n\nhttp://localhost:8080/api/v1/users/verify-email?user_id=%s&code=%s\n\nThis link will expire in 15 minutes.\n\nThank you!", userID, otpCode)
+			body = fmt.Sprintf("Please verify your email by clicking the following link:\n\n%s/api/v1/users/verify-email?user_id=%s&code=%s\n\nThis link will expire in 15 minutes.\n\nThank you!", s.baseURL, userID, otpCode)
 		case "password_reset":
 			subject = "GoWallet - Reset Your Password"
 			body = fmt.Sprintf("Your password reset code is %s\n\nThis code will expire in 15 minutes.\n\nThank you!", otpCode)

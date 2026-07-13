@@ -2,16 +2,14 @@ package main
 
 import (
 	paymentHandler "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/handler"
+	paymentPublisher "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/publisher"
 	paymentRepository "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/repository"
 	paymentService "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/service"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
-	pbTransaction "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	"github.com/gin-gonic/gin"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -20,56 +18,34 @@ func main() {
 
 	cfg := config.LoadConfig()
 
-	// Connect to Redis (required by AuthMiddleware)
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
 	if err != nil {
 		logger.Fatal(nil, "Could not connect to Redis", "error", err)
 	}
 	defer rdb.Close()
 
-	// Connect to MySQL
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
 		logger.Fatal(nil, "Could not connect to MySQL", "error", err)
 	}
 	defer db.Close()
 
-	txConn, err := grpc.NewClient(
-		cfg.TransactionGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(`{
-			"loadBalancingConfig": [{"round_robin":{}}],
-			"methodConfig": [{
-				"name": [{}],
-				"retryPolicy": {
-					"maxAttempts": 3,
-					"initialBackoff": "0.1s",
-					"maxBackoff": "1s",
-					"backoffMultiplier": 2.0,
-					"retryableStatusCodes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
-				}
-			}]
-		}`),
-	)
+	pub, err := paymentPublisher.NewRabbitMQPaymentPublisher(cfg.RabbitMQURL)
 	if err != nil {
-		logger.Fatal(nil, "Failed to connect to transaction service gRPC", "error", err)
+		logger.Fatal(nil, "Failed to initialize RabbitMQ publisher", "error", err)
 	}
-	defer txConn.Close()
+	defer pub.Close()
 
-	txClient := pbTransaction.NewTransactionServiceClient(txConn)
-
-	// Initialize layers
 	payRepo := paymentRepository.NewMySQLPaymentRepository(db)
 	paySvc := paymentService.NewPaymentService(
 		payRepo,
 		cfg.StripeSecretKey,
 		cfg.StripeWebhookSecret,
-		txClient,
+		pub,
 		cfg.BaseURL,
 	)
 	payHandler := paymentHandler.NewPaymentHandler(paySvc)
 
-	// Setup HTTP Server
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
@@ -78,12 +54,10 @@ func main() {
 
 	v1 := r.Group("/api/v1")
 	{
-		// Public endpoints
 		v1.POST("/payments/webhook", payHandler.ProcessWebhook)
 		v1.GET("/payments/success", payHandler.SuccessCallback)
 		v1.GET("/payments/cancel", payHandler.CancelCallback)
 
-		// Protected endpoints (JWT required)
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware(rdb))
 		{
@@ -96,3 +70,4 @@ func main() {
 		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
 	}
 }
+

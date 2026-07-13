@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/bashocode/gowallet/microservices/payment-service/internal/payment/model"
+	"github.com/bashocode/gowallet/microservices/payment-service/internal/payment/publisher"
 	"github.com/bashocode/gowallet/microservices/payment-service/internal/payment/repository"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
-	pbTransaction "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/stripe/stripe-go/v78"
@@ -29,29 +30,24 @@ type paymentService struct {
 	stripeSecretKey     string
 	stripeWebhookSecret string
 	baseURL             string
-	txClient            pbTransaction.TransactionServiceClient
+	publisher           publisher.PaymentPublisher
 }
 
 func NewPaymentService(
 	paymentRepo repository.PaymentRepository,
 	stripeSecretKey string,
 	stripeWebhookSecret string,
-	txClient pbTransaction.TransactionServiceClient,
+	pub publisher.PaymentPublisher,
 	baseURL string,
 ) PaymentService {
-	// Initialize stripe key globally
 	stripe.Key = stripeSecretKey
-
-	if baseURL == "" {
-		baseURL = "http://localhost:8080"
-	}
 
 	return &paymentService{
 		paymentRepo:         paymentRepo,
 		stripeSecretKey:     stripeSecretKey,
 		stripeWebhookSecret: stripeWebhookSecret,
 		baseURL:             baseURL,
-		txClient:            txClient,
+		publisher:           pub,
 	}
 }
 
@@ -116,12 +112,12 @@ func (s *paymentService) CreateCheckoutSession(ctx context.Context, userID strin
 }
 
 func (s *paymentService) ProcessWebhook(ctx context.Context, payload []byte, sigHeader string) error {
-	var event stripe.Event
+	var stripeEvent stripe.Event
 	var err error
 
 	// Verify webhook signature if secret is provided
 	if s.stripeWebhookSecret != "" {
-		event, err = stripeWebhook.ConstructEventWithOptions(payload, sigHeader, s.stripeWebhookSecret, stripeWebhook.ConstructEventOptions{
+		stripeEvent, err = stripeWebhook.ConstructEventWithOptions(payload, sigHeader, s.stripeWebhookSecret, stripeWebhook.ConstructEventOptions{
 			IgnoreAPIVersionMismatch: true,
 		})
 		if err != nil {
@@ -130,17 +126,17 @@ func (s *paymentService) ProcessWebhook(ctx context.Context, payload []byte, sig
 		}
 	} else {
 		// Fallback for development without configured webhook secret
-		if err := json.Unmarshal(payload, &event); err != nil {
+		if err := json.Unmarshal(payload, &stripeEvent); err != nil {
 			logger.Log.Error("Failed to parse Stripe webhook event json", slog.Any("error", err))
 			return fmt.Errorf("bad webhook JSON: %w", err)
 		}
 	}
 
-	logger.Log.Info("Received Stripe webhook event", "type", event.Type, "id", event.ID)
+	logger.Log.Info("Received Stripe webhook event", "type", stripeEvent.Type, "id", stripeEvent.ID)
 
-	if event.Type == "checkout.session.completed" {
+	if stripeEvent.Type == "checkout.session.completed" {
 		var sess stripe.CheckoutSession
-		err := json.Unmarshal(event.Data.Raw, &sess)
+		err := json.Unmarshal(stripeEvent.Data.Raw, &sess)
 		if err != nil {
 			logger.Log.Error("Failed to parse checkout session data", slog.Any("error", err))
 			return err
@@ -148,7 +144,6 @@ func (s *paymentService) ProcessWebhook(ctx context.Context, payload []byte, sig
 
 		logger.Log.Info("Stripe checkout completed", "session_id", sess.ID, "payment_status", sess.PaymentStatus)
 
-		// 1. Get payment from database
 		p, err := s.paymentRepo.GetByStripeSessionID(ctx, sess.ID)
 		if err != nil {
 			logger.Log.Error("Failed to fetch payment record", "session_id", sess.ID, slog.Any("error", err))
@@ -159,32 +154,36 @@ func (s *paymentService) ProcessWebhook(ctx context.Context, payload []byte, sig
 			return fmt.Errorf("payment session not found: %s", sess.ID)
 		}
 
-		// 2. If already completed, skip processing (idempotency)
 		if p.Status == "completed" {
 			logger.Log.Info("Payment already completed, skipping", "session_id", sess.ID)
 			return nil
 		}
 
-		// 3. Update payment status to completed in database
 		if err := s.paymentRepo.UpdateStatus(ctx, sess.ID, "completed"); err != nil {
 			logger.Log.Error("Failed to update payment status to completed", "session_id", sess.ID, slog.Any("error", err))
 			return err
 		}
 
-		// 4. Trigger wallet credit via gRPC to transaction-service
-		_, err = s.txClient.TopUp(ctx, &pbTransaction.TopUpRequest{
-			UserId:         p.UserID,
-			Amount:         p.Amount.String(),
-			IdempotencyKey: sess.ID, // Stripe session ID as idempotency key
-		})
-		if err != nil {
-			logger.Log.Error("gRPC TopUp failed", "user_id", p.UserID, "amount", p.Amount, slog.Any("error", err))
-			// Rollback DB status to pending so it can be retried later
-			_ = s.paymentRepo.UpdateStatus(ctx, sess.ID, "pending")
-			return fmt.Errorf("gRPC TopUp failed: %w", err)
+		eventPayload := model.PaymentSettledEvent{
+			EventID:           uuid.NewString(),
+			EventType:         "payment.settled",
+			Provider:          "stripe",
+			ProviderPaymentID: sess.ID,
+			PaymentID:         p.ID,
+			UserID:            p.UserID,
+			Amount:            p.Amount.String(),
+			Currency:          p.Currency,
+			Status:            "settled",
+			OccurredAt:        time.Now().UTC(),
 		}
 
-		logger.Log.Info("Wallet successfully credited via gRPC", "session_id", sess.ID, "user_id", p.UserID, "amount", p.Amount)
+		if err := s.publisher.PublishPaymentSettled(ctx, eventPayload); err != nil {
+			logger.Log.Error("Failed to publish payment.settled event", "payment_id", p.ID, slog.Any("error", err))
+			_ = s.paymentRepo.UpdateStatus(ctx, sess.ID, "pending")
+			return fmt.Errorf("failed to publish event: %w", err)
+		}
+
+		logger.Log.Info("Published payment.settled event", "session_id", sess.ID, "user_id", p.UserID, "amount", p.Amount)
 	}
 
 	return nil
