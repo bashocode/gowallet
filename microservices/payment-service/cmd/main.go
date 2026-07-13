@@ -2,16 +2,14 @@ package main
 
 import (
 	paymentHandler "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/handler"
+	paymentPublisher "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/publisher"
 	paymentRepository "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/repository"
 	paymentService "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/service"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
-	pbTransaction "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	"github.com/gin-gonic/gin"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -34,29 +32,10 @@ func main() {
 	}
 	defer db.Close()
 
-	txConn, err := grpc.NewClient(
-		cfg.TransactionGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(`{
-			"loadBalancingConfig": [{"round_robin":{}}],
-			"methodConfig": [{
-				"name": [{}],
-				"retryPolicy": {
-					"maxAttempts": 3,
-					"initialBackoff": "0.1s",
-					"maxBackoff": "1s",
-					"backoffMultiplier": 2.0,
-					"retryableStatusCodes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
-				}
-			}]
-		}`),
-	)
+	pub, err := paymentPublisher.NewRabbitMQPaymentPublisher(cfg.RabbitMQURL)
 	if err != nil {
-		logger.Fatal(nil, "Failed to connect to transaction service gRPC", "error", err)
+		logger.Fatal(nil, "Failed to initialize RabbitMQ publisher", "error", err)
 	}
-	defer txConn.Close()
-
-	txClient := pbTransaction.NewTransactionServiceClient(txConn)
 
 	// Initialize layers
 	payRepo := paymentRepository.NewMySQLPaymentRepository(db)
@@ -64,7 +43,7 @@ func main() {
 		payRepo,
 		cfg.StripeSecretKey,
 		cfg.StripeWebhookSecret,
-		txClient,
+		pub,
 		cfg.BaseURL,
 	)
 	payHandler := paymentHandler.NewPaymentHandler(paySvc)
