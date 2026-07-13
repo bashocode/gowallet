@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
 	paymentHandler "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/handler"
 	paymentPublisher "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/publisher"
 	paymentRepository "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/repository"
 	paymentService "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/service"
+	paymentWorker "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/worker"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
@@ -39,14 +45,28 @@ func main() {
 
 	// Initialize layers
 	payRepo := paymentRepository.NewMySQLPaymentRepository(db)
+	outboxRepo := paymentRepository.NewMySQLOutboxRepository(db)
 	paySvc := paymentService.NewPaymentService(
+		db,
 		payRepo,
+		outboxRepo,
 		cfg.StripeSecretKey,
 		cfg.StripeWebhookSecret,
 		pub,
 		cfg.BaseURL,
 	)
 	payHandler := paymentHandler.NewPaymentHandler(paySvc)
+
+	// Start outbox worker
+	worker, err := paymentWorker.NewOutboxWorker(outboxRepo, cfg.RabbitMQURL)
+	if err != nil {
+		logger.Fatal(nil, "Failed to initialize outbox worker", "error", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go worker.Start(ctx)
 
 	// Setup HTTP Server
 	r := gin.New()
@@ -70,8 +90,20 @@ func main() {
 		}
 	}
 
-	logger.Log.Info("Payment Service listening on port " + cfg.PaymentPort + "...")
-	if err := r.Run(":" + cfg.PaymentPort); err != nil {
-		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
-	}
+	// Graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		logger.Log.Info("Payment Service listening on port " + cfg.PaymentPort + "...")
+		if err := r.Run(":" + cfg.PaymentPort); err != nil {
+			logger.Fatal(nil, "Failed to run HTTP server", "error", err)
+		}
+	}()
+
+	<-quit
+	logger.Log.Info("Shutting down Payment Service...")
+	cancel()
+	worker.Stop()
+	logger.Log.Info("Payment Service stopped")
 }
