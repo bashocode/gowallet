@@ -72,7 +72,7 @@ func main() {
 	userRepo := repository.NewMySQLUserRepository(db)
 	otpRepo := repository.NewMySQLOTPRepository(db)
 
-	userSvc := service.NewUserService(db, rdb, userRepo, walletClient, otpRepo, emailSender)
+	userSvc := service.NewUserService(db, rdb, userRepo, walletClient, otpRepo, emailSender, cfg.BaseURL)
 	userHandler := handler.NewUserHandler(userSvc)
 
 	r := gin.New()

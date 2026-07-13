@@ -26,3 +26,16 @@ type StripeCheckoutResponse struct {
 	CheckoutURL string `json:"checkout_url"`
 	SessionID   string `json:"session_id"`
 }
+
+type PaymentSettledEvent struct {
+	EventID           string    `json:"event_id"`
+	EventType         string    `json:"event_type"`
+	Provider          string    `json:"provider"`
+	ProviderPaymentID string    `json:"provider_payment_id"`
+	PaymentID         string    `json:"payment_id"`
+	UserID            string    `json:"user_id"`
+	Amount            string    `json:"amount"`
+	Currency          string    `json:"currency"`
+	Status            string    `json:"status"`
+	OccurredAt        time.Time `json:"occurred_at"`
+}

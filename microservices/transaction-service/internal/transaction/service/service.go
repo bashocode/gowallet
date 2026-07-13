@@ -38,6 +38,7 @@ type TransactionService interface {
 	ProcessTransferInitiated(ctx context.Context, event transferModel.TransferInitiatedEvent) error
 	SettleTransferTx(ctx context.Context, cb transferModel.TransferCallback) error
 	ReconcilePendingTransfers(ctx context.Context) error
+	ProcessPaymentSettled(ctx context.Context, event transferModel.PaymentSettledEvent) error
 }
 
 type DLQPublisher interface {
@@ -1194,6 +1195,39 @@ func (s *transactionService) ReconcilePendingTransfers(ctx context.Context) erro
 		}
 	}
 
+	return nil
+}
+
+func (s *transactionService) ProcessPaymentSettled(ctx context.Context, event transferModel.PaymentSettledEvent) error {
+	logger.Log.Info("Processing payment.settled event",
+		"payment_id", event.PaymentID,
+		"user_id", event.UserID,
+		"amount", event.Amount,
+	)
+
+	amount, err := decimal.NewFromString(event.Amount)
+	if err != nil {
+		return fmt.Errorf("invalid amount in payment event: %w", err)
+	}
+
+	topUpReq := model.TopUpRequest{
+		Amount:         amount,
+		IdempotencyKey: event.ProviderPaymentID,
+	}
+
+	_, err = s.TopUp(ctx, event.UserID, topUpReq)
+	if err != nil {
+		logger.Error(ctx, "Failed to process payment.settled event",
+			"payment_id", event.PaymentID,
+			"error", err.Error(),
+		)
+		return err
+	}
+
+	logger.Log.Info("Successfully processed payment.settled event",
+		"payment_id", event.PaymentID,
+		"user_id", event.UserID,
+	)
 	return nil
 }
 

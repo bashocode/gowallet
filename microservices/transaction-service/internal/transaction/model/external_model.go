@@ -103,3 +103,18 @@ type EmailInquiryResponse struct {
 	Name      string `json:"name,omitempty"`
 	Email     string `json:"email,omitempty"`
 }
+
+// PaymentSettledEvent is consumed from payment.events exchange when a payment
+// is settled by the payment-service. This triggers a TopUp transaction.
+type PaymentSettledEvent struct {
+	EventID           string    `json:"event_id"`
+	EventType         string    `json:"event_type"`
+	Provider          string    `json:"provider"`
+	ProviderPaymentID string    `json:"provider_payment_id"`
+	PaymentID         string    `json:"payment_id"`
+	UserID            string    `json:"user_id"`
+	Amount            string    `json:"amount"`
+	Currency          string    `json:"currency"`
+	Status            string    `json:"status"`
+	OccurredAt        time.Time `json:"occurred_at"`
+}

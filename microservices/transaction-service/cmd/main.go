@@ -148,6 +148,11 @@ func main() {
 	transferConsumerWorker := worker.NewTransferConsumerWorker(cfg.RabbitMQURL, txSvc)
 	go transferConsumerWorker.Start(bgCtx)
 
+	// Start the payment consumer worker (consumes payment.settled from queue,
+	// triggers TopUp transaction).
+	paymentConsumerWorker := worker.NewPaymentConsumerWorker(cfg.RabbitMQURL, txSvc)
+	go paymentConsumerWorker.Start(bgCtx)
+
 	// Start reconciliation worker: checks for stale pending transfers every 2 minutes.
 	go func() {
 		ticker := time.NewTicker(2 * time.Minute)
