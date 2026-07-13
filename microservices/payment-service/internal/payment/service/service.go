@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,7 +27,9 @@ type PaymentService interface {
 }
 
 type paymentService struct {
+	db                  *sql.DB
 	paymentRepo         repository.PaymentRepository
+	outboxRepo          repository.OutboxRepository
 	stripeSecretKey     string
 	stripeWebhookSecret string
 	baseURL             string
@@ -34,7 +37,9 @@ type paymentService struct {
 }
 
 func NewPaymentService(
+	db *sql.DB,
 	paymentRepo repository.PaymentRepository,
+	outboxRepo repository.OutboxRepository,
 	stripeSecretKey string,
 	stripeWebhookSecret string,
 	pub publisher.PaymentPublisher,
@@ -44,7 +49,9 @@ func NewPaymentService(
 	stripe.Key = stripeSecretKey
 
 	return &paymentService{
+		db:                  db,
 		paymentRepo:         paymentRepo,
+		outboxRepo:          outboxRepo,
 		stripeSecretKey:     stripeSecretKey,
 		stripeWebhookSecret: stripeWebhookSecret,
 		baseURL:             baseURL,
@@ -145,50 +152,77 @@ func (s *paymentService) ProcessWebhook(ctx context.Context, payload []byte, sig
 
 		logger.Log.Info("Stripe checkout completed", "session_id", sess.ID, "payment_status", sess.PaymentStatus)
 
-		// 1. Get payment from database
-		p, err := s.paymentRepo.GetByStripeSessionID(ctx, sess.ID)
-		if err != nil {
-			logger.Log.Error("Failed to fetch payment record", "session_id", sess.ID, slog.Any("error", err))
-			return err
-		}
-		if p == nil {
-			logger.Log.Warn("Payment record not found for Stripe session", "session_id", sess.ID)
-			return fmt.Errorf("payment session not found: %s", sess.ID)
-		}
-
-		// 2. If already completed, skip processing (idempotency)
-		if p.Status == "completed" {
-			logger.Log.Info("Payment already completed, skipping", "session_id", sess.ID)
-			return nil
-		}
-
-		// 3. Update payment status to completed in database
-		if err := s.paymentRepo.UpdateStatus(ctx, sess.ID, "completed"); err != nil {
-			logger.Log.Error("Failed to update payment status to completed", "session_id", sess.ID, slog.Any("error", err))
+		// Use transactional outbox pattern
+		if err := s.markPaymentSettledTx(ctx, sess.ID); err != nil {
+			logger.Log.Error("Failed to process payment settlement", "session_id", sess.ID, slog.Any("error", err))
 			return err
 		}
 
-		eventPayload := model.PaymentSettledEvent{
-			EventID:           uuid.NewString(),
-			EventType:         "payment.settled",
-			Provider:          "stripe",
-			ProviderPaymentID: sess.ID,
-			PaymentID:         p.ID,
-			UserID:            p.UserID,
-			Amount:            p.Amount.String(),
-			Currency:          p.Currency,
-			Status:            "settled",
-			OccurredAt:        time.Now().UTC(),
-		}
-
-		if err := s.publisher.PublishPaymentSettled(ctx, eventPayload); err != nil {
-			logger.Log.Error("Failed to publish payment.settled event", "payment_id", p.ID, slog.Any("error", err))
-			_ = s.paymentRepo.UpdateStatus(ctx, sess.ID, "pending")
-			return fmt.Errorf("failed to publish event: %w", err)
-		}
-
-		logger.Log.Info("Published payment.settled event", "session_id", sess.ID, "user_id", p.UserID, "amount", p.Amount)
+		logger.Log.Info("Payment settlement recorded in outbox", "session_id", sess.ID)
 	}
 
 	return nil
+}
+
+func (s *paymentService) markPaymentSettledTx(ctx context.Context, stripeSessionID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get payment with transaction
+	p, err := s.paymentRepo.GetByStripeSessionIDTx(ctx, tx, stripeSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch payment: %w", err)
+	}
+	if p == nil {
+		return fmt.Errorf("payment not found: %s", stripeSessionID)
+	}
+
+	// Idempotency check
+	if p.Status == "completed" {
+		logger.Log.Info("Payment already completed, skipping", "session_id", stripeSessionID)
+		return tx.Commit()
+	}
+
+	// Update payment status
+	if err := s.paymentRepo.UpdateStatusTx(ctx, tx, stripeSessionID, "completed"); err != nil {
+		return fmt.Errorf("failed to update payment status: %w", err)
+	}
+
+	// Create payment event
+	event := model.PaymentSettledEvent{
+		EventID:           uuid.NewString(),
+		EventType:         "payment.settled",
+		Provider:          "stripe",
+		ProviderPaymentID: stripeSessionID,
+		PaymentID:         p.ID,
+		UserID:            p.UserID,
+		Amount:            p.Amount.String(),
+		Currency:          p.Currency,
+		Status:            "settled",
+		OccurredAt:        time.Now().UTC(),
+	}
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event: %w", err)
+	}
+
+	// Create outbox event
+	outboxEvent := &model.OutboxEvent{
+		ID:          event.EventID,
+		EventType:   event.EventType,
+		AggregateID: p.ID,
+		Payload:     payload,
+		Status:      "pending",
+		Attempts:    0,
+	}
+
+	if err := s.outboxRepo.CreateTx(ctx, tx, outboxEvent); err != nil {
+		return fmt.Errorf("failed to create outbox event: %w", err)
+	}
+
+	return tx.Commit()
 }
