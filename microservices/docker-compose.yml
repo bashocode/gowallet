@@ -88,6 +88,8 @@ services:
         condition: service_started
       scheduler-service:
         condition: service_started
+      notification-service:
+        condition: service_started
     networks:
       - gowallet-network
     restart: unless-stopped
@@ -143,9 +145,14 @@ services:
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_FROM=${SMTP_FROM}
       - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
     depends_on:
       - mysql
       - redis
+      - rabbitmq
     networks:
       - gowallet-network
     restart: unless-stopped
@@ -283,6 +290,48 @@ services:
       - user-service
       - wallet-service
       - transaction-service
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+  
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: gowallet-notification-service-ms
+    environment:
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=gowallet_notification
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - USER_GRPC_ADDR=${USER_GRPC_ADDR}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_FROM=${SMTP_FROM}
+    depends_on:
+      - mysql
+      - rabbitmq
+      - payment-service
+      - user-service
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+
+  stripe-cli:
+    image: stripe/stripe-cli:latest
+    container_name: gowallet-stripe-cli
+    command: listen --forward-to http://api-gateway:${GATEWAY_PORT}/api/v1/payments/webhook --api-key ${STRIPE_SECRET_KEY}
+    environment:
+      - STRIPE_API_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_DEVICE_NAME=gowallet-docker
+    depends_on:
+      - payment-service
+      - api-gateway
     networks:
       - gowallet-network
     restart: unless-stopped
