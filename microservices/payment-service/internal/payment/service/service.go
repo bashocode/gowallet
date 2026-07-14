@@ -201,7 +201,7 @@ func (s *paymentService) markPaymentSettledTx(ctx context.Context, stripeSession
 		UserID:            p.UserID,
 		Amount:            p.Amount.String(),
 		Currency:          p.Currency,
-		Status:            "settled",
+		Status:            "success",
 		OccurredAt:        time.Now().UTC(),
 	}
 

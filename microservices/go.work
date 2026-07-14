@@ -4,6 +4,7 @@ use (
 	./api-gateway
 	./auth-service
 	./ledger-service
+	./notification-service
 	./payment-service
 	./scheduler-service
 	./shared

@@ -17,10 +17,10 @@ endif
 # LIST OF MICROSERVICES
 # ==============================================================================
 # Names of the microservice directories to be built automatically
-SERVICES := api-gateway auth-service user-service wallet-service ledger-service transaction-service payment-service scheduler-service
+SERVICES := api-gateway auth-service user-service wallet-service ledger-service transaction-service payment-service scheduler-service notification-service
 
 # Services that own a database and have migration files in db/migrations/
-DB_SERVICES := auth-service user-service wallet-service ledger-service transaction-service payment-service
+DB_SERVICES := auth-service user-service wallet-service ledger-service transaction-service payment-service notification-service
 
 # Mark the targets below as abstract commands (not physical files)
 .PHONY: all build-linux build-native clean help tidy tidy-shared migrate-up migrate-down migrate-status migrate-reset migrate-create
@@ -112,9 +112,6 @@ MYSQL_PORT     := $(or $(DB_PORT_VAR),3306)
 # Usage: $(call migrate_url,gowallet_auth)
 migrate_url = mysql://$(MYSQL_USER):$(MYSQL_PASSWORD)@tcp($(MYSQL_HOST):$(MYSQL_PORT))/$(1)
 
-# Services that own a database with migration files
-DB_SERVICES := auth-service user-service wallet-service ledger-service transaction-service payment-service
-
 # Map service name → database name (shell case statement inside each target)
 
 ## migrate-up: Apply all pending migrations for every service
@@ -128,6 +125,7 @@ migrate-up:
 			ledger-service)      db_name=gowallet_ledger ;; \
 			transaction-service) db_name=gowallet_transaction ;; \
 			payment-service)     db_name=gowallet_payment ;; \
+			notification-service) db_name=gowallet_notification ;; \
 			*) continue ;; \
 		esac; \
 		migration_dir="$$service/db/migrations"; \
@@ -154,6 +152,7 @@ migrate-down:
 			ledger-service)      db_name=gowallet_ledger ;; \
 			transaction-service) db_name=gowallet_transaction ;; \
 			payment-service)     db_name=gowallet_payment ;; \
+			notification-service) db_name=gowallet_notification ;; \
 			*) continue ;; \
 		esac; \
 		migration_dir="$$service/db/migrations"; \
@@ -177,6 +176,7 @@ migrate-status:
 			ledger-service)      db_name=gowallet_ledger ;; \
 			transaction-service) db_name=gowallet_transaction ;; \
 			payment-service)     db_name=gowallet_payment ;; \
+			notification-service) db_name=gowallet_notification ;; \
 			*) continue ;; \
 		esac; \
 		migration_dir="$$service/db/migrations"; \
