@@ -5,16 +5,18 @@ WORKDIR /app
 # Copy go.work and local module dependencies
 COPY go.work ./
 COPY shared/ ./shared/
+COPY api-gateway/ ./api-gateway/
 COPY auth-service/ ./auth-service/
 COPY user-service/ ./user-service/
 COPY wallet-service/ ./wallet-service/
 COPY ledger-service/ ./ledger-service/
 COPY transaction-service/ ./transaction-service/
+COPY payment-service/ ./payment-service/
 COPY scheduler-service/ ./scheduler-service/
 COPY notification-service/ ./notification-service/
 COPY audit-service/ ./audit-service/
 
-WORKDIR /app/scheduler-service
+WORKDIR /app/audit-service
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /service ./cmd/main.go
 
 # === Stage 2: Production Image ===
@@ -23,7 +25,7 @@ RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
 # COPY --from=builder /service .
-COPY scheduler-service/bin/scheduler-service-linux ./service
+COPY audit-service/bin/audit-service-linux ./service
 
-# scheduler-service exposes no ports — it only dials other services via gRPC.
+EXPOSE 8087
 CMD ["./service"]

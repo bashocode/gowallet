@@ -56,6 +56,17 @@ services:
       - gowallet-network
     restart: always
 
+  mongodb:
+    image: mongo:7.0
+    container_name: gowallet-mongodb
+    ports:
+      - "${MONGO_PORT}:${MONGO_PORT}"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - gowallet-network
+    restart: always
+
   # === Application Services ===
   api-gateway:
     build:
@@ -318,6 +329,25 @@ services:
       - rabbitmq
       - payment-service
       - user-service
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: audit-service/Dockerfile
+    container_name: gowallet-audit-service-ms
+    environment:
+      - MONGO_URL=${MONGO_URL}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+    depends_on:
+      - mongodb
+      - rabbitmq
+      - payment-service
     networks:
       - gowallet-network
     restart: unless-stopped
