@@ -1,17 +1,18 @@
 package main
 
 import (
+	"context"
 	"net"
 
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
-	"github.com/bashocode/gowallet/microservices/user-service/internal/email"
 	userGRPC "github.com/bashocode/gowallet/microservices/user-service/internal/user/grpc"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/handler"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/repository"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/service"
+	userWorker "github.com/bashocode/gowallet/microservices/user-service/internal/user/worker"
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
@@ -39,9 +40,6 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize email sender
-	emailSender := email.NewSMTPEmailSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPFrom)
-
 	// Connect to wallet-service gRPC
 	conn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
@@ -64,17 +62,27 @@ func main() {
 		logger.Fatal(nil, "Failed to connect to wallet service", "error", err)
 	}
 	defer conn.Close()
-	// Note: isn't deferred here since the main function blocks on HTTP server, but we can defer it or keep it open.
 
 	walletClient := pbWallet.NewWalletServiceClient(conn)
 
-	// Initialize layers
+	// Initialize repositories
 	userRepo := repository.NewMySQLUserRepository(db)
 	otpRepo := repository.NewMySQLOTPRepository(db)
+	notificationOutboxRepo := repository.NewMySQLNotificationOutboxRepository(db)
 
-	userSvc := service.NewUserService(db, rdb, userRepo, walletClient, otpRepo, emailSender, cfg.BaseURL)
+	// Initialize service
+	userSvc := service.NewUserService(db, rdb, userRepo, walletClient, otpRepo, notificationOutboxRepo, cfg.BaseURL)
 	userHandler := handler.NewUserHandler(userSvc)
 
+	// Initialize and start the notification outbox worker
+	notifWorker := userWorker.NewNotificationOutboxWorker(notificationOutboxRepo, cfg.RabbitMQURL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go notifWorker.Start(ctx)
+
+	// HTTP Router
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
@@ -109,7 +117,6 @@ func main() {
 	}
 
 	// Start gRPC server
-	// Dynamic approach:
 	_, port, err := net.SplitHostPort(cfg.UserGRPCAddr)
 	if err != nil {
 		logger.Fatal(nil, "Failed to split gRPC host port: %v", err)

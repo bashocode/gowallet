@@ -203,6 +203,7 @@ func (r *mysqlUserRepository) GetAll(ctx context.Context, params model.Paginatio
 
 type OTPRepository interface {
 	Create(ctx context.Context, o *model.OTP) error
+	CreateTx(ctx context.Context, tx *sql.Tx, o *model.OTP) error
 	GetActiveOTP(ctx context.Context, userID string, code string, otpType string) (*model.OTP, error)
 	GetActiveOTPTx(ctx context.Context, tx *sql.Tx, userID string, code string, otpType string) (*model.OTP, error)
 	MarkAsUsed(ctx context.Context, id string) error
@@ -221,6 +222,12 @@ func NewMySQLOTPRepository(db *sql.DB) OTPRepository {
 func (r *mysqlOTPRepository) Create(ctx context.Context, o *model.OTP) error {
 	query := `INSERT INTO otp_codes (id, user_id, code, type, expires_at, used) VALUES (?, ?, ?, ?, ?, ?)`
 	_, err := r.db.ExecContext(ctx, query, o.ID, o.UserID, o.Code, o.Type, o.ExpiresAt, o.Used)
+	return err
+}
+
+func (r *mysqlOTPRepository) CreateTx(ctx context.Context, tx *sql.Tx, o *model.OTP) error {
+	query := `INSERT INTO otp_codes (id, user_id, code, type, expires_at, used) VALUES (?, ?, ?, ?, ?, ?)`
+	_, err := tx.ExecContext(ctx, query, o.ID, o.UserID, o.Code, o.Type, o.ExpiresAt, o.Used)
 	return err
 }
 
