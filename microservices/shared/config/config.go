@@ -11,6 +11,7 @@ type Config struct {
 	DBDSN                 string
 	RedisAddr             string
 	RabbitMQURL           string
+	MongoURL              string
 	SMTPHost              string
 	SMTPPort              string
 	SMTPFrom              string
@@ -75,6 +76,11 @@ func LoadConfig() *Config {
 		rabbitmqPassword = "guest"
 	}
 	rabbitmqURL := "amqp://" + rabbitmqUser + ":" + rabbitmqPassword + "@" + rabbitmqHost + ":" + rabbitmqPort + "/"
+
+	mongoURL := os.Getenv("MONGO_URL")
+	if mongoURL == "" {
+		mongoURL = "mongodb://localhost:27017"
+	}
 
 	smtpHost := os.Getenv("SMTP_HOST")
 	if smtpHost == "" {
@@ -229,6 +235,7 @@ func LoadConfig() *Config {
 		DBDSN:                 dsn,
 		RedisAddr:             redisAddr,
 		RabbitMQURL:           rabbitmqURL,
+		MongoURL:              mongoURL,
 		SMTPHost:              smtpHost,
 		SMTPPort:              smtpPort,
 		SMTPFrom:              smtpFrom,

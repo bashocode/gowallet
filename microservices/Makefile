@@ -17,7 +17,7 @@ endif
 # LIST OF MICROSERVICES
 # ==============================================================================
 # Names of the microservice directories to be built automatically
-SERVICES := api-gateway auth-service user-service wallet-service ledger-service transaction-service payment-service scheduler-service notification-service
+SERVICES := api-gateway auth-service user-service wallet-service ledger-service transaction-service payment-service scheduler-service notification-service audit-service
 
 # Services that own a database and have migration files in db/migrations/
 DB_SERVICES := auth-service user-service wallet-service ledger-service transaction-service payment-service notification-service

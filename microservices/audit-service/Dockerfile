@@ -16,7 +16,7 @@ COPY scheduler-service/ ./scheduler-service/
 COPY notification-service/ ./notification-service/
 COPY audit-service/ ./audit-service/
 
-WORKDIR /app/wallet-service
+WORKDIR /app/audit-service
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /service ./cmd/main.go
 
 # === Stage 2: Production Image ===
@@ -25,7 +25,7 @@ RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
 # COPY --from=builder /service .
-COPY wallet-service/bin/wallet-service-linux ./service
+COPY audit-service/bin/audit-service-linux ./service
 
-EXPOSE 8082 50053
+EXPOSE 8087
 CMD ["./service"]
