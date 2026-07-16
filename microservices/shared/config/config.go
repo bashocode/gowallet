@@ -28,6 +28,7 @@ type Config struct {
 	WalletGRPCAddr        string
 	LedgerGRPCAddr        string
 	TransactionGRPCAddr   string
+	PaymentGRPCAddr       string
 	StripeSecretKey       string
 	AuthGRPCAddr          string
 	StripeWebhookSecret   string
@@ -43,6 +44,10 @@ type Config struct {
 	UserPort              string
 	LedgerPort            string
 	TransactionPort       string
+	MinioEndpoint         string
+	MinioAccessKey        string
+	MinioSecretKey        string
+	OutboxArchiveAge      string
 }
 
 func LoadConfig() *Config {
@@ -158,6 +163,11 @@ func LoadConfig() *Config {
 		transactionGRPCAddr = "localhost:50055"
 	}
 
+	paymentGRPCAddr := os.Getenv("PAYMENT_GRPC_ADDR")
+	if paymentGRPCAddr == "" {
+		paymentGRPCAddr = "localhost:50056"
+	}
+
 	authGRPCAddr := os.Getenv("AUTH_GRPC_ADDR")
 	if authGRPCAddr == "" {
 		authGRPCAddr = "localhost:50051"
@@ -231,6 +241,26 @@ func LoadConfig() *Config {
 		transactionPort = "8086"
 	}
 
+	minioEndpoint := os.Getenv("MINIO_ENDPOINT")
+	if minioEndpoint == "" {
+		minioEndpoint = "localhost:9000"
+	}
+
+	minioAccessKey := os.Getenv("MINIO_ACCESS_KEY")
+	if minioAccessKey == "" {
+		minioAccessKey = "minioadmin"
+	}
+
+	minioSecretKey := os.Getenv("MINIO_SECRET_KEY")
+	if minioSecretKey == "" {
+		minioSecretKey = "minioadmin"
+	}
+
+	outboxArchiveAge := os.Getenv("OUTBOX_ARCHIVE_AGE")
+	if outboxArchiveAge == "" {
+		outboxArchiveAge = "24h"
+	}
+
 	return &Config{
 		DBDSN:                 dsn,
 		RedisAddr:             redisAddr,
@@ -252,6 +282,7 @@ func LoadConfig() *Config {
 		WalletGRPCAddr:        walletGRPCAddr,
 		LedgerGRPCAddr:        ledgerGRPCAddr,
 		TransactionGRPCAddr:   transactionGRPCAddr,
+		PaymentGRPCAddr:       paymentGRPCAddr,
 		AuthGRPCAddr:          authGRPCAddr,
 		StripeSecretKey:       stripeSecretKey,
 		StripeWebhookSecret:   stripeWebhookSecret,
@@ -267,5 +298,9 @@ func LoadConfig() *Config {
 		UserPort:              userPort,
 		LedgerPort:            ledgerPort,
 		TransactionPort:       transactionPort,
+		MinioEndpoint:         minioEndpoint,
+		MinioAccessKey:        minioAccessKey,
+		MinioSecretKey:        minioSecretKey,
+		OutboxArchiveAge:      outboxArchiveAge,
 	}
 }

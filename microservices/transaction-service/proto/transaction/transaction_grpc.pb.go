@@ -19,8 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	TransactionService_TopUp_FullMethodName               = "/transaction.TransactionService/TopUp"
-	TransactionService_GenerateDailyReport_FullMethodName = "/transaction.TransactionService/GenerateDailyReport"
+	TransactionService_TopUp_FullMethodName                = "/transaction.TransactionService/TopUp"
+	TransactionService_GenerateDailyReport_FullMethodName  = "/transaction.TransactionService/GenerateDailyReport"
+	TransactionService_FetchEventsToArchive_FullMethodName = "/transaction.TransactionService/FetchEventsToArchive"
+	TransactionService_DeleteArchivedEvents_FullMethodName = "/transaction.TransactionService/DeleteArchivedEvents"
 )
 
 // TransactionServiceClient is the client API for TransactionService service.
@@ -29,6 +31,8 @@ const (
 type TransactionServiceClient interface {
 	TopUp(ctx context.Context, in *TopUpRequest, opts ...grpc.CallOption) (*TopUpResponse, error)
 	GenerateDailyReport(ctx context.Context, in *ReportRequest, opts ...grpc.CallOption) (*ReportResponse, error)
+	FetchEventsToArchive(ctx context.Context, in *FetchEventsToArchiveRequest, opts ...grpc.CallOption) (*FetchEventsToArchiveResponse, error)
+	DeleteArchivedEvents(ctx context.Context, in *DeleteArchivedEventsRequest, opts ...grpc.CallOption) (*DeleteArchivedEventsResponse, error)
 }
 
 type transactionServiceClient struct {
@@ -59,12 +63,34 @@ func (c *transactionServiceClient) GenerateDailyReport(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *transactionServiceClient) FetchEventsToArchive(ctx context.Context, in *FetchEventsToArchiveRequest, opts ...grpc.CallOption) (*FetchEventsToArchiveResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FetchEventsToArchiveResponse)
+	err := c.cc.Invoke(ctx, TransactionService_FetchEventsToArchive_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *transactionServiceClient) DeleteArchivedEvents(ctx context.Context, in *DeleteArchivedEventsRequest, opts ...grpc.CallOption) (*DeleteArchivedEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteArchivedEventsResponse)
+	err := c.cc.Invoke(ctx, TransactionService_DeleteArchivedEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TransactionServiceServer is the server API for TransactionService service.
 // All implementations must embed UnimplementedTransactionServiceServer
 // for forward compatibility.
 type TransactionServiceServer interface {
 	TopUp(context.Context, *TopUpRequest) (*TopUpResponse, error)
 	GenerateDailyReport(context.Context, *ReportRequest) (*ReportResponse, error)
+	FetchEventsToArchive(context.Context, *FetchEventsToArchiveRequest) (*FetchEventsToArchiveResponse, error)
+	DeleteArchivedEvents(context.Context, *DeleteArchivedEventsRequest) (*DeleteArchivedEventsResponse, error)
 	mustEmbedUnimplementedTransactionServiceServer()
 }
 
@@ -80,6 +106,12 @@ func (UnimplementedTransactionServiceServer) TopUp(context.Context, *TopUpReques
 }
 func (UnimplementedTransactionServiceServer) GenerateDailyReport(context.Context, *ReportRequest) (*ReportResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GenerateDailyReport not implemented")
+}
+func (UnimplementedTransactionServiceServer) FetchEventsToArchive(context.Context, *FetchEventsToArchiveRequest) (*FetchEventsToArchiveResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FetchEventsToArchive not implemented")
+}
+func (UnimplementedTransactionServiceServer) DeleteArchivedEvents(context.Context, *DeleteArchivedEventsRequest) (*DeleteArchivedEventsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteArchivedEvents not implemented")
 }
 func (UnimplementedTransactionServiceServer) mustEmbedUnimplementedTransactionServiceServer() {}
 func (UnimplementedTransactionServiceServer) testEmbeddedByValue()                            {}
@@ -138,6 +170,42 @@ func _TransactionService_GenerateDailyReport_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TransactionService_FetchEventsToArchive_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchEventsToArchiveRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionServiceServer).FetchEventsToArchive(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TransactionService_FetchEventsToArchive_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionServiceServer).FetchEventsToArchive(ctx, req.(*FetchEventsToArchiveRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TransactionService_DeleteArchivedEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteArchivedEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionServiceServer).DeleteArchivedEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TransactionService_DeleteArchivedEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionServiceServer).DeleteArchivedEvents(ctx, req.(*DeleteArchivedEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TransactionService_ServiceDesc is the grpc.ServiceDesc for TransactionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +220,14 @@ var TransactionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GenerateDailyReport",
 			Handler:    _TransactionService_GenerateDailyReport_Handler,
+		},
+		{
+			MethodName: "FetchEventsToArchive",
+			Handler:    _TransactionService_FetchEventsToArchive_Handler,
+		},
+		{
+			MethodName: "DeleteArchivedEvents",
+			Handler:    _TransactionService_DeleteArchivedEvents_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

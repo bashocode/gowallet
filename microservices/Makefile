@@ -23,7 +23,7 @@ SERVICES := api-gateway auth-service user-service wallet-service ledger-service 
 DB_SERVICES := auth-service user-service wallet-service ledger-service transaction-service payment-service notification-service
 
 # Mark the targets below as abstract commands (not physical files)
-.PHONY: all build-linux build-native clean help tidy tidy-shared migrate-up migrate-down migrate-status migrate-reset migrate-create
+.PHONY: all build-linux build-native clean help tidy tidy-shared test migrate-up migrate-down migrate-status migrate-reset migrate-create proto
 
 # Default target if you run the `make` command without any arguments
 all: help
@@ -86,6 +86,31 @@ tidy: tidy-shared
 		cd $$service && go mod tidy && cd ..; \
 	done
 	@echo "All services tidied successfully!"
+
+## test: Run unit tests across all packages in the Go Workspace
+test:
+	@echo "Running unit tests for all microservices in the workspace..."
+	@go test ./shared/... ./api-gateway/... ./auth-service/... ./user-service/... ./wallet-service/... ./ledger-service/... ./transaction-service/... ./payment-service/... ./scheduler-service/... ./notification-service/... ./audit-service/...
+
+## proto: Generate gRPC code from protobuf definitions
+# How it works:
+# Can be run to generate code for all services, or a single service:
+#   make proto
+#   make proto service=auth (or service=auth-service)
+proto:
+	@if [ -n "$(service)" ]; then \
+		base=$$(echo "$(service)" | sed 's/-service$$//'); \
+		echo "Generating protobuf files for $$base..."; \
+		protoc --go_out=. --go_opt=module=github.com/bashocode/gowallet/microservices \
+		       --go-grpc_out=. --go-grpc_opt=module=github.com/bashocode/gowallet/microservices \
+		       proto/$$base/$$base.proto; \
+	else \
+		echo "Generating all protobuf files..."; \
+		protoc --go_out=. --go_opt=module=github.com/bashocode/gowallet/microservices \
+		       --go-grpc_out=. --go-grpc_opt=module=github.com/bashocode/gowallet/microservices \
+		       $(shell find proto -name "*.proto"); \
+	fi
+	@echo "Protobuf files generated successfully!"
 
 # ==============================================================================
 # DATABASE MIGRATIONS (golang-migrate)
@@ -219,6 +244,8 @@ help:
 	@echo "  make build-linux   - Compile all services for Linux ($(GOARCH)) to run in Docker"
 	@echo "  make build-native  - Compile all services natively for macOS ($(ARCH))"
 	@echo "  make clean         - Remove all compiled binaries"
+	@echo "  make test          - Run unit tests across all packages in the Go Workspace"
+	@echo "  make proto [service=<svc>] - Generate gRPC Go code from protobuf definitions (all if omitted)"
 	@echo ""
 	@echo "Dependencies:"
 	@echo "  make tidy          - Run go mod tidy on shared and all services"

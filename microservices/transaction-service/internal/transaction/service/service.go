@@ -820,7 +820,7 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		return callErr
 	})
 	if err != nil {
-		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		s.refundSender(ctx, senderUserID, req.Amount, transferID)
 		if err.Error() == "circuit breaker is open — service unavailable" {
 			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
 		}
@@ -863,13 +863,13 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 
 	dbTx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		s.refundSender(ctx, senderUserID, req.Amount, transferID)
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
 	}
 	defer dbTx.Rollback()
 
 	if err := s.transferRepo.CreateTx(ctx, dbTx, transfer); err != nil {
-		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		s.refundSender(ctx, senderUserID, req.Amount, transferID)
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
 	}
 	if err := s.outboxRepo.CreateTx(ctx, dbTx, outboxEvent); err != nil {
@@ -877,11 +877,11 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 			slog.String("transfer_id", transferID),
 			slog.Any("error", err),
 		)
-		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		s.refundSender(ctx, senderUserID, req.Amount, transferID)
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to queue transfer for processing.")
 	}
 	if err := dbTx.Commit(); err != nil {
-		s.refundSender(ctx, senderUserID, req.Amount, senderWallet.Version, transferID)
+		s.refundSender(ctx, senderUserID, req.Amount, transferID)
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to commit transfer record. Sender refunded.")
 	}
 
@@ -957,11 +957,6 @@ func (s *transactionService) ProcessTransferInitiated(ctx context.Context, event
 	return nil
 }
 
-func (s *transactionService) failTransfer(ctx context.Context, transferID, senderUserID, amount string) {
-	_, _ = s.db.ExecContext(ctx, `UPDATE transactions SET status = 'failed' WHERE id = ? AND type = 'external_transfer'`, transferID)
-	s.refundSender(ctx, senderUserID, decimal.RequireFromString(amount), 0, transferID)
-}
-
 func (s *transactionService) transactionWebhookURL() string {
 	return strings.TrimRight(s.transactionBaseURL, "/") + "/api/v1/transactions/transfers/webhook"
 }
@@ -1004,7 +999,7 @@ func (s *transactionService) notifyMonolith(ctx context.Context, transfer *trans
 	return "", nil
 }
 
-func (s *transactionService) refundSender(ctx context.Context, senderUserID string, amount decimal.Decimal, originalVersion int32, transferID string) {
+func (s *transactionService) refundSender(ctx context.Context, senderUserID string, amount decimal.Decimal, transferID string) {
 	var senderWallet *pbWallet.WalletResponse
 	err := s.walletBreaker.Call(func() error {
 		var callErr error
@@ -1134,7 +1129,7 @@ func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferMo
 	}
 
 	if needsRefund {
-		s.refundSender(ctx, transfer.SenderUserID, transfer.Amount, 0, transfer.ID)
+		s.refundSender(ctx, transfer.SenderUserID, transfer.Amount, transfer.ID)
 	}
 
 	logger.Log.Info("Transfer settled and outbox event queued",
@@ -1162,6 +1157,10 @@ func (s *transactionService) ReconcilePendingTransfers(ctx context.Context) erro
 			continue
 		}
 		stale = append(stale, t)
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating pending transfers: %w", err)
 	}
 
 	if len(stale) == 0 {

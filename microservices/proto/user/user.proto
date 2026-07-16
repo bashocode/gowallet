@@ -9,6 +9,34 @@ service UserService {
   rpc GetUserByEmail (GetUserByEmailRequest) returns (UserResponse);
   rpc CreateUser (CreateUserRequest) returns (UserResponse);
   rpc CleanupExpiredOTPs (CleanupRequest) returns (CleanupResponse);
+  rpc FetchEventsToArchive (FetchEventsToArchiveRequest) returns (FetchEventsToArchiveResponse);
+  rpc DeleteArchivedEvents (DeleteArchivedEventsRequest) returns (DeleteArchivedEventsResponse);
+}
+
+message OutboxEvent {
+  string id = 1;
+  string event_type = 2;
+  string payload = 3;
+  string status = 4;
+  string created_at = 5;
+}
+
+message FetchEventsToArchiveRequest {
+  int64 min_age_seconds = 1;
+  int32 limit = 2;
+}
+
+message FetchEventsToArchiveResponse {
+  repeated OutboxEvent events = 1;
+}
+
+message DeleteArchivedEventsRequest {
+  repeated string ids = 1;
+}
+
+message DeleteArchivedEventsResponse {
+  bool success = 1;
+  string error = 2;
 }
 
 message CleanupRequest {}
