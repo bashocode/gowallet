@@ -57,32 +57,32 @@ func main() {
 	// 2. Create reverse proxy for each target microservice
 	authProxy, err := proxy.NewReverseProxy(cfg.AuthServiceURL)
 	if err != nil {
-		logger.Fatal(nil, "Failed to initialize auth proxy", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize auth proxy", "error", err)
 	}
 
 	userProxy, err := proxy.NewReverseProxy(cfg.UserServiceURL)
 	if err != nil {
-		logger.Fatal(nil, "Failed to initialize user proxy", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize user proxy", "error", err)
 	}
 
 	walletProxy, err := proxy.NewReverseProxy(cfg.WalletServiceURL)
 	if err != nil {
-		logger.Fatal(nil, "Failed to initialize wallet proxy", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize wallet proxy", "error", err)
 	}
 
 	ledgerProxy, err := proxy.NewReverseProxy(cfg.LedgerServiceURL)
 	if err != nil {
-		logger.Fatal(nil, "Failed to initialize ledger proxy", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize ledger proxy", "error", err)
 	}
 
 	transactionProxy, err := proxy.NewReverseProxy(cfg.TransactionServiceURL)
 	if err != nil {
-		logger.Fatal(nil, "Failed to initialize transaction proxy", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize transaction proxy", "error", err)
 	}
 
 	paymentProxy, err := proxy.NewReverseProxy(cfg.PaymentServiceURL)
 	if err != nil {
-		logger.Fatal(nil, "Failed to initialize payment proxy", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize payment proxy", "error", err)
 	}
 
 	r := gin.New()
@@ -152,6 +152,6 @@ func main() {
 
 	logger.Log.Info("API Gateway listening on port " + cfg.GatewayPort + "...")
 	if err := r.Run(":" + cfg.GatewayPort); err != nil {
-		logger.Fatal(nil, "Gateway failed", "error", err)
+		logger.Fatal(context.Background(), "Gateway failed", "error", err)
 	}
 }

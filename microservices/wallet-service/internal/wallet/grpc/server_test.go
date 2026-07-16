@@ -80,7 +80,7 @@ func TestWalletGRPCServer(t *testing.T) {
 
 	go func() {
 		if err := s.Serve(lis); err != nil {
-			logger.Fatal(nil, "Server exited with error", "error", err)
+			logger.Fatal(context.Background(), "Server exited with error", "error", err)
 		}
 	}()
 

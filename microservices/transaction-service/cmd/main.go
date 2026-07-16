@@ -34,14 +34,14 @@ func main() {
 	// Connect to Redis (required by AuthMiddleware)
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
 	if err != nil {
-		logger.Fatal(nil, "Could not connect to Redis", "error", err)
+		logger.Fatal(context.Background(), "Could not connect to Redis", "error", err)
 	}
 	defer rdb.Close()
 
 	// Connect to MySQL
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
-		logger.Fatal(nil, "Could not connect to MySQL", "error", err)
+		logger.Fatal(context.Background(), "Could not connect to MySQL", "error", err)
 	}
 	defer db.Close()
 
@@ -72,7 +72,7 @@ func main() {
 		}`),
 	)
 	if err != nil {
-		logger.Fatal(nil, "Failed to connect to user service", "error", err)
+		logger.Fatal(context.Background(), "Failed to connect to user service", "error", err)
 	}
 	defer userConn.Close()
 
@@ -97,7 +97,7 @@ func main() {
 		}`),
 	)
 	if err != nil {
-		logger.Fatal(nil, "Failed to connect to wallet service", "error", err)
+		logger.Fatal(context.Background(), "Failed to connect to wallet service", "error", err)
 	}
 	defer walletConn.Close()
 
@@ -122,7 +122,7 @@ func main() {
 		}`),
 	)
 	if err != nil {
-		logger.Fatal(nil, "Failed to connect to ledger service", "error", err)
+		logger.Fatal(context.Background(), "Failed to connect to ledger service", "error", err)
 	}
 	defer ledgerConn.Close()
 
@@ -174,17 +174,17 @@ func main() {
 	// =========================================================
 	_, port, err := net.SplitHostPort(cfg.TransactionGRPCAddr)
 	if err != nil {
-		logger.Fatal(nil, "Failed to split host port: %v", err)
+		logger.Fatal(context.Background(), "Failed to split host port: %v", err)
 	}
 
 	lis, err := net.Listen("tcp", ":"+port)
 
 	if err != nil {
-		logger.Fatal(nil, "Failed to listen gRPC", "error", err)
+		logger.Fatal(context.Background(), "Failed to listen gRPC", "error", err)
 	}
 
 	if err != nil {
-		logger.Fatal(nil, "Failed to listen on gRPC port"+port, "error", err)
+		logger.Fatal(context.Background(), "Failed to listen on gRPC port"+port, "error", err)
 	}
 
 	grpcServer := grpc.NewServer()
@@ -193,7 +193,7 @@ func main() {
 	go func() {
 		logger.Log.Info("Transaction gRPC server listening on port " + port + "...")
 		if err := grpcServer.Serve(lis); err != nil {
-			logger.Fatal(nil, "gRPC server failed", "error", err)
+			logger.Fatal(context.Background(), "gRPC server failed", "error", err)
 		}
 	}()
 
@@ -228,6 +228,6 @@ func main() {
 
 	logger.Log.Info("Transaction Service HTTP server listening on port " + cfg.TransactionPort + "...")
 	if err := r.Run(":" + cfg.TransactionPort); err != nil {
-		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
+		logger.Fatal(context.Background(), "Failed to run HTTP server", "error", err)
 	}
 }

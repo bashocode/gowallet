@@ -29,7 +29,7 @@ func NewTransferConsumerWorker(rabbitmqURL string, svc service.TransactionServic
 		svc:         svc,
 	}
 	if err := w.ensureConnection(); err != nil {
-		logger.Fatal(nil, "Failed to initialize RabbitMQ connection for transfer consumer", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize RabbitMQ connection for transfer consumer", "error", err)
 	}
 	return w
 }

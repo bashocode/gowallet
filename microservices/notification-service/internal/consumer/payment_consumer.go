@@ -9,6 +9,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/notification-service/internal/email"
 	"github.com/bashocode/gowallet/microservices/notification-service/internal/repository"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
+	rabbitresilience "github.com/bashocode/gowallet/microservices/shared/rabbitresilience"
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -34,6 +35,7 @@ type PaymentNotificationConsumer struct {
 	emailSender      email.EmailSender
 	amqpConn         *amqp.Connection
 	channel          *amqp.Channel
+	confirms         chan amqp.Confirmation
 }
 
 func NewPaymentNotificationConsumer(rabbitmqURL string, repo *repository.NotificationRepository, userClient pb.UserServiceClient, emailSender email.EmailSender) *PaymentNotificationConsumer {
@@ -44,7 +46,7 @@ func NewPaymentNotificationConsumer(rabbitmqURL string, repo *repository.Notific
 		emailSender:      emailSender,
 	}
 	if err := w.ensureConnection(); err != nil {
-		logger.Fatal(nil, "failed to initialize RabbitMQ connection for notification consumer", "error", err)
+		logger.Fatal(context.Background(), "failed to initialize RabbitMQ connection for notification consumer", "error", err)
 	}
 	return w
 }
@@ -114,14 +116,13 @@ func (c *PaymentNotificationConsumer) ensureConnection() error {
 			continue
 		}
 
-		queue, err := ch.QueueDeclare(
-			"notification.payment_settled",
-			true,
-			false,
-			false,
-			false,
-			nil,
-		)
+		if err := rabbitresilience.Declare(ch, rabbitresilience.QueueConfig{MainQueue: "notification.payment_settled", RetryQueue: "notification.payment_settled.retry", DLQ: "notification.payment_settled.dlq", DLX: "notification.dlx", MainExchange: "payment.events", RoutingKey: "payment.settled", RetryTTL: 10000}); err != nil {
+			ch.Close()
+			conn.Close()
+			lastErr = err
+			continue
+		}
+		queue, err := ch.QueueDeclarePassive("notification.payment_settled", true, false, false, false, nil)
 		if err != nil {
 			ch.Close()
 			conn.Close()
@@ -156,8 +157,23 @@ func (c *PaymentNotificationConsumer) ensureConnection() error {
 			continue
 		}
 
+		if err := ch.Confirm(false); err != nil {
+			ch.Close()
+			conn.Close()
+			lastErr = err
+			if attempt < maxRetries {
+				time.Sleep(backoff)
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
+			continue
+		}
+
 		c.amqpConn = conn
 		c.channel = ch
+		c.confirms = ch.NotifyPublish(make(chan amqp.Confirmation, 1))
 		logger.Log.Info("successfully connected to RabbitMQ and declared notification.payment_settled queue!", "attempt", attempt)
 		return nil
 	}
@@ -217,14 +233,18 @@ func (c *PaymentNotificationConsumer) processMessage(ctx context.Context, msg am
 	var event PaymentSettledEvent
 	if err := json.Unmarshal(msg.Body, &event); err != nil {
 		logger.Error(ctx, "invalid payment event payload", "error", err)
-		_ = msg.Nack(false, false)
+		c.deadLetter(ctx, msg, err)
+		return
+	}
+	if event.EventID == "" || event.EventType != "payment.settled" || event.UserID == "" || event.PaymentID == "" {
+		c.deadLetter(ctx, msg, fmt.Errorf("invalid payment event: event_id, user_id, and payment_id are required"))
 		return
 	}
 
 	hasProcessed, err := c.notificationRepo.HasProcessed(ctx, event.EventID)
 	if err != nil {
 		logger.Error(ctx, "failed to check if event was processed", "error", err, "event_id", event.EventID)
-		_ = msg.Nack(false, true)
+		c.retry(ctx, msg, err)
 		return
 	}
 
@@ -240,7 +260,7 @@ func (c *PaymentNotificationConsumer) processMessage(ctx context.Context, msg am
 	})
 	if err != nil {
 		logger.Error(ctx, "failed to fetch user details from user-service", "error", err, "user_id", event.UserID)
-		_ = msg.Nack(false, true)
+		c.retry(ctx, msg, err)
 		return
 	}
 
@@ -264,18 +284,38 @@ func (c *PaymentNotificationConsumer) processMessage(ctx context.Context, msg am
 	err = c.emailSender.SendEmail(ctx, userResp.GetEmail(), subject, body)
 	if err != nil {
 		logger.Error(ctx, "failed to send email notification", "error", err, "user_email", userResp.GetEmail())
-		_ = msg.Nack(false, true)
+		c.retry(ctx, msg, err)
 		return
 	}
 
 	if err := c.notificationRepo.MarkProcessed(ctx, event.EventID); err != nil {
 		logger.Error(ctx, "failed to mark event as processed", "error", err, "event_id", event.EventID)
-		_ = msg.Nack(false, true)
+		c.retry(ctx, msg, err)
 		return
 	}
 
 	_ = msg.Ack(false)
 	logger.Info(ctx, "notification sent successfully", "event_id", event.EventID, "payment_id", event.PaymentID)
+}
+
+func (c *PaymentNotificationConsumer) retry(ctx context.Context, msg amqp.Delivery, cause error) {
+	if rabbitresilience.RetryCount(msg.Headers, "notification.payment_settled.retry") >= rabbitresilience.MaxRetries {
+		c.deadLetter(ctx, msg, cause)
+		return
+	}
+	if err := rabbitresilience.PublishConfirmed(ctx, c.channel, c.confirms, "notification.dlx.retry", msg.RoutingKey, msg, msg.Headers); err != nil {
+		_ = msg.Nack(false, true)
+		return
+	}
+	_ = msg.Ack(false)
+}
+
+func (c *PaymentNotificationConsumer) deadLetter(ctx context.Context, msg amqp.Delivery, cause error) {
+	if err := rabbitresilience.PublishConfirmed(ctx, c.channel, c.confirms, "notification.dlx", msg.RoutingKey, msg, rabbitresilience.Headers(msg, cause.Error(), "notification.payment_settled.retry")); err == nil {
+		_ = msg.Ack(false)
+		return
+	}
+	_ = msg.Nack(false, true)
 }
 
 func (c *PaymentNotificationConsumer) cleanupConnection() {

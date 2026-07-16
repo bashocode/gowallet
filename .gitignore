@@ -1,3 +1,4 @@
 docs
 !microservices/api-gateway/docs/
+!microservices/docs/
 .claude

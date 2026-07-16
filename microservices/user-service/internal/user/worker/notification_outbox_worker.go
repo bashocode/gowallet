@@ -24,7 +24,7 @@ func NewNotificationOutboxWorker(outboxRepo repository.NotificationOutboxReposit
 
 	// Connect on initialization to fail fast if config is wrong
 	if err := w.ensureConnection(); err != nil {
-		logger.Fatal(nil, "Failed to initialize RabbitMQ connection for notification outbox", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize RabbitMQ connection for notification outbox", "error", err)
 	}
 
 	return w

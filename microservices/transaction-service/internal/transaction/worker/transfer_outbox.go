@@ -28,7 +28,7 @@ func NewTransferOutboxWorker(db *sql.DB, rabbitmqURL string, outboxRepo reposito
 		outboxRepo:  outboxRepo,
 	}
 	if err := w.ensureConnection(); err != nil {
-		logger.Fatal(nil, "Failed to initialize RabbitMQ connection for transfer outbox", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize RabbitMQ connection for transfer outbox", "error", err)
 	}
 	return w
 }

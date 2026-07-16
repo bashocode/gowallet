@@ -1212,7 +1212,7 @@ func (s *transactionService) ProcessPaymentSettled(ctx context.Context, event tr
 
 	topUpReq := model.TopUpRequest{
 		Amount:         amount,
-		IdempotencyKey: event.ProviderPaymentID,
+		IdempotencyKey: event.Provider + ":" + event.ProviderPaymentID,
 	}
 
 	_, err = s.TopUp(ctx, event.UserID, topUpReq)
