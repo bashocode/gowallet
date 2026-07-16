@@ -8,6 +8,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
+	"github.com/bashocode/gowallet/microservices/user-service/internal/storage"
 	userGRPC "github.com/bashocode/gowallet/microservices/user-service/internal/user/grpc"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/handler"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/repository"
@@ -66,13 +67,19 @@ func main() {
 
 	walletClient := pbWallet.NewWalletServiceClient(conn)
 
+	// Initialize MinIO storage
+	minioStorage, err := storage.NewMinioStorage(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, false)
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to initialize MinIO storage", "error", err)
+	}
+
 	// Initialize layers
 	userRepo := repository.NewMySQLUserRepository(db)
 	otpRepo := repository.NewMySQLOTPRepository(db)
 	notificationOutboxRepo := repository.NewMySQLNotificationOutboxRepository(db)
 
 	userSvc := service.NewUserService(db, rdb, userRepo, walletClient, otpRepo, notificationOutboxRepo, cfg.BaseURL)
-	userHandler := handler.NewUserHandler(userSvc)
+	userHandler := handler.NewUserHandler(userSvc, minioStorage)
 
 	// Initialize and start the notification outbox worker
 	notifWorker := userWorker.NewNotificationOutboxWorker(notificationOutboxRepo, cfg.RabbitMQURL)
