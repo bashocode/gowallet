@@ -29,14 +29,14 @@ func main() {
 	// Connect to Redis
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
 	if err != nil {
-		logger.Fatal(nil, "Could not connect to Redis", "error", err)
+		logger.Fatal(context.Background(), "Could not connect to Redis", "error", err)
 	}
 	defer rdb.Close()
 
 	// Connect to MySQL
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
-		logger.Fatal(nil, "Could not connect to database", "error", err)
+		logger.Fatal(context.Background(), "Could not connect to database", "error", err)
 	}
 	defer db.Close()
 
@@ -59,7 +59,7 @@ func main() {
 		}`),
 	)
 	if err != nil {
-		logger.Fatal(nil, "Failed to connect to wallet service", "error", err)
+		logger.Fatal(context.Background(), "Failed to connect to wallet service", "error", err)
 	}
 	defer conn.Close()
 	// Note: isn't deferred here since the main function blocks on HTTP server, but we can defer it or keep it open.
@@ -119,12 +119,12 @@ func main() {
 	// Dynamic approach:
 	_, port, err := net.SplitHostPort(cfg.UserGRPCAddr)
 	if err != nil {
-		logger.Fatal(nil, "Failed to split gRPC host port: %v", err)
+		logger.Fatal(context.Background(), "Failed to split gRPC host port: %v", err)
 	}
 
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		logger.Fatal(nil, "Failed to listen gRPC port"+port, "error", err)
+		logger.Fatal(context.Background(), "Failed to listen gRPC port"+port, "error", err)
 	}
 
 	grpcServer := grpc.NewServer()
@@ -133,12 +133,12 @@ func main() {
 	go func() {
 		logger.Log.Info("User gRPC Server running on port " + port + "...")
 		if err := grpcServer.Serve(lis); err != nil {
-			logger.Fatal(nil, "Failed to serve gRPC", "error", err)
+			logger.Fatal(context.Background(), "Failed to serve gRPC", "error", err)
 		}
 	}()
 
 	logger.Log.Info("User Service listening on port " + cfg.UserPort + "...")
 	if err := r.Run(":" + cfg.UserPort); err != nil {
-		logger.Fatal(nil, "User Service failed", "error", err)
+		logger.Fatal(context.Background(), "User Service failed", "error", err)
 	}
 }

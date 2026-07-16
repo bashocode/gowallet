@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 
 	authGRPC "github.com/bashocode/gowallet/microservices/auth-service/internal/auth/grpc"
@@ -29,14 +30,14 @@ func main() {
 	// Connect to Redis (for token blacklisting)
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
 	if err != nil {
-		logger.Fatal(nil, "Could not connect to Redis", "error", err)
+		logger.Fatal(context.Background(), "Could not connect to Redis", "error", err)
 	}
 	defer rdb.Close()
 
 	// Connect to MySQL (for refresh tokens)
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
-		logger.Fatal(nil, "Could not connect to database", "error", err)
+		logger.Fatal(context.Background(), "Could not connect to database", "error", err)
 	}
 	defer db.Close()
 
@@ -58,7 +59,7 @@ func main() {
 		}`),
 	)
 	if err != nil {
-		logger.Fatal(nil, "Failed to connect to user service", "error", err)
+		logger.Fatal(context.Background(), "Failed to connect to user service", "error", err)
 	}
 	defer userConn.Close()
 
@@ -83,7 +84,7 @@ func main() {
 		}`),
 	)
 	if err != nil {
-		logger.Fatal(nil, "Failed to connect to wallet service", "error", err)
+		logger.Fatal(context.Background(), "Failed to connect to wallet service", "error", err)
 	}
 	defer walletConn.Close()
 
@@ -106,12 +107,12 @@ func main() {
 	// =========================================================
 	_, grpcPort, err := net.SplitHostPort(cfg.AuthGRPCAddr)
 	if err != nil {
-		logger.Fatal(nil, "Failed to split Auth gRPC host port", "error", err)
+		logger.Fatal(context.Background(), "Failed to split Auth gRPC host port", "error", err)
 	}
 
 	authLis, err := net.Listen("tcp", ":"+grpcPort)
 	if err != nil {
-		logger.Fatal(nil, "Failed to listen Auth gRPC", "error", err)
+		logger.Fatal(context.Background(), "Failed to listen Auth gRPC", "error", err)
 	}
 
 	grpcServer := grpc.NewServer()
@@ -120,7 +121,7 @@ func main() {
 	go func() {
 		logger.Log.Info("Auth gRPC Server running on " + cfg.AuthGRPCAddr)
 		if err := grpcServer.Serve(authLis); err != nil {
-			logger.Fatal(nil, "Failed to serve Auth gRPC", "error", err)
+			logger.Fatal(context.Background(), "Failed to serve Auth gRPC", "error", err)
 		}
 	}()
 
@@ -141,6 +142,6 @@ func main() {
 
 	logger.Log.Info("Auth Service listening on port " + cfg.AuthPort + "...")
 	if err := r.Run(":" + cfg.AuthPort); err != nil {
-		logger.Fatal(nil, "Auth Service failed", "error", err)
+		logger.Fatal(context.Background(), "Auth Service failed", "error", err)
 	}
 }
