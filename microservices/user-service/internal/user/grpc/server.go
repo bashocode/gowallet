@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"time"
 
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/model"
@@ -14,14 +15,20 @@ import (
 
 type userGRPCServer struct {
 	pb.UnimplementedUserServiceServer
-	repo    repository.UserRepository
-	otpRepo repository.OTPRepository
+	repo       repository.UserRepository
+	otpRepo    repository.OTPRepository
+	outboxRepo repository.NotificationOutboxRepository
 }
 
-func NewUserGRPCServer(repo repository.UserRepository, otpRepo repository.OTPRepository) pb.UserServiceServer {
+func NewUserGRPCServer(
+	repo repository.UserRepository,
+	otpRepo repository.OTPRepository,
+	outboxRepo repository.NotificationOutboxRepository,
+) pb.UserServiceServer {
 	return &userGRPCServer{
-		repo:    repo,
-		otpRepo: otpRepo,
+		repo:       repo,
+		otpRepo:    otpRepo,
+		outboxRepo: outboxRepo,
 	}
 }
 
@@ -111,4 +118,46 @@ func (s *userGRPCServer) CleanupExpiredOTPs(ctx context.Context, _ *pb.CleanupRe
 
 	logger.Log.InfoContext(ctx, "[gRPC] Expired OTPs cleaned", "deleted_count", deleted)
 	return &pb.CleanupResponse{DeletedCount: int32(deleted)}, nil
+}
+
+func (s *userGRPCServer) FetchEventsToArchive(
+	ctx context.Context,
+	req *pb.FetchEventsToArchiveRequest,
+) (*pb.FetchEventsToArchiveResponse, error) {
+	logger.Log.InfoContext(ctx, "[gRPC] FetchEventsToArchive called", "min_age_seconds", req.MinAgeSeconds, "limit", req.Limit)
+
+	minAge := time.Duration(req.MinAgeSeconds) * time.Second
+	events, err := s.outboxRepo.FetchEventsToArchive(ctx, minAge, int(req.Limit))
+	if err != nil {
+		logger.Log.ErrorContext(ctx, "[gRPC] FetchEventsToArchive failed", "error", err)
+		return nil, status.Errorf(codes.Internal, "failed to fetch outbox events: %v", err)
+	}
+
+	var pbEvents []*pb.OutboxEvent
+	for _, ev := range events {
+		pbEvents = append(pbEvents, &pb.OutboxEvent{
+			Id:        ev.ID,
+			EventType: ev.EventType,
+			Payload:   string(ev.Payload),
+			Status:    ev.Status,
+			CreatedAt: ev.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	return &pb.FetchEventsToArchiveResponse{Events: pbEvents}, nil
+}
+
+func (s *userGRPCServer) DeleteArchivedEvents(
+	ctx context.Context,
+	req *pb.DeleteArchivedEventsRequest,
+) (*pb.DeleteArchivedEventsResponse, error) {
+	logger.Log.InfoContext(ctx, "[gRPC] DeleteArchivedEvents called", "count", len(req.Ids))
+
+	err := s.outboxRepo.DeleteArchivedEvents(ctx, req.Ids)
+	if err != nil {
+		logger.Log.ErrorContext(ctx, "[gRPC] DeleteArchivedEvents failed", "error", err)
+		return &pb.DeleteArchivedEventsResponse{Success: false, Error: err.Error()}, nil
+	}
+
+	return &pb.DeleteArchivedEventsResponse{Success: true}, nil
 }

@@ -5,11 +5,15 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	authPb "github.com/bashocode/gowallet/microservices/auth-service/proto/auth"
+	paymentPb "github.com/bashocode/gowallet/microservices/payment-service/proto/payment"
+	"github.com/bashocode/gowallet/microservices/scheduler-service/internal/archiver"
 	"github.com/bashocode/gowallet/microservices/scheduler-service/internal/scheduler"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
+	"github.com/bashocode/gowallet/microservices/shared/storage"
 	txPb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	userPb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	walletPb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
@@ -119,9 +123,60 @@ func main() {
 	defer userConn.Close()
 	userClient := userPb.NewUserServiceClient(userConn)
 
+	// gRPC connection to Payment Service
+	payConn, err := grpc.NewClient(
+		cfg.PaymentGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(`{
+			"loadBalancingConfig": [{"round_robin":{}}],
+			"methodConfig": [{
+				"name": [{}],
+				"retryPolicy": {
+					"maxAttempts": 3,
+					"initialBackoff": "0.1s",
+					"maxBackoff": "1s",
+					"backoffMultiplier": 2.0,
+					"retryableStatusCodes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
+				}
+			}]
+		}`),
+	)
+	if err != nil {
+		logger.Fatal(context.Background(), "Could not connect to Payment gRPC", "error", err)
+	}
+	defer payConn.Close()
+	paymentClient := paymentPb.NewPaymentServiceClient(payConn)
+
 	// 5. Initialize & Start Scheduler
 	sched := scheduler.NewScheduler(authClient, walletClient, txClient, userClient)
 	sched.Start()
+
+	// 6. Initialize MinIO for Outbox Archiver
+	minioStorage, err := storage.NewMinioStorage(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, false)
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to initialize MinIO storage", "error", err)
+	}
+
+	if err := minioStorage.EnsureBucket(context.Background(), "outbox-archives"); err != nil {
+		logger.Fatal(context.Background(), "Failed to ensure outbox-archives bucket exists", "error", err)
+	}
+
+	archiveAge, err := time.ParseDuration(cfg.OutboxArchiveAge)
+	if err != nil {
+		logger.Fatal(context.Background(), "Invalid OUTBOX_ARCHIVE_AGE format", "error", err)
+	}
+
+	// 7. Start Outbox Archiver Workers
+	bgCtx, cancelArchiver := context.WithCancel(context.Background())
+	defer cancelArchiver()
+
+	txArchiver := archiver.NewOutboxArchiver("transaction", "outbox-archives", &archiver.TransactionOutboxAdapter{Client: txClient}, minioStorage, archiveAge, 1*time.Hour)
+	userArchiver := archiver.NewOutboxArchiver("user", "outbox-archives", &archiver.UserOutboxAdapter{Client: userClient}, minioStorage, archiveAge, 1*time.Hour)
+	payArchiver := archiver.NewOutboxArchiver("payment", "outbox-archives", &archiver.PaymentOutboxAdapter{Client: paymentClient}, minioStorage, archiveAge, 1*time.Hour)
+
+	go txArchiver.Start(bgCtx)
+	go userArchiver.Start(bgCtx)
+	go payArchiver.Start(bgCtx)
 
 	// Wait for shutdown signal (graceful shutdown)
 	stopChan := make(chan os.Signal, 1)

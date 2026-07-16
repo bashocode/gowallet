@@ -67,6 +67,22 @@ services:
       - gowallet-network
     restart: always
 
+  minio:
+    image: minio/minio:latest
+    container_name: gowallet-minio
+    command: server /data --console-address ":${MINIO_WEB_PORT}"
+    ports:
+      - "${MINIO_PORT}:${MINIO_PORT}"
+      - "${MINIO_WEB_PORT}:${MINIO_WEB_PORT}"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    networks:
+      - gowallet-network
+    restart: always
+
   # === Application Services ===
   api-gateway:
     build:
@@ -261,6 +277,7 @@ services:
     container_name: gowallet-payment-service-ms
     ports:
       - "${PAYMENT_PORT}:${PAYMENT_PORT}"
+      - "${PAYMENT_GRPC_PORT}:${PAYMENT_GRPC_PORT}"
     environment:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
@@ -296,6 +313,11 @@ services:
       - USER_GRPC_ADDR=${USER_GRPC_ADDR}
       - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
       - TRANSACTION_GRPC_ADDR=${TRANSACTION_GRPC_ADDR}
+      - PAYMENT_GRPC_ADDR=${PAYMENT_GRPC_ADDR}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - OUTBOX_ARCHIVE_AGE=${OUTBOX_ARCHIVE_AGE}
     depends_on:
       - auth-service
       - user-service
@@ -369,6 +391,7 @@ services:
 volumes:
   mysql_data:
   mongo_data:
+  minio_data:
 
 networks:
   gowallet-network:

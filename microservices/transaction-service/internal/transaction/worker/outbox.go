@@ -117,6 +117,11 @@ func (w *OutboxWorker) processPendingEvents(ctx context.Context) {
 		events = append(events, e)
 	}
 
+	if err := rows.Err(); err != nil {
+		logger.Error(ctx, "Error during outbox rows iteration", "error", err.Error())
+		return
+	}
+
 	if len(events) == 0 {
 		return
 	}

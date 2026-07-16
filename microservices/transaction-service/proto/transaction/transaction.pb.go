@@ -221,6 +221,274 @@ func (x *ReportResponse) GetTotalTransactions() int32 {
 	return 0
 }
 
+type OutboxEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	EventType     string                 `protobuf:"bytes,2,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	Payload       string                 `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
+	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OutboxEvent) Reset() {
+	*x = OutboxEvent{}
+	mi := &file_proto_transaction_transaction_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OutboxEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OutboxEvent) ProtoMessage() {}
+
+func (x *OutboxEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_transaction_transaction_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OutboxEvent.ProtoReflect.Descriptor instead.
+func (*OutboxEvent) Descriptor() ([]byte, []int) {
+	return file_proto_transaction_transaction_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *OutboxEvent) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *OutboxEvent) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *OutboxEvent) GetPayload() string {
+	if x != nil {
+		return x.Payload
+	}
+	return ""
+}
+
+func (x *OutboxEvent) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *OutboxEvent) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+type FetchEventsToArchiveRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MinAgeSeconds int64                  `protobuf:"varint,1,opt,name=min_age_seconds,json=minAgeSeconds,proto3" json:"min_age_seconds,omitempty"`
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FetchEventsToArchiveRequest) Reset() {
+	*x = FetchEventsToArchiveRequest{}
+	mi := &file_proto_transaction_transaction_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchEventsToArchiveRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchEventsToArchiveRequest) ProtoMessage() {}
+
+func (x *FetchEventsToArchiveRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_transaction_transaction_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchEventsToArchiveRequest.ProtoReflect.Descriptor instead.
+func (*FetchEventsToArchiveRequest) Descriptor() ([]byte, []int) {
+	return file_proto_transaction_transaction_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *FetchEventsToArchiveRequest) GetMinAgeSeconds() int64 {
+	if x != nil {
+		return x.MinAgeSeconds
+	}
+	return 0
+}
+
+func (x *FetchEventsToArchiveRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type FetchEventsToArchiveResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Events        []*OutboxEvent         `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FetchEventsToArchiveResponse) Reset() {
+	*x = FetchEventsToArchiveResponse{}
+	mi := &file_proto_transaction_transaction_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchEventsToArchiveResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchEventsToArchiveResponse) ProtoMessage() {}
+
+func (x *FetchEventsToArchiveResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_transaction_transaction_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchEventsToArchiveResponse.ProtoReflect.Descriptor instead.
+func (*FetchEventsToArchiveResponse) Descriptor() ([]byte, []int) {
+	return file_proto_transaction_transaction_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *FetchEventsToArchiveResponse) GetEvents() []*OutboxEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+type DeleteArchivedEventsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ids           []string               `protobuf:"bytes,1,rep,name=ids,proto3" json:"ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteArchivedEventsRequest) Reset() {
+	*x = DeleteArchivedEventsRequest{}
+	mi := &file_proto_transaction_transaction_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteArchivedEventsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteArchivedEventsRequest) ProtoMessage() {}
+
+func (x *DeleteArchivedEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_transaction_transaction_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteArchivedEventsRequest.ProtoReflect.Descriptor instead.
+func (*DeleteArchivedEventsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_transaction_transaction_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *DeleteArchivedEventsRequest) GetIds() []string {
+	if x != nil {
+		return x.Ids
+	}
+	return nil
+}
+
+type DeleteArchivedEventsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteArchivedEventsResponse) Reset() {
+	*x = DeleteArchivedEventsResponse{}
+	mi := &file_proto_transaction_transaction_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteArchivedEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteArchivedEventsResponse) ProtoMessage() {}
+
+func (x *DeleteArchivedEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_transaction_transaction_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteArchivedEventsResponse.ProtoReflect.Descriptor instead.
+func (*DeleteArchivedEventsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_transaction_transaction_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DeleteArchivedEventsResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *DeleteArchivedEventsResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_proto_transaction_transaction_proto protoreflect.FileDescriptor
 
 const file_proto_transaction_transaction_proto_rawDesc = "" +
@@ -237,10 +505,30 @@ const file_proto_transaction_transaction_proto_rawDesc = "" +
 	"\x0eReportResponse\x12\x1d\n" +
 	"\n" +
 	"report_url\x18\x01 \x01(\tR\treportUrl\x12-\n" +
-	"\x12total_transactions\x18\x02 \x01(\x05R\x11totalTransactions2\xa4\x01\n" +
+	"\x12total_transactions\x18\x02 \x01(\x05R\x11totalTransactions\"\x8d\x01\n" +
+	"\vOutboxEvent\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x02 \x01(\tR\teventType\x12\x18\n" +
+	"\apayload\x18\x03 \x01(\tR\apayload\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\tR\tcreatedAt\"[\n" +
+	"\x1bFetchEventsToArchiveRequest\x12&\n" +
+	"\x0fmin_age_seconds\x18\x01 \x01(\x03R\rminAgeSeconds\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"P\n" +
+	"\x1cFetchEventsToArchiveResponse\x120\n" +
+	"\x06events\x18\x01 \x03(\v2\x18.transaction.OutboxEventR\x06events\"/\n" +
+	"\x1bDeleteArchivedEventsRequest\x12\x10\n" +
+	"\x03ids\x18\x01 \x03(\tR\x03ids\"N\n" +
+	"\x1cDeleteArchivedEventsResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error2\xfe\x02\n" +
 	"\x12TransactionService\x12>\n" +
 	"\x05TopUp\x12\x19.transaction.TopUpRequest\x1a\x1a.transaction.TopUpResponse\x12N\n" +
-	"\x13GenerateDailyReport\x12\x1a.transaction.ReportRequest\x1a\x1b.transaction.ReportResponseBSZQgithub.com/bashocode/gowallet/microservices/transaction-service/proto/transactionb\x06proto3"
+	"\x13GenerateDailyReport\x12\x1a.transaction.ReportRequest\x1a\x1b.transaction.ReportResponse\x12k\n" +
+	"\x14FetchEventsToArchive\x12(.transaction.FetchEventsToArchiveRequest\x1a).transaction.FetchEventsToArchiveResponse\x12k\n" +
+	"\x14DeleteArchivedEvents\x12(.transaction.DeleteArchivedEventsRequest\x1a).transaction.DeleteArchivedEventsResponseBSZQgithub.com/bashocode/gowallet/microservices/transaction-service/proto/transactionb\x06proto3"
 
 var (
 	file_proto_transaction_transaction_proto_rawDescOnce sync.Once
@@ -254,23 +542,33 @@ func file_proto_transaction_transaction_proto_rawDescGZIP() []byte {
 	return file_proto_transaction_transaction_proto_rawDescData
 }
 
-var file_proto_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_proto_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_proto_transaction_transaction_proto_goTypes = []any{
-	(*TopUpRequest)(nil),   // 0: transaction.TopUpRequest
-	(*TopUpResponse)(nil),  // 1: transaction.TopUpResponse
-	(*ReportRequest)(nil),  // 2: transaction.ReportRequest
-	(*ReportResponse)(nil), // 3: transaction.ReportResponse
+	(*TopUpRequest)(nil),                 // 0: transaction.TopUpRequest
+	(*TopUpResponse)(nil),                // 1: transaction.TopUpResponse
+	(*ReportRequest)(nil),                // 2: transaction.ReportRequest
+	(*ReportResponse)(nil),               // 3: transaction.ReportResponse
+	(*OutboxEvent)(nil),                  // 4: transaction.OutboxEvent
+	(*FetchEventsToArchiveRequest)(nil),  // 5: transaction.FetchEventsToArchiveRequest
+	(*FetchEventsToArchiveResponse)(nil), // 6: transaction.FetchEventsToArchiveResponse
+	(*DeleteArchivedEventsRequest)(nil),  // 7: transaction.DeleteArchivedEventsRequest
+	(*DeleteArchivedEventsResponse)(nil), // 8: transaction.DeleteArchivedEventsResponse
 }
 var file_proto_transaction_transaction_proto_depIdxs = []int32{
-	0, // 0: transaction.TransactionService.TopUp:input_type -> transaction.TopUpRequest
-	2, // 1: transaction.TransactionService.GenerateDailyReport:input_type -> transaction.ReportRequest
-	1, // 2: transaction.TransactionService.TopUp:output_type -> transaction.TopUpResponse
-	3, // 3: transaction.TransactionService.GenerateDailyReport:output_type -> transaction.ReportResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	4, // 0: transaction.FetchEventsToArchiveResponse.events:type_name -> transaction.OutboxEvent
+	0, // 1: transaction.TransactionService.TopUp:input_type -> transaction.TopUpRequest
+	2, // 2: transaction.TransactionService.GenerateDailyReport:input_type -> transaction.ReportRequest
+	5, // 3: transaction.TransactionService.FetchEventsToArchive:input_type -> transaction.FetchEventsToArchiveRequest
+	7, // 4: transaction.TransactionService.DeleteArchivedEvents:input_type -> transaction.DeleteArchivedEventsRequest
+	1, // 5: transaction.TransactionService.TopUp:output_type -> transaction.TopUpResponse
+	3, // 6: transaction.TransactionService.GenerateDailyReport:output_type -> transaction.ReportResponse
+	6, // 7: transaction.TransactionService.FetchEventsToArchive:output_type -> transaction.FetchEventsToArchiveResponse
+	8, // 8: transaction.TransactionService.DeleteArchivedEvents:output_type -> transaction.DeleteArchivedEventsResponse
+	5, // [5:9] is the sub-list for method output_type
+	1, // [1:5] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_proto_transaction_transaction_proto_init() }
@@ -284,7 +582,7 @@ func file_proto_transaction_transaction_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_transaction_transaction_proto_rawDesc), len(file_proto_transaction_transaction_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

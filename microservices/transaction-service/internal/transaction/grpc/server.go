@@ -3,9 +3,11 @@ package grpc
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
+	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/service"
 	pb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	"github.com/shopspring/decimal"
@@ -16,12 +18,13 @@ import (
 // TransactionGRPCServer implements the gRPC TransactionServiceServer interface.
 type TransactionGRPCServer struct {
 	pb.UnimplementedTransactionServiceServer
-	svc service.TransactionService
+	svc  service.TransactionService
+	repo repository.TransactionRepository
 }
 
 // NewTransactionGRPCServer creates a new gRPC server with the given service.
-func NewTransactionGRPCServer(svc service.TransactionService) *TransactionGRPCServer {
-	return &TransactionGRPCServer{svc: svc}
+func NewTransactionGRPCServer(svc service.TransactionService, repo repository.TransactionRepository) *TransactionGRPCServer {
+	return &TransactionGRPCServer{svc: svc, repo: repo}
 }
 
 // TopUp handles top-up requests from internal services (e.g., payment-service) via gRPC.
@@ -75,4 +78,64 @@ func (s *TransactionGRPCServer) GenerateDailyReport(ctx context.Context, _ *pb.R
 		ReportUrl:         reportURL,
 		TotalTransactions: int32(count),
 	}, nil
+}
+
+func (s *TransactionGRPCServer) FetchEventsToArchive(
+	ctx context.Context,
+	req *pb.FetchEventsToArchiveRequest,
+) (*pb.FetchEventsToArchiveResponse, error) {
+	logger.Log.InfoContext(
+		ctx,
+		"[gRPC] FetchEventsToArchive called",
+		slog.Int64("min_age_seconds", req.MinAgeSeconds),
+		slog.Int("limit", int(req.Limit)),
+	)
+
+	minAge := time.Duration(req.MinAgeSeconds) * time.Second
+	events, err := s.repo.FetchEventsToArchive(ctx, minAge, int(req.Limit))
+	if err != nil {
+		logger.Log.ErrorContext(
+			ctx,
+			"[gRPC] FetchEventsToArchive failed",
+			slog.Any("error", err),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to fetch events: %v", err)
+	}
+
+	pbEvents := make([]*pb.OutboxEvent, len(events))
+	for i, ev := range events {
+		pbEvents[i] = &pb.OutboxEvent{
+			Id:        ev.ID,
+			EventType: ev.EventType,
+			Payload:   ev.Payload,
+			Status:    ev.Status,
+			CreatedAt: ev.CreatedAt.Format(time.RFC3339),
+		}
+	}
+
+	logger.Log.InfoContext(
+		ctx,
+		"[gRPC] FetchEventsToArchive success",
+		slog.Int("count", len(events)),
+	)
+	return &pb.FetchEventsToArchiveResponse{Events: pbEvents}, nil
+}
+
+func (s *TransactionGRPCServer) DeleteArchivedEvents(
+	ctx context.Context,
+	req *pb.DeleteArchivedEventsRequest,
+) (*pb.DeleteArchivedEventsResponse, error) {
+	logger.Log.InfoContext(
+		ctx,
+		"[gRPC] DeleteArchivedEvents called",
+		slog.Int("count", len(req.Ids)),
+	)
+
+	if err := s.repo.DeleteArchivedEvents(ctx, req.Ids); err != nil {
+		logger.Log.ErrorContext(ctx, "[gRPC] DeleteArchivedEvents failed", slog.Any("error", err))
+		return &pb.DeleteArchivedEventsResponse{Success: false, Error: err.Error()}, nil
+	}
+
+	logger.Log.InfoContext(ctx, "[gRPC] DeleteArchivedEvents success")
+	return &pb.DeleteArchivedEventsResponse{Success: true}, nil
 }

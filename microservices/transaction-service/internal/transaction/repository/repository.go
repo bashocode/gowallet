@@ -3,6 +3,9 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
 )
@@ -16,6 +19,8 @@ type TransactionRepository interface {
 	UpdateStatusTx(ctx context.Context, tx *sql.Tx, id, status string) error
 	CountToday(ctx context.Context) (int64, error)
 	CreateOutboxTx(ctx context.Context, tx *sql.Tx, event *model.OutboxEvent) error
+	FetchEventsToArchive(ctx context.Context, minAge time.Duration, limit int) ([]model.OutboxEvent, error)
+	DeleteArchivedEvents(ctx context.Context, ids []string) error
 }
 
 type mysqlTransactionRepository struct {
@@ -186,4 +191,54 @@ func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID st
 	}
 
 	return txs, total, nil
+}
+
+func (r *mysqlTransactionRepository) FetchEventsToArchive(
+	ctx context.Context,
+	minAge time.Duration,
+	limit int,
+) ([]model.OutboxEvent, error) {
+	query := `
+		SELECT id, event_type, payload, status, created_at 
+		FROM outbox_events 
+		WHERE status = 'processed' 
+		  AND created_at < NOW() - INTERVAL ? SECOND
+		LIMIT ?
+	`
+	seconds := int(minAge.Seconds())
+	rows, err := r.db.QueryContext(ctx, query, seconds, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []model.OutboxEvent
+	for rows.Next() {
+		var ev model.OutboxEvent
+		if err := rows.Scan(&ev.ID, &ev.EventType, &ev.Payload, &ev.Status, &ev.CreatedAt); err != nil {
+			return nil, err
+		}
+		events = append(events, ev)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return events, nil
+}
+
+func (r *mysqlTransactionRepository) DeleteArchivedEvents(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	query := fmt.Sprintf("DELETE FROM outbox_events WHERE id IN (%s)", placeholders)
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	_, err := r.db.ExecContext(ctx, query, args...)
+	return err
 }

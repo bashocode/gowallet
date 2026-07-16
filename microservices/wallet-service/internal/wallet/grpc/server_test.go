@@ -105,8 +105,8 @@ func TestWalletGRPCServer(t *testing.T) {
 		if resp.GetUserId() != "user-456" {
 			t.Errorf("Expected user ID user-456, got %s", resp.GetUserId())
 		}
-		if resp.GetBalance() != "0.0" {
-			t.Errorf("Expected balance 0.0, got %s", resp.GetBalance())
+		if resp.GetBalance() != "0" {
+			t.Errorf("Expected balance 0, got %s", resp.GetBalance())
 		}
 	})
 
@@ -116,8 +116,8 @@ func TestWalletGRPCServer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
-		if resp.GetBalance() != "1500.0" {
-			t.Errorf("Expected balance 1500.0, got %s", resp.GetBalance())
+		if resp.GetBalance() != "1500" {
+			t.Errorf("Expected balance 1500, got %s", resp.GetBalance())
 		}
 		if resp.GetVersion() != 1 {
 			t.Errorf("Expected version 1, got %d", resp.GetVersion())
@@ -141,8 +141,8 @@ func TestWalletGRPCServer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
-		if resp.GetBalance() != "2000.0" {
-			t.Errorf("Expected balance 2000.0, got %s", resp.GetBalance())
+		if resp.GetBalance() != "2000" {
+			t.Errorf("Expected balance 2000, got %s", resp.GetBalance())
 		}
 		if resp.GetVersion() != 2 {
 			t.Errorf("Expected version 2, got %d", resp.GetVersion())

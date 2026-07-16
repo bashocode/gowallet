@@ -183,12 +183,8 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC", "error", err)
 	}
 
-	if err != nil {
-		logger.Fatal(context.Background(), "Failed to listen on gRPC port"+port, "error", err)
-	}
-
 	grpcServer := grpc.NewServer()
-	pb.RegisterTransactionServiceServer(grpcServer, transactionGRPC.NewTransactionGRPCServer(txSvc))
+	pb.RegisterTransactionServiceServer(grpcServer, transactionGRPC.NewTransactionGRPCServer(txSvc, txRepo))
 
 	go func() {
 		logger.Log.Info("Transaction gRPC server listening on port " + port + "...")
