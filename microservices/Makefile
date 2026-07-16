@@ -23,7 +23,7 @@ SERVICES := api-gateway auth-service user-service wallet-service ledger-service 
 DB_SERVICES := auth-service user-service wallet-service ledger-service transaction-service payment-service notification-service
 
 # Mark the targets below as abstract commands (not physical files)
-.PHONY: all build-linux build-native clean help tidy tidy-shared migrate-up migrate-down migrate-status migrate-reset migrate-create
+.PHONY: all build-linux build-native clean help tidy tidy-shared test migrate-up migrate-down migrate-status migrate-reset migrate-create
 
 # Default target if you run the `make` command without any arguments
 all: help
@@ -86,6 +86,11 @@ tidy: tidy-shared
 		cd $$service && go mod tidy && cd ..; \
 	done
 	@echo "All services tidied successfully!"
+
+## test: Run unit tests across all packages in the Go Workspace
+test:
+	@echo "Running unit tests for all microservices in the workspace..."
+	@go test ./shared/... ./api-gateway/... ./auth-service/... ./user-service/... ./wallet-service/... ./ledger-service/... ./transaction-service/... ./payment-service/... ./scheduler-service/... ./notification-service/... ./audit-service/...
 
 # ==============================================================================
 # DATABASE MIGRATIONS (golang-migrate)
@@ -219,6 +224,7 @@ help:
 	@echo "  make build-linux   - Compile all services for Linux ($(GOARCH)) to run in Docker"
 	@echo "  make build-native  - Compile all services natively for macOS ($(ARCH))"
 	@echo "  make clean         - Remove all compiled binaries"
+	@echo "  make test          - Run unit tests across all packages in the Go Workspace"
 	@echo ""
 	@echo "Dependencies:"
 	@echo "  make tidy          - Run go mod tidy on shared and all services"

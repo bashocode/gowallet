@@ -85,7 +85,7 @@ func main() {
 	pb.RegisterLedgerServiceServer(grpcServer, ledgerGRPC.NewLedgerGRPCServer(lRepo))
 
 	go func() {
-		logger.Log.Info("Ledger gRPC Server running on port ", port)
+		logger.Log.Info("Ledger gRPC Server running on", "port", port)
 		if err := grpcServer.Serve(lis); err != nil {
 			logger.Fatal(context.Background(), "Failed to serve gRPC", "error", err)
 		}

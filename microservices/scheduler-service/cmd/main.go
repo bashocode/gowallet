@@ -5,11 +5,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	authPb "github.com/bashocode/gowallet/microservices/auth-service/proto/auth"
+	"github.com/bashocode/gowallet/microservices/scheduler-service/internal/archiver"
 	"github.com/bashocode/gowallet/microservices/scheduler-service/internal/scheduler"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
+	"github.com/bashocode/gowallet/microservices/shared/storage"
 	txPb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	userPb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	walletPb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
@@ -122,6 +125,27 @@ func main() {
 	// 5. Initialize & Start Scheduler
 	sched := scheduler.NewScheduler(authClient, walletClient, txClient, userClient)
 	sched.Start()
+
+	// 6. Initialize MinIO for Outbox Archiver
+	minioStorage, err := storage.NewMinioStorage(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, false)
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to initialize MinIO storage", "error", err)
+	}
+
+	if err := minioStorage.EnsureBucket(context.Background(), "outbox-archives"); err != nil {
+		logger.Fatal(context.Background(), "Failed to ensure outbox-archives bucket exists", "error", err)
+	}
+
+	archiveAge, err := time.ParseDuration(cfg.OutboxArchiveAge)
+	if err != nil {
+		logger.Fatal(context.Background(), "Invalid OUTBOX_ARCHIVE_AGE format", "error", err)
+	}
+
+	// 7. Start Outbox Archiver Worker
+	outboxArchiver := archiver.NewOutboxArchiver(txClient, minioStorage, archiveAge, 1*time.Hour)
+	bgCtx, cancelArchiver := context.WithCancel(context.Background())
+	defer cancelArchiver()
+	go outboxArchiver.Start(bgCtx)
 
 	// Wait for shutdown signal (graceful shutdown)
 	stopChan := make(chan os.Signal, 1)

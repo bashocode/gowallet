@@ -7,6 +7,8 @@ option go_package = "github.com/bashocode/gowallet/microservices/transaction-ser
 service TransactionService {
   rpc TopUp (TopUpRequest) returns (TopUpResponse);
   rpc GenerateDailyReport (ReportRequest) returns (ReportResponse);
+  rpc FetchEventsToArchive (FetchEventsToArchiveRequest) returns (FetchEventsToArchiveResponse);
+  rpc DeleteArchivedEvents (DeleteArchivedEventsRequest) returns (DeleteArchivedEventsResponse);
 }
 
 message TopUpRequest {
@@ -25,4 +27,30 @@ message ReportRequest {}
 message ReportResponse {
   string report_url = 1;
   int32  total_transactions = 2;
+}
+
+message OutboxEvent {
+  string id = 1;
+  string event_type = 2;
+  string payload = 3;
+  string status = 4;
+  string created_at = 5;
+}
+
+message FetchEventsToArchiveRequest {
+  int64 min_age_seconds = 1;
+  int32 limit = 2;
+}
+
+message FetchEventsToArchiveResponse {
+  repeated OutboxEvent events = 1;
+}
+
+message DeleteArchivedEventsRequest {
+  repeated string ids = 1;
+}
+
+message DeleteArchivedEventsResponse {
+  bool success = 1;
+  string error = 2;
 }

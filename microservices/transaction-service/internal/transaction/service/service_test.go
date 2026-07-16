@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
@@ -127,6 +128,14 @@ func (m *MockTxRepo) GetOutboxEvents() []*model.OutboxEvent {
 	out := make([]*model.OutboxEvent, len(m.outboxEvents))
 	copy(out, m.outboxEvents)
 	return out
+}
+
+func (m *MockTxRepo) FetchEventsToArchive(ctx context.Context, minAge time.Duration, limit int) ([]model.OutboxEvent, error) {
+	return nil, nil
+}
+
+func (m *MockTxRepo) DeleteArchivedEvents(ctx context.Context, ids []string) error {
+	return nil
 }
 
 // Mock gRPC User Client
