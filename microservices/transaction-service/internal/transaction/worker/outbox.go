@@ -25,7 +25,7 @@ func NewOutboxWorker(db *sql.DB, rabbitmqURL string) *OutboxWorker {
 
 	// Connect on initialization to fail fast if config is wrong
 	if err := w.ensureConnection(); err != nil {
-		logger.Fatal(nil, "Failed to initialize RabbitMQ connection", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize RabbitMQ connection", "error", err)
 	}
 
 	return w

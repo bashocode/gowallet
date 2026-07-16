@@ -35,7 +35,7 @@ func NewEmailNotificationConsumer(rabbitmqURL string, repo *repository.Notificat
 		emailSender:      emailSender,
 	}
 	if err := w.ensureConnection(); err != nil {
-		logger.Fatal(nil, "failed to initialize RabbitMQ connection for email notification consumer", "error", err)
+		logger.Fatal(context.Background(), "failed to initialize RabbitMQ connection for email notification consumer", "error", err)
 	}
 	return w
 }

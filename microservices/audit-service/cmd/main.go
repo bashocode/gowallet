@@ -21,7 +21,7 @@ func main() {
 
 	mongoClient, err := database.ConnectMongoDB(cfg.MongoURL)
 	if err != nil {
-		logger.Fatal(nil, "failed to connect to MongoDB", "error", err)
+		logger.Fatal(context.Background(), "failed to connect to MongoDB", "error", err)
 	}
 	defer func() {
 		if err := mongoClient.Disconnect(context.Background()); err != nil {

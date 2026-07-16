@@ -2,6 +2,8 @@ module github.com/bashocode/gowallet/microservices/shared
 
 go 1.26.4
 
+replace github.com/bashocode/gowallet/microservices/shared => ../shared
+
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-redis/redismock/v9 v9.2.0

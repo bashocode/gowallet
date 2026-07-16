@@ -9,6 +9,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/audit-service/internal/model"
 	"github.com/bashocode/gowallet/microservices/audit-service/internal/repository"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
+	"github.com/bashocode/gowallet/microservices/shared/rabbitresilience"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -17,6 +18,7 @@ type AuditConsumer struct {
 	auditRepo   *repository.AuditRepository
 	amqpConn    *amqp.Connection
 	channel     *amqp.Channel
+	confirms    chan amqp.Confirmation
 }
 
 func NewAuditConsumer(rabbitmqURL string, repo *repository.AuditRepository) *AuditConsumer {
@@ -25,7 +27,7 @@ func NewAuditConsumer(rabbitmqURL string, repo *repository.AuditRepository) *Aud
 		auditRepo:   repo,
 	}
 	if err := c.ensureConnection(); err != nil {
-		logger.Fatal(nil, "failed to initialize RabbitMQ connection for audit consumer", "error", err)
+		logger.Fatal(context.Background(), "failed to initialize RabbitMQ connection for audit consumer", "error", err)
 	}
 	return c
 }
@@ -139,14 +141,27 @@ func (c *AuditConsumer) ensureConnection() error {
 			continue
 		}
 
-		queue, err := ch.QueueDeclare(
-			"audit.payment_events",
-			true,
-			false,
-			false,
-			false,
-			nil,
-		)
+		if err := rabbitresilience.Declare(ch, rabbitresilience.QueueConfig{
+			MainQueue:    "audit.payment_events",
+			RetryQueue:   "audit.payment_events.retry",
+			DLQ:          "audit.payment_events.dlq",
+			DLX:          "audit.dlx",
+			MainExchange: "payment.events",
+			RoutingKey:   "payment.#",
+			RetryTTL:     10000,
+		}); err != nil {
+			ch.Close()
+			conn.Close()
+			lastErr = err
+			continue
+		}
+		if err := ch.QueueBind("audit.payment_events.retry", "#", "audit.dlx.retry", false, nil); err != nil {
+			ch.Close()
+			conn.Close()
+			lastErr = err
+			continue
+		}
+		queue, err := ch.QueueDeclarePassive("audit.payment_events", true, false, false, false, nil)
 		if err != nil {
 			ch.Close()
 			conn.Close()
@@ -224,8 +239,23 @@ func (c *AuditConsumer) ensureConnection() error {
 			continue
 		}
 
+		if err := ch.Confirm(false); err != nil {
+			ch.Close()
+			conn.Close()
+			lastErr = err
+			if attempt < maxRetries {
+				time.Sleep(backoff)
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
+			continue
+		}
+
 		c.amqpConn = conn
 		c.channel = ch
+		c.confirms = ch.NotifyPublish(make(chan amqp.Confirmation, 1))
 		logger.Log.Info("successfully connected to RabbitMQ and bound exchanges to audit queue!", "attempt", attempt)
 		return nil
 	}
@@ -285,16 +315,14 @@ func (c *AuditConsumer) processMessage(ctx context.Context, msg amqp.Delivery) {
 	var payload map[string]any
 	if err := json.Unmarshal(msg.Body, &payload); err != nil {
 		logger.Error(ctx, "invalid payment event payload", "error", err)
-		_ = msg.Nack(false, false)
+		c.deadLetter(ctx, msg, err)
 		return
 	}
 
 	eventID, _ := payload["event_id"].(string)
 	if eventID == "" {
-		eventID = msg.MessageId
-	}
-	if eventID == "" {
-		eventID = fmt.Sprintf("%d", time.Now().UnixNano())
+		c.deadLetter(ctx, msg, fmt.Errorf("invalid event: event_id is required"))
+		return
 	}
 
 	source := "payment-service"
@@ -319,12 +347,48 @@ func (c *AuditConsumer) processMessage(ctx context.Context, msg amqp.Delivery) {
 
 	if err := c.auditRepo.SaveAuditLog(ctx, auditLog); err != nil {
 		logger.Error(ctx, "failed to save audit log", "error", err, "event_id", eventID)
-		_ = msg.Nack(false, true)
+		c.retry(ctx, msg, err)
 		return
 	}
 
 	_ = msg.Ack(false)
 	logger.Info(ctx, "audit log saved successfully", "event_id", eventID, "event_type", msg.RoutingKey)
+}
+
+func (c *AuditConsumer) retry(ctx context.Context, msg amqp.Delivery, cause error) {
+	if rabbitresilience.RetryCount(msg.Headers, "audit.payment_events.retry") >= rabbitresilience.MaxRetries {
+		c.deadLetter(ctx, msg, cause)
+		return
+	}
+	if err := rabbitresilience.PublishConfirmed(
+		ctx,
+		c.channel,
+		c.confirms,
+		"audit.dlx.retry",
+		msg.RoutingKey,
+		msg,
+		msg.Headers,
+	); err != nil {
+		_ = msg.Nack(false, true)
+		return
+	}
+	_ = msg.Ack(false)
+}
+
+func (c *AuditConsumer) deadLetter(ctx context.Context, msg amqp.Delivery, cause error) {
+	if err := rabbitresilience.PublishConfirmed(
+		ctx,
+		c.channel,
+		c.confirms,
+		"audit.dlx",
+		msg.RoutingKey,
+		msg,
+		rabbitresilience.Headers(msg, cause.Error(), "audit.payment_events.retry"),
+	); err == nil {
+		_ = msg.Ack(false)
+		return
+	}
+	_ = msg.Nack(false, true)
 }
 
 func (c *AuditConsumer) cleanupConnection() {

@@ -25,13 +25,13 @@ func main() {
 
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
-		logger.Fatal(nil, "could not connect to database", "error", err)
+		logger.Fatal(context.Background(), "could not connect to database", "error", err)
 	}
 	defer db.Close()
 
 	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		logger.Fatal(nil, "could not connect to user-service gRPC", "error", err)
+		logger.Fatal(context.Background(), "could not connect to user-service gRPC", "error", err)
 	}
 	defer userConn.Close()
 	userClient := pb.NewUserServiceClient(userConn)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 
 	ledgerGRPC "github.com/bashocode/gowallet/microservices/ledger-service/internal/ledger/grpc"
@@ -27,14 +28,14 @@ func main() {
 	// Connect to Redis (required by AuthMiddleware)
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
 	if err != nil {
-		logger.Fatal(nil, "Could not connect to Redis", "error", err)
+		logger.Fatal(context.Background(), "Could not connect to Redis", "error", err)
 	}
 	defer rdb.Close()
 
 	// Connect to MySQL
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
-		logger.Fatal(nil, "Could not connect to MySQL", "error", err)
+		logger.Fatal(context.Background(), "Could not connect to MySQL", "error", err)
 	}
 	defer db.Close()
 
@@ -57,7 +58,7 @@ func main() {
 		}`),
 	)
 	if err != nil {
-		logger.Fatal(nil, "Failed to connect to wallet service", "error", err)
+		logger.Fatal(context.Background(), "Failed to connect to wallet service", "error", err)
 	}
 	defer conn.Close()
 
@@ -72,12 +73,12 @@ func main() {
 	// Dynamic approach:
 	_, port, err := net.SplitHostPort(cfg.LedgerGRPCAddr)
 	if err != nil {
-		logger.Fatal(nil, "Failed to split host port: %v", err)
+		logger.Fatal(context.Background(), "Failed to split host port: %v", err)
 	}
 
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		logger.Fatal(nil, "Failed to listen gRPC", "error", err)
+		logger.Fatal(context.Background(), "Failed to listen gRPC", "error", err)
 	}
 
 	grpcServer := grpc.NewServer()
@@ -86,7 +87,7 @@ func main() {
 	go func() {
 		logger.Log.Info("Ledger gRPC Server running on port ", port)
 		if err := grpcServer.Serve(lis); err != nil {
-			logger.Fatal(nil, "Failed to serve gRPC", "error", err)
+			logger.Fatal(context.Background(), "Failed to serve gRPC", "error", err)
 		}
 	}()
 
@@ -109,6 +110,6 @@ func main() {
 
 	logger.Log.Info("Ledger HTTP Server running on port " + cfg.LedgerPort + "...")
 	if err := r.Run(":" + cfg.LedgerPort); err != nil {
-		logger.Fatal(nil, "Failed to run HTTP server", "error", err)
+		logger.Fatal(context.Background(), "Failed to run HTTP server", "error", err)
 	}
 }

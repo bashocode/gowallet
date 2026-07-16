@@ -27,20 +27,20 @@ func main() {
 	// Connect to Redis (required by AuthMiddleware)
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
 	if err != nil {
-		logger.Fatal(nil, "Could not connect to Redis", "error", err)
+		logger.Fatal(context.Background(), "Could not connect to Redis", "error", err)
 	}
 	defer rdb.Close()
 
 	// Connect to MySQL
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
-		logger.Fatal(nil, "Could not connect to MySQL", "error", err)
+		logger.Fatal(context.Background(), "Could not connect to MySQL", "error", err)
 	}
 	defer db.Close()
 
 	pub, err := paymentPublisher.NewRabbitMQPaymentPublisher(cfg.RabbitMQURL)
 	if err != nil {
-		logger.Fatal(nil, "Failed to initialize RabbitMQ publisher", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize RabbitMQ publisher", "error", err)
 	}
 
 	// Initialize layers
@@ -60,7 +60,7 @@ func main() {
 	// Start outbox worker
 	worker, err := paymentWorker.NewOutboxWorker(outboxRepo, cfg.RabbitMQURL)
 	if err != nil {
-		logger.Fatal(nil, "Failed to initialize outbox worker", "error", err)
+		logger.Fatal(context.Background(), "Failed to initialize outbox worker", "error", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -97,7 +97,7 @@ func main() {
 	go func() {
 		logger.Log.Info("Payment Service listening on port " + cfg.PaymentPort + "...")
 		if err := r.Run(":" + cfg.PaymentPort); err != nil {
-			logger.Fatal(nil, "Failed to run HTTP server", "error", err)
+			logger.Fatal(context.Background(), "Failed to run HTTP server", "error", err)
 		}
 	}()
 
