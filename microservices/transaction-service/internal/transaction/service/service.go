@@ -159,7 +159,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		Amount:           req.Amount,
 		Description:      req.Description,
 		IdempotencyKey:   req.IdempotencyKey,
-		Status:           "success",
+		Status:           "pending",
 	}
 	initTx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -177,8 +177,8 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 	// 5. Contact Wallet Service & Ledger Service via gRPC for balance mutations (OUTSIDE LOCAL DATABASE TRANSACTION)
 	// We apply Saga Orchestration with manual rollback orchestration if any step fails.
 	if err := s.executeGrpcTransferChain(ctx, txID, senderUserID, receiverUser.Id, req.Amount, senderWallet); err != nil {
-		// If failed, update status to FAILED
-		s.txRepo.UpdateStatus(ctx, txID, "FAILED")
+		// If failed, update status to failed
+		s.txRepo.UpdateStatus(ctx, txID, "failed")
 		return nil, err
 	}
 
@@ -611,15 +611,62 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 		return callErr
 	})
 	if err != nil {
-		s.markFailed(ctx, transactionID)
-		logger.Error(ctx, "Partial saga failure: ledger record failed after wallet credit",
+		// Compensation: ledger write failed after wallet credit, must reverse the credit
+		logger.Error(ctx, "Ledger record failed after wallet credit, attempting compensation",
 			slog.String("transaction_id", transactionID),
 			slog.Any("error", err),
 		)
+
+		// Re-read wallet to get current version after the credit
+		var compWallet *pbWallet.WalletResponse
+		compReadErr := s.walletBreaker.Call(func() error {
+			var callErr error
+			compWallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: userID})
+			return callErr
+		})
+		if compReadErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation re-read wallet failed in TopUp",
+				slog.String("transaction_id", transactionID),
+				slog.Any("error", compReadErr))
+			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{
+				"transaction_id": transactionID,
+				"step": "get_wallet_for_topup_compensation",
+				"error": compReadErr.Error(),
+			})
+			s.markFailed(ctx, transactionID)
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+		}
+
+		// Debit back the amount that was credited
+		debitAmount := req.Amount.Neg()
+		compDebitErr := s.walletBreaker.Call(func() error {
+			var callErr error
+			_, callErr = s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
+				UserId:          userID,
+				Amount:          debitAmount.String(),
+				ExpectedVersion: compWallet.Version,
+			})
+			return callErr
+		})
+		if compDebitErr != nil {
+			logger.Error(ctx, "CRITICAL: compensation debit failed in TopUp",
+				slog.String("transaction_id", transactionID),
+				slog.Any("error", compDebitErr))
+			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{
+				"transaction_id": transactionID,
+				"step": "debit_wallet_after_topup_ledger_fail",
+				"error": compDebitErr.Error(),
+			})
+			s.markFailed(ctx, transactionID)
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+		}
+
+		// Compensation succeeded, mark transaction as failed and return original error
+		s.markFailed(ctx, transactionID)
 		if err.Error() == "circuit breaker is open — service unavailable" {
 			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
 		}
-		return nil, customErr.NewAppError(http.StatusConflict, "TOPUP_FAILED", "Ledger record failed, please try again")
+		return nil, customErr.NewAppError(http.StatusConflict, "TOPUP_FAILED", "Ledger record failed, transaction reversed")
 	}
 
 	// 6. Mark transaction as success
