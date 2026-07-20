@@ -7,8 +7,8 @@ import (
 	"time"
 
 	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
+	"github.com/bashocode/gowallet/microservices/shared/storage"
 	"github.com/bashocode/gowallet/microservices/shared/utils"
-	"github.com/bashocode/gowallet/microservices/user-service/internal/storage"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/model"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/service"
 	"github.com/gin-gonic/gin"

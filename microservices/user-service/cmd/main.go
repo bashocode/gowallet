@@ -8,7 +8,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
-	"github.com/bashocode/gowallet/microservices/user-service/internal/storage"
+	"github.com/bashocode/gowallet/microservices/shared/storage"
 	userGRPC "github.com/bashocode/gowallet/microservices/user-service/internal/user/grpc"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/handler"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/repository"
@@ -71,6 +71,15 @@ func main() {
 	minioStorage, err := storage.NewMinioStorage(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, false)
 	if err != nil {
 		logger.Fatal(context.Background(), "Failed to initialize MinIO storage", "error", err)
+	}
+
+	// Ensure avatars bucket exists and is public
+	ctxInit := context.Background()
+	if err := minioStorage.EnsureBucket(ctxInit, "avatars"); err != nil {
+		logger.Fatal(ctxInit, "Failed to ensure avatars bucket exists", "error", err)
+	}
+	if err := minioStorage.MakeBucketPublic(ctxInit, "avatars"); err != nil {
+		logger.Fatal(ctxInit, "Failed to make avatars bucket public", "error", err)
 	}
 
 	// Initialize layers

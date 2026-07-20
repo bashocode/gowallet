@@ -12,18 +12,22 @@ import (
 )
 
 type ObjectStorage interface {
-	UploadStream(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, contentType string) (int64, error)
+	UploadStream(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, contentType string) (string, error)
 	EnsureBucket(ctx context.Context, bucketName string) error
+	MakeBucketPublic(ctx context.Context, bucketName string) error
 }
 
 type minioClient interface {
 	BucketExists(ctx context.Context, bucketName string) (bool, error)
 	MakeBucket(ctx context.Context, bucketName string, options minio.MakeBucketOptions) error
 	PutObject(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error)
+	SetBucketPolicy(ctx context.Context, bucketName, policy string) error
 }
 
 type minioStorage struct {
 	client         minioClient
+	endpoint       string
+	useSSL         bool
 	maxRetries     int
 	initialBackoff time.Duration
 	maxBackoff     time.Duration
@@ -40,6 +44,8 @@ func NewMinioStorage(endpoint, accessKey, secretKey string, useSSL bool) (Object
 
 	return &minioStorage{
 		client:         client,
+		endpoint:       endpoint,
+		useSSL:         useSSL,
 		maxRetries:     3,
 		initialBackoff: 100 * time.Millisecond,
 		maxBackoff:     2 * time.Second,
@@ -103,8 +109,23 @@ func (m *minioStorage) EnsureBucket(ctx context.Context, bucketName string) erro
 	})
 }
 
-func (m *minioStorage) UploadStream(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, contentType string) (int64, error) {
-	var size int64
+func (m *minioStorage) MakeBucketPublic(ctx context.Context, bucketName string) error {
+	return m.retry(ctx, func() error {
+		policy := fmt.Sprintf(`{
+			"Version":"2012-10-17",
+			"Statement":[{
+				"Effect":"Allow",
+				"Principal":{"AWS":["*"]},
+				"Action":["s3:GetObject"],
+				"Resource":["arn:aws:s3:::%s/*"]
+			}]
+		}`, bucketName)
+
+		return m.client.SetBucketPolicy(ctx, bucketName, policy)
+	})
+}
+
+func (m *minioStorage) UploadStream(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, contentType string) (string, error) {
 	seeker, isSeeker := reader.(io.ReadSeeker)
 
 	err := m.retry(ctx, func() error {
@@ -114,23 +135,23 @@ func (m *minioStorage) UploadStream(ctx context.Context, bucketName, objectName 
 			}
 		}
 
-		info, err := m.client.PutObject(ctx, bucketName, objectName, reader, objectSize, minio.PutObjectOptions{
+		_, err := m.client.PutObject(ctx, bucketName, objectName, reader, objectSize, minio.PutObjectOptions{
 			ContentType: contentType,
 		})
-		if err != nil {
-			return err
-		}
-
-		size = info.Size
-		return nil
+		return err
 	})
 
 	if err != nil {
 		if !isSeeker {
 			logger.Warn(ctx, "MinIO UploadStream failed, and reader is not seekable so it could not be rewound for retries", "error", err.Error())
 		}
-		return 0, err
+		return "", err
 	}
 
-	return size, nil
+	schema := "http"
+	if m.useSSL {
+		schema = "https"
+	}
+
+	return fmt.Sprintf("%s://%s/%s/%s", schema, m.endpoint, bucketName, objectName), nil
 }
