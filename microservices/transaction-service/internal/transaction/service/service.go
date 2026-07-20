@@ -106,6 +106,15 @@ func NewTransactionService(
 	}
 }
 
+// isDuplicateKeyError checks if error is MySQL duplicate key error
+func isDuplicateKeyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "Error 1062") ||
+		strings.Contains(err.Error(), "Duplicate entry")
+}
+
 func (s *transactionService) Transfer(ctx context.Context, senderUserID string, req model.TransferRequest) (*model.Transaction, error) {
 	// 1. Check Idempotency Key (double transaction security)
 	existing, _ := s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
@@ -168,6 +177,12 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 	defer initTx.Rollback()
 
 	if err := s.txRepo.CreateTx(ctx, initTx, txRecord); err != nil {
+		if isDuplicateKeyError(err) {
+			existing, getErr := s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
+			if getErr == nil && existing != nil {
+				return existing, nil
+			}
+		}
 		return nil, customErr.ErrInternalServer
 	}
 	if err := initTx.Commit(); err != nil {
@@ -578,6 +593,12 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 		Status:           "pending",
 	}
 	if err := s.txRepo.Create(ctx, transaction); err != nil {
+		if isDuplicateKeyError(err) {
+			existing, getErr := s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
+			if getErr == nil && existing != nil {
+				return existing, nil
+			}
+		}
 		return nil, customErr.ErrInternalServer
 	}
 
@@ -839,6 +860,43 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		return nil, err
 	}
 
+	transferID := uuid.New().String()
+	now := time.Now().UTC()
+	transfer := &transferModel.OutboundTransfer{
+		ID:              transferID,
+		SenderUserID:    senderUserID,
+		SenderWalletID:  senderWallet.Id,
+		ReceiverEmail:   req.ReceiverEmail,
+		Amount:          req.Amount,
+		Currency:        "IDR",
+		ExternalEwallet: "monolith",
+		Status:          "initiated", // Intent registered, wallet not yet debited
+		IdempotencyKey:  req.IdempotencyKey,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+
+	// 1. Create the transfer record in database FIRST to enforce database uniqueness on idempotency key
+	dbTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to start database transaction.")
+	}
+	defer dbTx.Rollback()
+
+	if err := s.transferRepo.CreateTx(ctx, dbTx, transfer); err != nil {
+		if isDuplicateKeyError(err) {
+			existing, getErr := s.transferRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
+			if getErr == nil && existing != nil {
+				return existing, nil
+			}
+		}
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record.")
+	}
+	if err := dbTx.Commit(); err != nil {
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to commit transfer record.")
+	}
+
+	// 2. Perform wallet debit
 	debitAmount := req.Amount.Neg()
 	err = s.walletBreaker.Call(func() error {
 		_, callErr := s.walletClient.UpdateWalletBalance(ctx, &pbWallet.UpdateBalanceRequest{
@@ -849,13 +907,25 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		return callErr
 	})
 	if err != nil {
+		s.markExternalTransferFailed(ctx, transferID)
 		if err.Error() == "circuit breaker is open — service unavailable" {
 			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
 		}
 		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENT_ERROR", "Failed to process transfer. Try again.")
 	}
 
-	transferID := uuid.New().String()
+	// 3. Transition to 'debited' immediately after successful wallet debit
+	if err := s.updateExternalTransferStatus(ctx, transferID, "debited"); err != nil {
+		logger.Log.Error("Failed to update transfer status to debited, triggering refund",
+			slog.String("transfer_id", transferID),
+			slog.Any("error", err),
+		)
+		s.markExternalTransferFailed(ctx, transferID)
+		s.refundSender(ctx, senderUserID, req.Amount, transferID)
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to update transfer status. Sender refunded.")
+	}
+
+	// 4. Record ledger entry
 	err = s.ledgerBreaker.Call(func() error {
 		var callErr error
 		_, callErr = s.ledgerClient.RecordLedgerEntry(ctx, &pbLedger.RecordEntryRequest{
@@ -867,6 +937,7 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		return callErr
 	})
 	if err != nil {
+		s.markExternalTransferFailed(ctx, transferID)
 		s.refundSender(ctx, senderUserID, req.Amount, transferID)
 		if err.Error() == "circuit breaker is open — service unavailable" {
 			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
@@ -874,20 +945,7 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record debit audit log. Sender refunded.")
 	}
 
-	now := time.Now().UTC()
-	transfer := &transferModel.OutboundTransfer{
-		ID:              transferID,
-		SenderUserID:    senderUserID,
-		SenderWalletID:  senderWallet.Id,
-		ReceiverEmail:   req.ReceiverEmail,
-		Amount:          req.Amount,
-		Currency:        "IDR",
-		ExternalEwallet: "monolith",
-		Status:          "pending",
-		IdempotencyKey:  req.IdempotencyKey,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}
+	// 5. Create outbox event and update status to 'pending'
 	event := transferModel.TransferInitiatedEvent{
 		EventID:        uuid.NewString(),
 		EventType:      "transfer.initiated",
@@ -899,7 +957,16 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		IdempotencyKey: req.IdempotencyKey,
 		OccurredAt:     now,
 	}
-	payload, _ := json.Marshal(event)
+	payload, err := json.Marshal(event)
+	if err != nil {
+		logger.Log.Error("Failed to marshal transfer event",
+			slog.String("transfer_id", transferID),
+			slog.Any("error", err),
+		)
+		s.markExternalTransferFailed(ctx, transferID)
+		s.refundSender(ctx, senderUserID, req.Amount, transferID)
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer event.")
+	}
 	outboxEvent := &transferModel.TransferOutboxEvent{
 		ID:          event.EventID,
 		EventType:   event.EventType,
@@ -908,28 +975,37 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		Status:      "pending",
 	}
 
-	dbTx, err := s.db.BeginTx(ctx, nil)
+	eventTx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		s.markExternalTransferFailed(ctx, transferID)
 		s.refundSender(ctx, senderUserID, req.Amount, transferID)
-		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer outbox transaction. Sender refunded.")
 	}
-	defer dbTx.Rollback()
+	defer eventTx.Rollback()
 
-	if err := s.transferRepo.CreateTx(ctx, dbTx, transfer); err != nil {
+	if err := s.transferRepo.UpdateStatusTx(ctx, eventTx, transferID, "pending"); err != nil {
+		logger.Log.Error("Failed to update transfer status to pending",
+			slog.String("transfer_id", transferID),
+			slog.Any("error", err),
+		)
+		s.markExternalTransferFailed(ctx, transferID)
 		s.refundSender(ctx, senderUserID, req.Amount, transferID)
-		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to create transfer record. Sender refunded.")
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to transition transfer status to pending.")
 	}
-	if err := s.outboxRepo.CreateTx(ctx, dbTx, outboxEvent); err != nil {
+
+	if err := s.outboxRepo.CreateTx(ctx, eventTx, outboxEvent); err != nil {
 		logger.Log.Error("Failed to publish transfer.initiated event to outbox",
 			slog.String("transfer_id", transferID),
 			slog.Any("error", err),
 		)
+		s.markExternalTransferFailed(ctx, transferID)
 		s.refundSender(ctx, senderUserID, req.Amount, transferID)
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to queue transfer for processing.")
 	}
-	if err := dbTx.Commit(); err != nil {
+	if err := eventTx.Commit(); err != nil {
+		s.markExternalTransferFailed(ctx, transferID)
 		s.refundSender(ctx, senderUserID, req.Amount, transferID)
-		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to commit transfer record. Sender refunded.")
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "TRANSFER_FAILED", "Failed to commit transfer outbox event. Sender refunded.")
 	}
 
 	logger.Log.Info("External transfer initiated, event queued",
@@ -937,6 +1013,7 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		slog.String("event_id", event.EventID),
 	)
 
+	transfer.Status = "pending"
 	return transfer, nil
 }
 
@@ -1058,6 +1135,13 @@ func (s *transactionService) refundSender(ctx context.Context, senderUserID stri
 			slog.String("user_id", senderUserID),
 			slog.Any("error", err),
 		)
+		s.dlqPublisher.Publish(ctx, "refund.failed", map[string]string{
+			"transfer_id": transferID,
+			"user_id":     senderUserID,
+			"amount":      amount.String(),
+			"step":        "get_wallet_for_refund",
+			"error":       err.Error(),
+		})
 		return
 	}
 
@@ -1075,6 +1159,13 @@ func (s *transactionService) refundSender(ctx context.Context, senderUserID stri
 			slog.String("amount", amount.String()),
 			slog.Any("error", err),
 		)
+		s.dlqPublisher.Publish(ctx, "refund.failed", map[string]string{
+			"transfer_id": transferID,
+			"user_id":     senderUserID,
+			"amount":      amount.String(),
+			"step":        "wallet_balance_update",
+			"error":       err.Error(),
+		})
 		return
 	}
 
@@ -1095,6 +1186,13 @@ func (s *transactionService) refundSender(ctx context.Context, senderUserID stri
 			slog.String("amount", amount.String()),
 			slog.Any("error", ledgerErr),
 		)
+		s.dlqPublisher.Publish(ctx, "refund.failed", map[string]string{
+			"transfer_id": transferID,
+			"user_id":     senderUserID,
+			"amount":      amount.String(),
+			"step":        "ledger_entry_recording",
+			"error":       ledgerErr.Error(),
+		})
 	}
 
 	logger.Log.Info("Compensation: sender refunded after failed transfer",
@@ -1131,7 +1229,7 @@ func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferMo
 		status = "failed"
 	}
 
-	needsRefund := status == "failed"
+	needsRefund := status == "failed" && transfer.Status != "initiated"
 
 	if err := s.transferRepo.UpdateStatusTx(ctx, tx, transfer.ID, status); err != nil {
 		return err
@@ -1188,57 +1286,99 @@ func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferMo
 }
 
 func (s *transactionService) ReconcilePendingTransfers(ctx context.Context) error {
+	// 1. Reconcile 'pending' transfers (check with monolith status)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, sender_wallet_id, receiver_email, amount, idempotency_key
 		FROM transactions
 		WHERE type = 'external_transfer' AND status = 'pending' AND created_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)`)
 	if err != nil {
+		logger.Log.Error("Failed to query pending transfers for reconciliation", slog.Any("error", err))
 		return fmt.Errorf("query pending transfers: %w", err)
 	}
 	defer rows.Close()
-
+	
 	var stale []transferModel.OutboundTransfer
 	for rows.Next() {
 		var t transferModel.OutboundTransfer
-		if err := rows.Scan(&t.ID, &t.SenderWalletID, &t.ReceiverEmail, &t.Amount, &t.IdempotencyKey); err != nil {
-			continue
+		if err := rows.Scan(&t.ID, &t.SenderWalletID, &t.ReceiverEmail, &t.Amount, &t.IdempotencyKey); err == nil {
+			stale = append(stale, t)
 		}
-		stale = append(stale, t)
 	}
-
+	
 	if err := rows.Err(); err != nil {
+		logger.Log.Error("Error iterating pending transfers", slog.Any("error", err))
 		return fmt.Errorf("error iterating pending transfers: %w", err)
 	}
 
-	if len(stale) == 0 {
-		return nil
+	if len(stale) > 0 {
+		logger.Log.Info("Reconciling stale pending transfers", "count", len(stale))
+		for _, t := range stale {
+			status, err := s.queryMonolithTransferStatus(ctx, t.ID)
+			if err != nil {
+				logger.Log.Warn("Could not query monolith for transfer status during reconciliation",
+					slog.String("transfer_id", t.ID),
+					slog.Any("error", err),
+				)
+				continue
+			}
+
+			if status == "success" || status == "failed" {
+				logger.Log.Info("Reconciliation: settling stale transfer",
+					slog.String("transfer_id", t.ID),
+					slog.String("status", status),
+				)
+				_ = s.SettleTransferTx(ctx, transferModel.TransferCallback{
+					TransferID:     t.ID,
+					Status:         status,
+					ReceiverEmail:  t.ReceiverEmail,
+					Amount:         t.Amount.String(),
+					IdempotencyKey: t.IdempotencyKey,
+				})
+			}
+		}
 	}
 
-	logger.Log.Info("Reconciling stale pending transfers", "count", len(stale))
+	// 2. Reconcile 'initiated' transfers (never debited, just mark failed)
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE transactions
+		SET status = 'failed', updated_at = NOW()
+		WHERE type = 'external_transfer' AND status = 'initiated' AND created_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)`)
+	if err != nil {
+		logger.Log.Error("Failed to reconcile initiated transfers", slog.Any("error", err))
+		return fmt.Errorf("reconcile initiated transfers: %w", err)
+	}
 
-	for _, t := range stale {
-		status, err := s.queryMonolithTransferStatus(ctx, t.ID)
-		if err != nil {
-			logger.Log.Warn("Could not query monolith for transfer status during reconciliation",
-				slog.String("transfer_id", t.ID),
-				slog.Any("error", err),
-			)
-			continue
-		}
+	// 3. Reconcile 'debited' transfers (debited but not fully pending, must refund)
+	debitedRows, err := s.db.QueryContext(ctx, `
+		SELECT id, sender_user_id, sender_wallet_id, receiver_email, amount, idempotency_key
+		FROM transactions
+		WHERE type = 'external_transfer' AND status = 'debited' AND created_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)`)
+	if err != nil {
+		logger.Log.Error("Failed to query debited transfers for reconciliation", slog.Any("error", err))
+		return fmt.Errorf("query debited transfers: %w", err)
+	}
+	defer debitedRows.Close()
 
-		if status == "success" || status == "failed" {
-			logger.Log.Info("Reconciliation: settling stale transfer",
-				slog.String("transfer_id", t.ID),
-				slog.String("status", status),
-			)
-			_ = s.SettleTransferTx(ctx, transferModel.TransferCallback{
-				TransferID:     t.ID,
-				Status:         status,
-				ReceiverEmail:  t.ReceiverEmail,
-				Amount:         t.Amount.String(),
-				IdempotencyKey: t.IdempotencyKey,
-			})
+	for debitedRows.Next() {
+		var id, senderUserID, senderWalletID, receiverEmail, idempotencyKey string
+		var amount decimal.Decimal
+		if err := debitedRows.Scan(&id, &senderUserID, &senderWalletID, &receiverEmail, &amount, &idempotencyKey); err == nil {
+			logger.Log.Info("Reconciliation: refunding stale debited transfer", slog.String("transfer_id", id))
+			tx, txErr := s.db.BeginTx(ctx, nil)
+			if txErr == nil {
+				if err := s.transferRepo.UpdateStatusTx(ctx, tx, id, "failed"); err == nil {
+					_ = tx.Commit()
+					s.refundSender(ctx, senderUserID, amount, id)
+				} else {
+					_ = tx.Rollback()
+				}
+			}
 		}
+	}
+
+	if err := debitedRows.Err(); err != nil {
+		logger.Log.Error("Error iterating debited transfers", slog.Any("error", err))
+		return fmt.Errorf("error iterating debited transfers: %w", err)
 	}
 
 	return nil
@@ -1325,4 +1465,38 @@ func (s *transactionService) markFailed(ctx context.Context, transactionID strin
 			slog.Any("error", err),
 		)
 	}
+}
+
+func (s *transactionService) markExternalTransferFailed(ctx context.Context, transferID string) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		logger.Log.Error("Failed to start db transaction to mark external transfer as failed",
+			slog.String("transfer_id", transferID),
+			slog.Any("error", err),
+		)
+		return
+	}
+	defer tx.Rollback()
+
+	if err := s.transferRepo.UpdateStatusTx(ctx, tx, transferID, "failed"); err != nil {
+		logger.Log.Error("Failed to update external transfer status to failed",
+			slog.String("transfer_id", transferID),
+			slog.Any("error", err),
+		)
+		return
+	}
+	_ = tx.Commit()
+}
+
+func (s *transactionService) updateExternalTransferStatus(ctx context.Context, transferID string, status string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := s.transferRepo.UpdateStatusTx(ctx, tx, transferID, status); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
