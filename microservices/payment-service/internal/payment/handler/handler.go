@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"html"
 	"io"
 	"net/http"
 
@@ -95,7 +96,7 @@ func (h *PaymentHandler) ProcessWebhook(c *gin.Context) {
 
 // SuccessCallback handles redirect from Stripe on success
 func (h *PaymentHandler) SuccessCallback(c *gin.Context) {
-	sessionID := c.Query("session_id")
+	sessionID := html.EscapeString(c.Query("session_id"))
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(`
 		<!DOCTYPE html>
 		<html>

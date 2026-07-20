@@ -108,7 +108,7 @@ func main() {
 		}
 	}
 
-	logger.Log.Info("Ledger HTTP Server running on port " + cfg.LedgerPort + "...")
+	logger.Log.Info("Ledger HTTP Server running", "port", cfg.LedgerPort)
 	if err := r.Run(":" + cfg.LedgerPort); err != nil {
 		logger.Fatal(context.Background(), "Failed to run HTTP server", "error", err)
 	}
