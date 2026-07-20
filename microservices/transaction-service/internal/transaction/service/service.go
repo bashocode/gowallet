@@ -776,6 +776,8 @@ func (s *transactionService) validateReceiverEmail(ctx context.Context, email st
 	}
 
 	inquiryURL := fmt.Sprintf("%s/api/v1/wallets/inquiry", s.monolithBaseURL)
+	logger.Log.Info("validateReceiverEmail: calling monolith inquiry", slog.String("email", email), slog.String("url", inquiryURL))
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, inquiryURL, bytes.NewBuffer(reqJSON))
 	if err != nil {
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create inquiry request")
@@ -791,6 +793,15 @@ func (s *transactionService) validateReceiverEmail(ctx context.Context, email st
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		logger.Log.Warn("Monolith inquiry returned non-OK status",
+			slog.String("email", email),
+			slog.Int("status_code", resp.StatusCode),
+			slog.String("body", string(bodyBytes)),
+		)
+	}
+
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_RECEIVER", "Receiver email not found in monolith system")
 	}
@@ -798,10 +809,11 @@ func (s *transactionService) validateReceiverEmail(ctx context.Context, email st
 		return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Monolith service temporarily unavailable")
 	}
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		logger.Error(ctx, "Monolith inquiry returned error", slog.String("status", resp.Status), slog.String("body", string(bodyBytes)))
 		return nil, customErr.NewAppError(http.StatusInternalServerError, "INQUIRY_FAILED", "Failed to validate receiver email")
 	}
+
+	// Recreate body reader for decoding
+	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	var apiResp struct {
 		Success bool                               `json:"success"`
