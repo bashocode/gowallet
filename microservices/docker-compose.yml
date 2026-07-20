@@ -176,10 +176,15 @@ services:
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - RABBITMQ_USER=${RABBITMQ_USER}
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
     depends_on:
       - mysql
       - redis
       - rabbitmq
+      - minio
     networks:
       - gowallet-network
     restart: unless-stopped
@@ -317,6 +322,7 @@ services:
       - MINIO_ENDPOINT=${MINIO_ENDPOINT}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
       - OUTBOX_ARCHIVE_AGE=${OUTBOX_ARCHIVE_AGE}
     depends_on:
       - auth-service

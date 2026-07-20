@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
+	"time"
 
 	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
+	"github.com/bashocode/gowallet/microservices/shared/logger"
+	"github.com/bashocode/gowallet/microservices/shared/storage"
 	"github.com/bashocode/gowallet/microservices/shared/utils"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/model"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/service"
@@ -13,11 +16,15 @@ import (
 )
 
 type UserHandler struct {
-	svc service.UserService
+	svc     service.UserService
+	storage storage.ObjectStorage
 }
 
-func NewUserHandler(svc service.UserService) *UserHandler {
-	return &UserHandler{svc: svc}
+func NewUserHandler(svc service.UserService, storage storage.ObjectStorage) *UserHandler {
+	return &UserHandler{
+		svc:     svc,
+		storage: storage,
+	}
 }
 
 func (h *UserHandler) Register(c *gin.Context) {
@@ -102,36 +109,49 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 		return
 	}
 
-	file, err := c.FormFile("avatar")
+	fileHeader, err := c.FormFile("avatar")
 	if err != nil {
 		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Please upload an avatar."))
 		return
 	}
 
-	if file.Size > 2*1024*1024 {
+	if fileHeader.Size > 2*1024*1024 {
 		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_FILE", "File size must be less than 2MB."))
 		return
 	}
 
-	ext := filepath.Ext(file.Filename)
-	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
-		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Invalid file format. Please upload a JPG, JPEG, or PNG image."))
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Failed to read file"))
+		return
+	}
+	defer file.Close()
+
+	contentType := fileHeader.Header.Get("Content-Type")
+	if contentType != "image/png" && contentType != "image/jpeg" {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Only PNG and JPEG formats are allowed"))
 		return
 	}
 
-	uploadDir := "./uploads"
-	_ = os.MkdirAll(uploadDir, os.ModePerm)
+	ext := filepath.Ext(fileHeader.Filename)
+	if ext == "" {
+		if contentType == "image/png" {
+			ext = ".png"
+		} else {
+			ext = ".jpg"
+		}
+	}
 
-	filename := userIDStr + ext
-	dst := filepath.Join(uploadDir, filename)
-
-	if err := c.SaveUploadedFile(file, dst); err != nil {
+	objectName := fmt.Sprintf("avatar-%s-%d%s", userIDStr, time.Now().Unix(), ext)
+	avatarURL, err := h.storage.UploadStream(c.Request.Context(), "avatars", objectName, file, fileHeader.Size, contentType)
+	if err != nil {
+		logger.Error(c.Request.Context(), "Failed to upload avatar to MinIO", "error", err.Error())
 		c.Error(customErr.ErrInternalServer)
 		return
 	}
 
-	avatarURL := "/uploads/" + filename
 	if err := h.svc.UpdateAvatar(c.Request.Context(), userIDStr, avatarURL); err != nil {
+		logger.Error(c.Request.Context(), "Failed to update avatar in database", "error", err.Error())
 		c.Error(customErr.ErrInternalServer)
 		return
 	}

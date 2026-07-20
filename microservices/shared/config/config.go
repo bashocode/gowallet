@@ -47,6 +47,7 @@ type Config struct {
 	MinioEndpoint         string
 	MinioAccessKey        string
 	MinioSecretKey        string
+	MinioPublicURL        string
 	OutboxArchiveAge      string
 }
 
@@ -256,6 +257,11 @@ func LoadConfig() *Config {
 		minioSecretKey = "minioadmin"
 	}
 
+	minioPublicURL := os.Getenv("MINIO_PUBLIC_URL")
+	if minioPublicURL == "" {
+		minioPublicURL = "http://localhost:9000"
+	}
+
 	outboxArchiveAge := os.Getenv("OUTBOX_ARCHIVE_AGE")
 	if outboxArchiveAge == "" {
 		outboxArchiveAge = "24h"
@@ -301,6 +307,7 @@ func LoadConfig() *Config {
 		MinioEndpoint:         minioEndpoint,
 		MinioAccessKey:        minioAccessKey,
 		MinioSecretKey:        minioSecretKey,
+		MinioPublicURL:        minioPublicURL,
 		OutboxArchiveAge:      outboxArchiveAge,
 	}
 }

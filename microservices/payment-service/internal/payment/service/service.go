@@ -70,7 +70,7 @@ func (s *paymentService) CreateCheckoutSession(ctx context.Context, userID strin
 	}
 
 	// Stripe accepts amount in cents (e.g. $10.00 = 1000 cents)
-	cents := req.Amount.Mul(decimal.NewFromInt(100)).IntPart()
+	cents := req.Amount.Mul(decimal.NewFromInt(100)).Round(0).IntPart()
 
 	params := &stripe.CheckoutSessionParams{
 		PaymentMethodTypes: stripe.StringSlice([]string{"card"}),

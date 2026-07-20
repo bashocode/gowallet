@@ -152,7 +152,7 @@ func main() {
 	sched.Start()
 
 	// 6. Initialize MinIO for Outbox Archiver
-	minioStorage, err := storage.NewMinioStorage(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, false)
+	minioStorage, err := storage.NewMinioStorage(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioPublicURL, false)
 	if err != nil {
 		logger.Fatal(context.Background(), "Failed to initialize MinIO storage", "error", err)
 	}

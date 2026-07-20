@@ -13,13 +13,15 @@ import (
 )
 
 type mockMinioClient struct {
-	bucketExistsFn func(ctx context.Context, bucketName string) (bool, error)
-	makeBucketFn   func(ctx context.Context, bucketName string, options minio.MakeBucketOptions) error
-	putObjectFn    func(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error)
+	bucketExistsFn    func(ctx context.Context, bucketName string) (bool, error)
+	makeBucketFn      func(ctx context.Context, bucketName string, options minio.MakeBucketOptions) error
+	putObjectFn       func(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error)
+	setBucketPolicyFn func(ctx context.Context, bucketName, policy string) error
 
-	bucketExistsCalls int
-	makeBucketCalls   int
-	putObjectCalls    int
+	bucketExistsCalls    int
+	makeBucketCalls      int
+	putObjectCalls       int
+	setBucketPolicyCalls int
 }
 
 func (m *mockMinioClient) BucketExists(ctx context.Context, bucketName string) (bool, error) {
@@ -28,6 +30,14 @@ func (m *mockMinioClient) BucketExists(ctx context.Context, bucketName string) (
 		return m.bucketExistsFn(ctx, bucketName)
 	}
 	return false, nil
+}
+
+func (m *mockMinioClient) SetBucketPolicy(ctx context.Context, bucketName, policy string) error {
+	m.setBucketPolicyCalls++
+	if m.setBucketPolicyFn != nil {
+		return m.setBucketPolicyFn(ctx, bucketName, policy)
+	}
+	return nil
 }
 
 func (m *mockMinioClient) MakeBucket(ctx context.Context, bucketName string, options minio.MakeBucketOptions) error {
@@ -49,6 +59,8 @@ func (m *mockMinioClient) PutObject(ctx context.Context, bucketName, objectName 
 func newTestMinioStorage(mockClient minioClient) *minioStorage {
 	return &minioStorage{
 		client:         mockClient,
+		endpoint:       "localhost:9000",
+		useSSL:         false,
 		maxRetries:     3,
 		initialBackoff: 1 * time.Millisecond,
 		maxBackoff:     5 * time.Millisecond,
@@ -74,9 +86,6 @@ func TestEnsureBucket_Success_CreateBucket(t *testing.T) {
 		bucketExistsFn: func(ctx context.Context, bucketName string) (bool, error) {
 			return false, nil
 		},
-		makeBucketFn: func(ctx context.Context, bucketName string, options minio.MakeBucketOptions) error {
-			return nil
-		},
 	}
 	store := newTestMinioStorage(mock)
 
@@ -86,26 +95,16 @@ func TestEnsureBucket_Success_CreateBucket(t *testing.T) {
 	assert.Equal(t, 1, mock.makeBucketCalls)
 }
 
-func TestEnsureBucket_RetryAndSuccess(t *testing.T) {
-	attempt := 0
-	mock := &mockMinioClient{
-		bucketExistsFn: func(ctx context.Context, bucketName string) (bool, error) {
-			attempt++
-			if attempt == 1 {
-				return false, errors.New("temporary error")
-			}
-			return true, nil
-		},
-	}
+func TestMakeBucketPublic_Success(t *testing.T) {
+	mock := &mockMinioClient{}
 	store := newTestMinioStorage(mock)
 
-	err := store.EnsureBucket(context.Background(), "my-bucket")
+	err := store.MakeBucketPublic(context.Background(), "my-bucket")
 	assert.NoError(t, err)
-	assert.Equal(t, 2, mock.bucketExistsCalls)
-	assert.Equal(t, 0, mock.makeBucketCalls)
+	assert.Equal(t, 1, mock.setBucketPolicyCalls)
 }
 
-func TestEnsureBucket_MaxRetriesReached(t *testing.T) {
+func TestEnsureBucket_RetryAndFail(t *testing.T) {
 	mock := &mockMinioClient{
 		bucketExistsFn: func(ctx context.Context, bucketName string) (bool, error) {
 			return false, errors.New("persistent error")
@@ -128,9 +127,9 @@ func TestUploadStream_Success(t *testing.T) {
 	store := newTestMinioStorage(mock)
 
 	data := []byte("hello world")
-	size, err := store.UploadStream(context.Background(), "my-bucket", "my-object", bytes.NewReader(data), int64(len(data)), "text/plain")
+	url, err := store.UploadStream(context.Background(), "my-bucket", "my-object", bytes.NewReader(data), int64(len(data)), "text/plain")
 	assert.NoError(t, err)
-	assert.Equal(t, int64(100), size)
+	assert.Equal(t, "http://localhost:9000/my-bucket/my-object", url)
 	assert.Equal(t, 1, mock.putObjectCalls)
 }
 
@@ -155,9 +154,9 @@ func TestUploadStream_RetryAndSuccess_Seeker(t *testing.T) {
 	store := newTestMinioStorage(mock)
 
 	data := []byte("hello world")
-	size, err := store.UploadStream(context.Background(), "my-bucket", "my-object", bytes.NewReader(data), int64(len(data)), "text/plain")
+	url, err := store.UploadStream(context.Background(), "my-bucket", "my-object", bytes.NewReader(data), int64(len(data)), "text/plain")
 	assert.NoError(t, err)
-	assert.Equal(t, int64(11), size)
+	assert.Equal(t, "http://localhost:9000/my-bucket/my-object", url)
 	assert.Equal(t, 2, mock.putObjectCalls)
 }
 
@@ -197,3 +196,26 @@ func TestEnsureBucket_ContextCancelled(t *testing.T) {
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, context.Canceled))
 }
+
+func TestUploadStream_Success_PublicURL(t *testing.T) {
+	mock := &mockMinioClient{
+		putObjectFn: func(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error) {
+			return minio.UploadInfo{Size: 100}, nil
+		},
+	}
+	store := &minioStorage{
+		client:         mock,
+		endpoint:       "minio:9000",
+		publicURL:      "https://cdn.example.com",
+		useSSL:         false,
+		maxRetries:     3,
+		initialBackoff: 1 * time.Millisecond,
+		maxBackoff:     5 * time.Millisecond,
+	}
+
+	data := []byte("hello world")
+	url, err := store.UploadStream(context.Background(), "my-bucket", "my-object", bytes.NewReader(data), int64(len(data)), "text/plain")
+	assert.NoError(t, err)
+	assert.Equal(t, "https://cdn.example.com/my-bucket/my-object", url)
+}
+

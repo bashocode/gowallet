@@ -270,10 +270,10 @@ func TestTransfer_DebitFails(t *testing.T) {
 		t.Fatal("Expected error on debit failure, got nil")
 	}
 
-	// Verify status in DB is FAILED
+	// Verify status in DB is failed
 	savedTx, _ := txRepo.GetByIdempotencyKey(context.Background(), "idem-key-2")
-	if savedTx == nil || savedTx.Status != "FAILED" {
-		t.Errorf("Expected saved transaction status to be FAILED, got: %v", savedTx)
+	if savedTx == nil || savedTx.Status != "failed" {
+		t.Errorf("Expected saved transaction status to be failed, got: %v", savedTx)
 	}
 
 	// No outbox event should be written when the transfer fails.
@@ -342,8 +342,8 @@ func TestTransfer_CreditFails_CompensationSucceeds(t *testing.T) {
 	}
 
 	savedTx, _ := txRepo.GetByIdempotencyKey(context.Background(), "idem-key-3")
-	if savedTx == nil || savedTx.Status != "FAILED" {
-		t.Errorf("Expected saved transaction status to be FAILED")
+	if savedTx == nil || savedTx.Status != "failed" {
+		t.Errorf("Expected saved transaction status to be failed")
 	}
 }
 
@@ -404,8 +404,8 @@ func TestTransfer_LedgerFails_CompensationSucceeds(t *testing.T) {
 	}
 
 	savedTx, _ := txRepo.GetByIdempotencyKey(context.Background(), "idem-key-4")
-	if savedTx == nil || savedTx.Status != "FAILED" {
-		t.Errorf("Expected saved transaction status to be FAILED")
+	if savedTx == nil || savedTx.Status != "failed" {
+		t.Errorf("Expected saved transaction status to be failed")
 	}
 }
 
