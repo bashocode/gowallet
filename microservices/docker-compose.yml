@@ -92,6 +92,7 @@ services:
     ports:
       - "${GATEWAY_PORT}:${GATEWAY_PORT}"
     environment:
+      APP_ENV: ${APP_ENV}
       AUTH_SERVICE_URL: ${AUTH_SERVICE_URL}
       USER_SERVICE_URL: ${USER_SERVICE_URL}
       WALLET_SERVICE_URL: ${WALLET_SERVICE_URL}
@@ -100,6 +101,7 @@ services:
       PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL}
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
+      JWT_SECRET: ${JWT_SECRET}
     depends_on:
       auth-service:
         condition: service_started
@@ -130,6 +132,7 @@ services:
       - "${AUTH_PORT}:${AUTH_PORT}"
       - "${AUTH_GRPC_PORT}:${AUTH_GRPC_PORT}"
     environment:
+      - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
@@ -160,6 +163,7 @@ services:
     ports:
       - "${USER_PORT}:${USER_PORT}"
     environment:
+      - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
@@ -198,6 +202,7 @@ services:
       - "${WALLET_PORT}:${WALLET_PORT}"
       - "${WALLET_GRPC_PORT}:${WALLET_GRPC_PORT}"
     environment:
+      - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
@@ -222,6 +227,7 @@ services:
       - "${LEDGER_PORT}:${LEDGER_PORT}"
       - "${LEDGER_GRPC_PORT}:${LEDGER_GRPC_PORT}"
     environment:
+      - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
@@ -247,6 +253,7 @@ services:
       - "${TRANSACTION_PORT}:${TRANSACTION_PORT}"
       - "${TRANSACTION_GRPC_PORT}:${TRANSACTION_GRPC_PORT}"
     environment:
+      - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
@@ -284,6 +291,7 @@ services:
       - "${PAYMENT_PORT}:${PAYMENT_PORT}"
       - "${PAYMENT_GRPC_PORT}:${PAYMENT_GRPC_PORT}"
     environment:
+      - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
@@ -314,6 +322,7 @@ services:
       dockerfile: scheduler-service/Dockerfile
     container_name: gowallet-scheduler-service-ms
     environment:
+      - APP_ENV=${APP_ENV}
       - AUTH_GRPC_ADDR=${AUTH_GRPC_ADDR}
       - USER_GRPC_ADDR=${USER_GRPC_ADDR}
       - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
@@ -324,6 +333,7 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
       - OUTBOX_ARCHIVE_AGE=${OUTBOX_ARCHIVE_AGE}
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
       - auth-service
       - user-service
@@ -339,6 +349,7 @@ services:
       dockerfile: notification-service/Dockerfile
     container_name: gowallet-notification-service-ms
     environment:
+      - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
@@ -352,6 +363,7 @@ services:
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_FROM=${SMTP_FROM}
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
       - mysql
       - rabbitmq
@@ -367,11 +379,13 @@ services:
       dockerfile: audit-service/Dockerfile
     container_name: gowallet-audit-service-ms
     environment:
+      - APP_ENV=${APP_ENV}
       - MONGO_URL=${MONGO_URL}
       - RABBITMQ_HOST=${RABBITMQ_HOST}
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - RABBITMQ_USER=${RABBITMQ_USER}
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
       - mongodb
       - rabbitmq
