@@ -1,313 +1,202 @@
 package config
 
 import (
+	"log"
 	"os"
+	"reflect"
 
-	"github.com/bashocode/gowallet/microservices/shared/logger"
-	"github.com/joho/godotenv"
+	"github.com/spf13/viper"
 )
 
 type Config struct {
-	DBDSN                 string
-	RedisAddr             string
-	RabbitMQURL           string
-	MongoURL              string
-	SMTPHost              string
-	SMTPPort              string
-	SMTPFrom              string
-	GoogleClientID        string
-	GoogleClientSecret    string
-	GoogleRedirectURL     string
-	AuthServiceURL        string
-	UserServiceURL        string
-	WalletServiceURL      string
-	LedgerServiceURL      string
-	TransactionServiceURL string
-	PaymentServiceURL     string
-	UserGRPCAddr          string
-	WalletGRPCAddr        string
-	LedgerGRPCAddr        string
-	TransactionGRPCAddr   string
-	PaymentGRPCAddr       string
-	StripeSecretKey       string
-	AuthGRPCAddr          string
-	StripeWebhookSecret   string
-	BaseURL               string
-	MonolithBaseURL       string
-	TransactionBaseURL    string
-	WebhookSecret         string
-	GatewayCallbackURL    string
-	GatewayPort           string
-	AuthPort              string
-	WalletPort            string
-	PaymentPort           string
-	UserPort              string
-	LedgerPort            string
-	TransactionPort       string
-	MinioEndpoint         string
-	MinioAccessKey        string
-	MinioSecretKey        string
-	MinioPublicURL        string
-	OutboxArchiveAge      string
+	AppEnv                string `mapstructure:"APP_ENV"`
+	JWTSecret             string `mapstructure:"JWT_SECRET"`
+	DBDSN                 string `mapstructure:"DB_DSN"`
+	RedisAddr             string `mapstructure:"REDIS_ADDR"`
+	RabbitMQURL           string `mapstructure:"RABBITMQ_URL"`
+	MongoURL              string `mapstructure:"MONGO_URL"`
+	SMTPHost              string `mapstructure:"SMTP_HOST"`
+	SMTPPort              string `mapstructure:"SMTP_PORT"`
+	SMTPFrom              string `mapstructure:"SMTP_FROM"`
+	GoogleClientID        string `mapstructure:"GOOGLE_CLIENT_ID"`
+	GoogleClientSecret    string `mapstructure:"GOOGLE_CLIENT_SECRET"`
+	GoogleRedirectURL     string `mapstructure:"GOOGLE_REDIRECT_URL"`
+	AuthServiceURL        string `mapstructure:"AUTH_SERVICE_URL"`
+	UserServiceURL        string `mapstructure:"USER_SERVICE_URL"`
+	WalletServiceURL      string `mapstructure:"WALLET_SERVICE_URL"`
+	LedgerServiceURL      string `mapstructure:"LEDGER_SERVICE_URL"`
+	TransactionServiceURL string `mapstructure:"TRANSACTION_SERVICE_URL"`
+	PaymentServiceURL     string `mapstructure:"PAYMENT_SERVICE_URL"`
+	UserGRPCAddr          string `mapstructure:"USER_GRPC_ADDR"`
+	WalletGRPCAddr        string `mapstructure:"WALLET_GRPC_ADDR"`
+	LedgerGRPCAddr        string `mapstructure:"LEDGER_GRPC_ADDR"`
+	TransactionGRPCAddr   string `mapstructure:"TRANSACTION_GRPC_ADDR"`
+	PaymentGRPCAddr       string `mapstructure:"PAYMENT_GRPC_ADDR"`
+	StripeSecretKey       string `mapstructure:"STRIPE_SECRET_KEY"`
+	AuthGRPCAddr          string `mapstructure:"AUTH_GRPC_ADDR"`
+	StripeWebhookSecret   string `mapstructure:"STRIPE_WEBHOOK_SECRET"`
+	BaseURL               string `mapstructure:"BASE_URL"`
+	MonolithBaseURL       string `mapstructure:"MONOLITH_BASE_URL"`
+	TransactionBaseURL    string `mapstructure:"TRANSACTION_BASE_URL"`
+	WebhookSecret         string `mapstructure:"WEBHOOK_SECRET"`
+	GatewayCallbackURL    string `mapstructure:"GATEWAY_CALLBACK_URL"`
+	GatewayPort           string `mapstructure:"GATEWAY_PORT"`
+	AuthPort              string `mapstructure:"AUTH_PORT"`
+	WalletPort            string `mapstructure:"WALLET_PORT"`
+	PaymentPort           string `mapstructure:"PAYMENT_PORT"`
+	UserPort              string `mapstructure:"USER_PORT"`
+	LedgerPort            string `mapstructure:"LEDGER_PORT"`
+	TransactionPort       string `mapstructure:"TRANSACTION_PORT"`
+	MinioEndpoint         string `mapstructure:"MINIO_ENDPOINT"`
+	MinioAccessKey        string `mapstructure:"MINIO_ACCESS_KEY"`
+	MinioSecretKey        string `mapstructure:"MINIO_SECRET_KEY"`
+	MinioPublicURL        string `mapstructure:"MINIO_PUBLIC_URL"`
+	OutboxArchiveAge      string `mapstructure:"OUTBOX_ARCHIVE_AGE"`
+	DBHost                string `mapstructure:"DB_HOST"`
+	DBPort                string `mapstructure:"DB_PORT"`
+	DBUser                string `mapstructure:"DB_USER"`
+	DBPassword            string `mapstructure:"DB_PASSWORD"`
+	DBName                string `mapstructure:"DB_NAME"`
+	RedisHost             string `mapstructure:"REDIS_HOST"`
+	RedisPort             string `mapstructure:"REDIS_PORT"`
+	RabbitMQHost          string `mapstructure:"RABBITMQ_HOST"`
+	RabbitMQPort          string `mapstructure:"RABBITMQ_PORT"`
+	RabbitMQUser          string `mapstructure:"RABBITMQ_USER"`
+	RabbitMQPassword      string `mapstructure:"RABBITMQ_PASSWORD"`
 }
 
 func LoadConfig() *Config {
-	// load file .env if there is any
-	if err := godotenv.Load(); err != nil {
-		logger.Log.Info("Warning: .env file not found, using environment variables")
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = "development"
+	}
+	if env != "development" && env != "staging" && env != "production" {
+		log.Fatalf("unsupported APP_ENV %q", env)
 	}
 
-	dsn := os.Getenv("DB_USER") + ":" +
-		os.Getenv("DB_PASSWORD") + "@tcp(" +
-		os.Getenv("DB_HOST") + ":" +
-		os.Getenv("DB_PORT") + ")/" +
-		os.Getenv("DB_NAME") + "?parseTime=true"
+	viper.SetConfigName(".env." + env)
+	viper.SetConfigType("env")
+	viper.AddConfigPath(".")
+	viper.AddConfigPath("../..")
+	viper.AutomaticEnv()
 
-	redisAddr := os.Getenv("REDIS_HOST") + ":" + os.Getenv("REDIS_PORT")
-
-	rabbitmqHost := os.Getenv("RABBITMQ_HOST")
-	if rabbitmqHost == "" {
-		rabbitmqHost = "localhost"
-	}
-	rabbitmqPort := os.Getenv("RABBITMQ_PORT")
-	if rabbitmqPort == "" {
-		rabbitmqPort = "5672"
-	}
-	rabbitmqUser := os.Getenv("RABBITMQ_USER")
-	if rabbitmqUser == "" {
-		rabbitmqUser = "guest"
-	}
-	rabbitmqPassword := os.Getenv("RABBITMQ_PASSWORD")
-	if rabbitmqPassword == "" {
-		rabbitmqPassword = "guest"
-	}
-	rabbitmqURL := "amqp://" + rabbitmqUser + ":" + rabbitmqPassword + "@" + rabbitmqHost + ":" + rabbitmqPort + "/"
-
-	mongoURL := os.Getenv("MONGO_URL")
-	if mongoURL == "" {
-		mongoURL = "mongodb://localhost:27017"
+	if err := viper.ReadInConfig(); err != nil {
+		log.Printf("Warning: .env.%s file not found, loading config from system environment variables", env)
 	}
 
-	smtpHost := os.Getenv("SMTP_HOST")
-	if smtpHost == "" {
-		smtpHost = "localhost"
-	}
-	smtpPort := os.Getenv("SMTP_PORT")
-	if smtpPort == "" {
-		smtpPort = "1025"
-	}
-	smtpFrom := os.Getenv("SMTP_FROM")
-	if smtpFrom == "" {
-		smtpFrom = "no-reply@gowallet.com"
+	bindEnvVars(Config{})
+	setDefaults()
+
+	var cfg Config
+	if err := viper.Unmarshal(&cfg); err != nil {
+		log.Fatalf("Unable to decode config into struct: %v", err)
 	}
 
-	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
-	if googleClientID == "" {
-		googleClientID = ""
-	}
-	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-	if googleClientSecret == "" {
-		googleClientSecret = ""
-	}
-	googleRedirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
-	if googleRedirectURL == "" {
-		googleRedirectURL = "http://localhost:8080/api/v1/auth/google/callback"
+	if cfg.DBDSN == "" && cfg.DBUser != "" {
+		cfg.DBDSN = cfg.DBUser + ":" + cfg.DBPassword + "@tcp(" + cfg.DBHost + ":" + cfg.DBPort + ")/" + cfg.DBName + "?parseTime=true"
 	}
 
-	authServiceURL := os.Getenv("AUTH_SERVICE_URL")
-	if authServiceURL == "" {
-		authServiceURL = "http://localhost:8081"
+	if cfg.RedisAddr == "" && cfg.RedisHost != "" {
+		cfg.RedisAddr = cfg.RedisHost + ":" + cfg.RedisPort
 	}
 
-	userServiceURL := os.Getenv("USER_SERVICE_URL")
-	if userServiceURL == "" {
-		userServiceURL = "http://localhost:8084"
+	if cfg.RabbitMQURL == "" && cfg.RabbitMQHost != "" {
+		cfg.RabbitMQURL = "amqp://" + cfg.RabbitMQUser + ":" + cfg.RabbitMQPassword + "@" + cfg.RabbitMQHost + ":" + cfg.RabbitMQPort + "/"
 	}
 
-	walletServiceURL := os.Getenv("WALLET_SERVICE_URL")
-	if walletServiceURL == "" {
-		walletServiceURL = "http://localhost:8082"
+	if cfg.JWTSecret == "" {
+		log.Fatal("JWT_SECRET is required")
+	}
+	if env == "production" && len(cfg.JWTSecret) < 32 {
+		log.Fatal("JWT_SECRET must contain at least 32 bytes in production")
 	}
 
-	ledgerServiceURL := os.Getenv("LEDGER_SERVICE_URL")
-	if ledgerServiceURL == "" {
-		ledgerServiceURL = "http://localhost:8085"
+	if env == "production" {
+		validateProductionSecrets(&cfg)
 	}
 
-	transactionServiceURL := os.Getenv("TRANSACTION_SERVICE_URL")
-	if transactionServiceURL == "" {
-		transactionServiceURL = "http://localhost:8086"
+	return &cfg
+}
+
+func setDefaults() {
+	viper.SetDefault("REDIS_HOST", "localhost")
+	viper.SetDefault("REDIS_PORT", "6379")
+	viper.SetDefault("RABBITMQ_HOST", "localhost")
+	viper.SetDefault("RABBITMQ_PORT", "5672")
+	viper.SetDefault("RABBITMQ_USER", "guest")
+	viper.SetDefault("RABBITMQ_PASSWORD", "guest")
+	viper.SetDefault("MONGO_URL", "mongodb://localhost:27017")
+	viper.SetDefault("SMTP_HOST", "localhost")
+	viper.SetDefault("SMTP_PORT", "1025")
+	viper.SetDefault("SMTP_FROM", "no-reply@gowallet.com")
+	viper.SetDefault("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/v1/auth/google/callback")
+	viper.SetDefault("AUTH_SERVICE_URL", "http://localhost:8081")
+	viper.SetDefault("USER_SERVICE_URL", "http://localhost:8084")
+	viper.SetDefault("WALLET_SERVICE_URL", "http://localhost:8082")
+	viper.SetDefault("LEDGER_SERVICE_URL", "http://localhost:8085")
+	viper.SetDefault("TRANSACTION_SERVICE_URL", "http://localhost:8086")
+	viper.SetDefault("PAYMENT_SERVICE_URL", "http://localhost:8083")
+	viper.SetDefault("USER_GRPC_ADDR", "localhost:50052")
+	viper.SetDefault("WALLET_GRPC_ADDR", "localhost:50053")
+	viper.SetDefault("LEDGER_GRPC_ADDR", "localhost:50054")
+	viper.SetDefault("TRANSACTION_GRPC_ADDR", "localhost:50055")
+	viper.SetDefault("PAYMENT_GRPC_ADDR", "localhost:50056")
+	viper.SetDefault("AUTH_GRPC_ADDR", "localhost:50051")
+	viper.SetDefault("BASE_URL", "http://localhost:8080")
+	viper.SetDefault("MONOLITH_BASE_URL", "http://localhost:8080")
+	viper.SetDefault("TRANSACTION_BASE_URL", "http://localhost:8086")
+	viper.SetDefault("WEBHOOK_SECRET", "gowallet-webhook-secret-change-me")
+	viper.SetDefault("GATEWAY_CALLBACK_URL", "http://localhost:8080")
+	viper.SetDefault("GATEWAY_PORT", "8080")
+	viper.SetDefault("AUTH_PORT", "8081")
+	viper.SetDefault("WALLET_PORT", "8082")
+	viper.SetDefault("PAYMENT_PORT", "8083")
+	viper.SetDefault("USER_PORT", "8084")
+	viper.SetDefault("LEDGER_PORT", "8085")
+	viper.SetDefault("TRANSACTION_PORT", "8086")
+	viper.SetDefault("MINIO_ENDPOINT", "localhost:9000")
+	viper.SetDefault("MINIO_ACCESS_KEY", "minioadmin")
+	viper.SetDefault("MINIO_SECRET_KEY", "minioadmin")
+	viper.SetDefault("MINIO_PUBLIC_URL", "http://localhost:9000")
+	viper.SetDefault("OUTBOX_ARCHIVE_AGE", "24h")
+}
+
+func validateProductionSecrets(cfg *Config) {
+	placeholders := []string{"REPLACE_WITH", "INJECT_AT_RUNTIME", "your-", "change-me", "placeholder", "local-only"}
+	secrets := map[string]string{
+		"JWT_SECRET":           cfg.JWTSecret,
+		"STRIPE_SECRET_KEY":    cfg.StripeSecretKey,
+		"STRIPE_WEBHOOK_SECRET": cfg.StripeWebhookSecret,
+		"WEBHOOK_SECRET":       cfg.WebhookSecret,
 	}
 
-	paymentServiceURL := os.Getenv("PAYMENT_SERVICE_URL")
-	if paymentServiceURL == "" {
-		paymentServiceURL = "http://localhost:8083"
+	for name, value := range secrets {
+		if value == "" {
+			continue
+		}
+		for _, placeholder := range placeholders {
+			if len(value) > 0 && containsIgnoreCase(value, placeholder) {
+				log.Fatalf("Production secret %s contains placeholder value", name)
+			}
+		}
 	}
+}
 
-	userGRPCAddr := os.Getenv("USER_GRPC_ADDR")
-	if userGRPCAddr == "" {
-		userGRPCAddr = "localhost:50052"
-	}
+func containsIgnoreCase(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && len(substr) > 0 && 
+		(s[:len(substr)] == substr || containsIgnoreCase(s[1:], substr)))
+}
 
-	walletGRPCAddr := os.Getenv("WALLET_GRPC_ADDR")
-	if walletGRPCAddr == "" {
-		walletGRPCAddr = "localhost:50053"
+func bindEnvVars(cfg interface{}) {
+	t := reflect.TypeOf(cfg)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
 	}
-
-	ledgerGRPCAddr := os.Getenv("LEDGER_GRPC_ADDR")
-	if ledgerGRPCAddr == "" {
-		ledgerGRPCAddr = "localhost:50054"
-	}
-
-	transactionGRPCAddr := os.Getenv("TRANSACTION_GRPC_ADDR")
-	if transactionGRPCAddr == "" {
-		transactionGRPCAddr = "localhost:50055"
-	}
-
-	paymentGRPCAddr := os.Getenv("PAYMENT_GRPC_ADDR")
-	if paymentGRPCAddr == "" {
-		paymentGRPCAddr = "localhost:50056"
-	}
-
-	authGRPCAddr := os.Getenv("AUTH_GRPC_ADDR")
-	if authGRPCAddr == "" {
-		authGRPCAddr = "localhost:50051"
-	}
-
-	stripeSecretKey := os.Getenv("STRIPE_SECRET_KEY")
-	if stripeSecretKey == "" {
-		stripeSecretKey = ""
-	}
-	stripeWebhookSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
-	if stripeWebhookSecret == "" {
-		stripeWebhookSecret = ""
-	}
-	baseURL := os.Getenv("BASE_URL")
-	if baseURL == "" {
-		baseURL = "http://localhost:8080"
-	}
-
-	monolithBaseURL := os.Getenv("MONOLITH_BASE_URL")
-	if monolithBaseURL == "" {
-		monolithBaseURL = "http://localhost:8080"
-	}
-
-	transactionBaseURL := os.Getenv("TRANSACTION_BASE_URL")
-	if transactionBaseURL == "" {
-		transactionBaseURL = "http://localhost:8086"
-	}
-
-	webhookSecret := os.Getenv("WEBHOOK_SECRET")
-	if webhookSecret == "" {
-		webhookSecret = "gowallet-webhook-secret-change-me"
-	}
-
-	gatewayCallbackURL := os.Getenv("GATEWAY_CALLBACK_URL")
-	if gatewayCallbackURL == "" {
-		gatewayCallbackURL = "http://localhost:8080"
-	}
-
-	gatewayPort := os.Getenv("GATEWAY_PORT")
-	if gatewayPort == "" {
-		gatewayPort = "8080"
-	}
-
-	authPort := os.Getenv("AUTH_PORT")
-	if authPort == "" {
-		authPort = "8081"
-	}
-
-	walletPort := os.Getenv("WALLET_PORT")
-	if walletPort == "" {
-		walletPort = "8082"
-	}
-
-	paymentPort := os.Getenv("PAYMENT_PORT")
-	if paymentPort == "" {
-		paymentPort = "8083"
-	}
-
-	userPort := os.Getenv("USER_PORT")
-	if userPort == "" {
-		userPort = "8084"
-	}
-
-	ledgerPort := os.Getenv("LEDGER_PORT")
-	if ledgerPort == "" {
-		ledgerPort = "8085"
-	}
-
-	transactionPort := os.Getenv("TRANSACTION_PORT")
-	if transactionPort == "" {
-		transactionPort = "8086"
-	}
-
-	minioEndpoint := os.Getenv("MINIO_ENDPOINT")
-	if minioEndpoint == "" {
-		minioEndpoint = "localhost:9000"
-	}
-
-	minioAccessKey := os.Getenv("MINIO_ACCESS_KEY")
-	if minioAccessKey == "" {
-		minioAccessKey = "minioadmin"
-	}
-
-	minioSecretKey := os.Getenv("MINIO_SECRET_KEY")
-	if minioSecretKey == "" {
-		minioSecretKey = "minioadmin"
-	}
-
-	minioPublicURL := os.Getenv("MINIO_PUBLIC_URL")
-	if minioPublicURL == "" {
-		minioPublicURL = "http://localhost:9000"
-	}
-
-	outboxArchiveAge := os.Getenv("OUTBOX_ARCHIVE_AGE")
-	if outboxArchiveAge == "" {
-		outboxArchiveAge = "24h"
-	}
-
-	return &Config{
-		DBDSN:                 dsn,
-		RedisAddr:             redisAddr,
-		RabbitMQURL:           rabbitmqURL,
-		MongoURL:              mongoURL,
-		SMTPHost:              smtpHost,
-		SMTPPort:              smtpPort,
-		SMTPFrom:              smtpFrom,
-		GoogleClientID:        googleClientID,
-		GoogleClientSecret:    googleClientSecret,
-		GoogleRedirectURL:     googleRedirectURL,
-		AuthServiceURL:        authServiceURL,
-		UserServiceURL:        userServiceURL,
-		WalletServiceURL:      walletServiceURL,
-		LedgerServiceURL:      ledgerServiceURL,
-		TransactionServiceURL: transactionServiceURL,
-		PaymentServiceURL:     paymentServiceURL,
-		UserGRPCAddr:          userGRPCAddr,
-		WalletGRPCAddr:        walletGRPCAddr,
-		LedgerGRPCAddr:        ledgerGRPCAddr,
-		TransactionGRPCAddr:   transactionGRPCAddr,
-		PaymentGRPCAddr:       paymentGRPCAddr,
-		AuthGRPCAddr:          authGRPCAddr,
-		StripeSecretKey:       stripeSecretKey,
-		StripeWebhookSecret:   stripeWebhookSecret,
-		BaseURL:               baseURL,
-		MonolithBaseURL:       monolithBaseURL,
-		TransactionBaseURL:    transactionBaseURL,
-		WebhookSecret:         webhookSecret,
-		GatewayCallbackURL:    gatewayCallbackURL,
-		GatewayPort:           gatewayPort,
-		AuthPort:              authPort,
-		WalletPort:            walletPort,
-		PaymentPort:           paymentPort,
-		UserPort:              userPort,
-		LedgerPort:            ledgerPort,
-		TransactionPort:       transactionPort,
-		MinioEndpoint:         minioEndpoint,
-		MinioAccessKey:        minioAccessKey,
-		MinioSecretKey:        minioSecretKey,
-		MinioPublicURL:        minioPublicURL,
-		OutboxArchiveAge:      outboxArchiveAge,
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		tag := field.Tag.Get("mapstructure")
+		if tag != "" {
+			viper.BindEnv(tag)
+		}
 	}
 }
