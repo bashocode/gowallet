@@ -83,7 +83,7 @@ func LoadConfig() *Config {
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
-		logger.Info(context.Background(), "Warning: .env.%s file not found, loading config from system environment variables", env)
+		logger.Warn(context.Background(), "Config file not found, loading from environment variables", "env_file", ".env."+env)
 	}
 
 	bindEnvVars(Config{})

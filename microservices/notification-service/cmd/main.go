@@ -19,7 +19,7 @@ import (
 
 func main() {
 	logger.InitLogger()
-	logger.Info(nil, "starting notification-service...")
+	logger.Info(context.Background(), "starting notification-service...")
 
 	cfg := config.LoadConfig()
 
@@ -48,11 +48,11 @@ func main() {
 	go paymentConsumer.Start(ctx)
 	go emailConsumer.Start(ctx)
 
-	logger.Info(nil, "notification-service started successfully")
+	logger.Info(context.Background(), "notification-service started successfully")
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	logger.Info(nil, "shutting down notification-service...")
+	logger.Info(context.Background(), "shutting down notification-service...")
 }
