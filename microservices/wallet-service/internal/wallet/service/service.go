@@ -34,60 +34,41 @@ func NewWalletService(dbRepo repository.WalletRepository, cacheRepo cache.Wallet
 }
 
 func (s *walletService) GetByUserID(ctx context.Context, userID string) (*model.Wallet, error) {
-	wallet, err := s.dbRepo.GetByUserID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	balance, err := s.cacheRepo.GetBalance(ctx, wallet.ID)
-	if err == nil {
-		logger.Log.InfoContext(ctx, "[Cache Hit] Retrieved balance from Redis",
-			slog.String("wallet_id", wallet.ID),
-			slog.String("cached_balance", balance))
-
-		balanceDecimal, parseErr := decimal.NewFromString(balance)
-		if parseErr == nil {
-			wallet.Balance = balanceDecimal
-			return wallet, nil
-		}
-		logger.Log.WarnContext(ctx, "[Cache] Failed to parse cached balance, falling back to DB",
-			slog.String("wallet_id", wallet.ID),
-			slog.String("error", parseErr.Error()))
+	// 1. Cek Cache Redis DULU berdasarkan userID
+	cachedWallet, err := s.cacheRepo.GetWalletByUserID(ctx, userID)
+	if err == nil && cachedWallet != nil {
+		logger.Log.InfoContext(ctx, "[Cache Hit] Retrieved wallet from Redis",
+			slog.String("user_id", userID),
+			slog.String("wallet_id", cachedWallet.ID))
+		return cachedWallet, nil
 	}
 
 	if !errors.Is(err, redis.Nil) && err != nil {
 		logger.Log.WarnContext(ctx, "[Cache Miss] Redis error, falling back to DB",
-			slog.String("wallet_id", wallet.ID),
+			slog.String("user_id", userID),
 			slog.String("error", err.Error()))
 	} else {
 		logger.Log.InfoContext(ctx, "[Cache Miss] Key not found in Redis, reading from DB",
-			slog.String("wallet_id", wallet.ID))
+			slog.String("user_id", userID))
 	}
 
+	// 2. Query DB HANYA 1 KALI saat cache miss
 	dbWallet, err := s.dbRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	_ = s.cacheRepo.SetBalance(ctx, dbWallet.ID, dbWallet.Balance.String(), 5*time.Minute)
-	logger.Log.InfoContext(ctx, "[Cache Set] Stored balance in Redis with TTL 5m",
-		slog.String("wallet_id", dbWallet.ID),
-		slog.String("balance", dbWallet.Balance.String()))
+	// 3. Simpan wallet ke Redis
+	_ = s.cacheRepo.SetWalletByUserID(ctx, userID, dbWallet, 5*time.Minute)
+	logger.Log.InfoContext(ctx, "[Cache Set] Stored wallet in Redis with TTL 5m",
+		slog.String("user_id", userID),
+		slog.String("wallet_id", dbWallet.ID))
 
 	return dbWallet, nil
 }
 
 func (s *walletService) UpdateBalanceWithOwnerCheck(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error) {
-	wallet, err := s.dbRepo.UpdateBalanceWithOwnerCheck(ctx, userID, amount, expectedVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	_ = s.cacheRepo.DeleteBalance(ctx, wallet.ID)
-	logger.Log.InfoContext(ctx, "[Cache Invalidation] Deleted balance cache after update",
-		slog.String("wallet_id", wallet.ID))
-
-	return wallet, nil
+	return s.dbRepo.UpdateBalanceWithOwnerCheck(ctx, userID, amount, expectedVersion)
 }
 
 func (s *walletService) Create(ctx context.Context, w *model.Wallet) error {

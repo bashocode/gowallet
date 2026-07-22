@@ -160,30 +160,11 @@ func (s *userService) UpdateProfile(ctx context.Context, id string, req model.Up
 		return nil, customErr.ErrInternalServer
 	}
 
-	_ = s.cacheRepo.DeleteUserByID(ctx, id)
-	if user.Email != "" {
-		_ = s.cacheRepo.DeleteUserByEmail(ctx, user.Email)
-	}
-	logger.Log.InfoContext(ctx, "[Cache Invalidation] Deleted user cache after update",
-		slog.String("user_id", id))
-
-	return s.userRepo.GetByID(ctx, id)
+	return user, nil
 }
 
 func (s *userService) UpdateAvatar(ctx context.Context, id string, path string) error {
-	if err := s.userRepo.UpdateAvatar(ctx, id, path); err != nil {
-		return err
-	}
-
-	user, _ := s.userRepo.GetByID(ctx, id)
-	_ = s.cacheRepo.DeleteUserByID(ctx, id)
-	if user != nil && user.Email != "" {
-		_ = s.cacheRepo.DeleteUserByEmail(ctx, user.Email)
-	}
-	logger.Log.InfoContext(ctx, "[Cache Invalidation] Deleted user cache after avatar update",
-		slog.String("user_id", id))
-
-	return nil
+	return s.userRepo.UpdateAvatar(ctx, id, path)
 }
 
 func (s *userService) DeleteAccount(ctx context.Context, id string) error {
@@ -195,13 +176,6 @@ func (s *userService) DeleteAccount(ctx context.Context, id string) error {
 	if err := s.userRepo.SoftDelete(ctx, user.ID); err != nil {
 		return customErr.ErrInternalServer
 	}
-
-	_ = s.cacheRepo.DeleteUserByID(ctx, id)
-	if user.Email != "" {
-		_ = s.cacheRepo.DeleteUserByEmail(ctx, user.Email)
-	}
-	logger.Log.InfoContext(ctx, "[Cache Invalidation] Deleted user cache after account deletion",
-		slog.String("user_id", id))
 
 	return nil
 }
@@ -229,6 +203,7 @@ func (s *userService) VerifyEmail(ctx context.Context, userID string, code strin
 	if err := tx.Commit(); err != nil {
 		return customErr.ErrInternalServer
 	}
+
 	return nil
 }
 
@@ -361,6 +336,7 @@ func (s *userService) ResetPassword(ctx context.Context, id string, newPassword 
 	if err := s.rtRepo.RevokeAllByUserID(ctx, id); err != nil {
 		return customErr.ErrInternalServer
 	}
+
 	return nil
 }
 

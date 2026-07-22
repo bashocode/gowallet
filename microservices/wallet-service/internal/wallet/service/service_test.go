@@ -49,28 +49,36 @@ func (m *mockWalletRepo) ReconcileAll(ctx context.Context) (int, int, error) {
 }
 
 type mockCacheRepo struct {
-	getBalanceFunc    func(ctx context.Context, walletID string) (string, error)
-	setBalanceFunc    func(ctx context.Context, walletID string, balance string, ttl time.Duration) error
-	deleteBalanceFunc func(ctx context.Context, walletID string) error
+	getWalletByUserIDFunc    func(ctx context.Context, userID string) (*model.Wallet, error)
+	setWalletByUserIDFunc    func(ctx context.Context, userID string, wallet *model.Wallet, ttl time.Duration) error
+	deleteWalletByUserIDFunc func(ctx context.Context, userID string) error
+	deleteWalletByIDFunc     func(ctx context.Context, walletID string) error
 }
 
-func (m *mockCacheRepo) GetBalance(ctx context.Context, walletID string) (string, error) {
-	if m.getBalanceFunc != nil {
-		return m.getBalanceFunc(ctx, walletID)
+func (m *mockCacheRepo) GetWalletByUserID(ctx context.Context, userID string) (*model.Wallet, error) {
+	if m.getWalletByUserIDFunc != nil {
+		return m.getWalletByUserIDFunc(ctx, userID)
 	}
-	return "", redis.Nil
+	return nil, redis.Nil
 }
 
-func (m *mockCacheRepo) SetBalance(ctx context.Context, walletID string, balance string, ttl time.Duration) error {
-	if m.setBalanceFunc != nil {
-		return m.setBalanceFunc(ctx, walletID, balance, ttl)
+func (m *mockCacheRepo) SetWalletByUserID(ctx context.Context, userID string, wallet *model.Wallet, ttl time.Duration) error {
+	if m.setWalletByUserIDFunc != nil {
+		return m.setWalletByUserIDFunc(ctx, userID, wallet, ttl)
 	}
 	return nil
 }
 
-func (m *mockCacheRepo) DeleteBalance(ctx context.Context, walletID string) error {
-	if m.deleteBalanceFunc != nil {
-		return m.deleteBalanceFunc(ctx, walletID)
+func (m *mockCacheRepo) DeleteWalletByUserID(ctx context.Context, userID string) error {
+	if m.deleteWalletByUserIDFunc != nil {
+		return m.deleteWalletByUserIDFunc(ctx, userID)
+	}
+	return nil
+}
+
+func (m *mockCacheRepo) DeleteWalletByID(ctx context.Context, walletID string) error {
+	if m.deleteWalletByIDFunc != nil {
+		return m.deleteWalletByIDFunc(ctx, walletID)
 	}
 	return nil
 }
@@ -78,20 +86,21 @@ func (m *mockCacheRepo) DeleteBalance(ctx context.Context, walletID string) erro
 func TestGetByUserID_CacheHit(t *testing.T) {
 	mockDB := &mockWalletRepo{
 		getByUserIDFunc: func(ctx context.Context, userID string) (*model.Wallet, error) {
-			return &model.Wallet{
-				ID:      "wallet-123",
-				UserID:  userID,
-				Balance: decimal.NewFromInt(50000),
-			}, nil
+			t.Errorf("expected DB not to be called on cache hit")
+			return nil, errors.New("db should not be called")
 		},
 	}
 
 	mockCache := &mockCacheRepo{
-		getBalanceFunc: func(ctx context.Context, walletID string) (string, error) {
-			if walletID == "wallet-123" {
-				return "100000", nil
+		getWalletByUserIDFunc: func(ctx context.Context, userID string) (*model.Wallet, error) {
+			if userID == "user-1" {
+				return &model.Wallet{
+					ID:      "wallet-123",
+					UserID:  userID,
+					Balance: decimal.NewFromInt(100000),
+				}, nil
 			}
-			return "", redis.Nil
+			return nil, redis.Nil
 		},
 	}
 
@@ -106,8 +115,8 @@ func TestGetByUserID_CacheHit(t *testing.T) {
 		t.Errorf("expected balance from cache (100000), got %s", wallet.Balance.String())
 	}
 
-	if mockDB.getByUserIDCallCount != 1 {
-		t.Errorf("expected DB to be called once to get wallet ID, got %d calls", mockDB.getByUserIDCallCount)
+	if mockDB.getByUserIDCallCount != 0 {
+		t.Errorf("expected DB not to be called on cache hit, got %d calls", mockDB.getByUserIDCallCount)
 	}
 }
 
@@ -125,12 +134,12 @@ func TestGetByUserID_CacheMiss(t *testing.T) {
 	}
 
 	mockCache := &mockCacheRepo{
-		getBalanceFunc: func(ctx context.Context, walletID string) (string, error) {
-			return "", redis.Nil
+		getWalletByUserIDFunc: func(ctx context.Context, userID string) (*model.Wallet, error) {
+			return nil, redis.Nil
 		},
-		setBalanceFunc: func(ctx context.Context, walletID string, balance string, ttl time.Duration) error {
-			if balance != "75000" {
-				t.Errorf("expected to cache balance 75000, got %s", balance)
+		setWalletByUserIDFunc: func(ctx context.Context, userID string, wallet *model.Wallet, ttl time.Duration) error {
+			if wallet.Balance.String() != "75000" {
+				t.Errorf("expected to cache balance 75000, got %s", wallet.Balance.String())
 			}
 			if ttl != 5*time.Minute {
 				t.Errorf("expected TTL of 5 minutes, got %v", ttl)
@@ -150,14 +159,12 @@ func TestGetByUserID_CacheMiss(t *testing.T) {
 		t.Errorf("expected balance 75000, got %s", wallet.Balance.String())
 	}
 
-	if callCount != 2 {
-		t.Errorf("expected DB to be called twice (once for wallet ID, once for cache miss), got %d calls", callCount)
+	if callCount != 1 {
+		t.Errorf("expected DB to be called exactly once on cache miss, got %d calls", callCount)
 	}
 }
 
-func TestUpdateBalanceWithOwnerCheck_InvalidatesCache(t *testing.T) {
-	deleteCalled := false
-
+func TestUpdateBalanceWithOwnerCheck(t *testing.T) {
 	mockDB := &mockWalletRepo{
 		updateBalanceWithOwnerCheckFunc: func(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error) {
 			return &model.Wallet{
@@ -169,24 +176,16 @@ func TestUpdateBalanceWithOwnerCheck_InvalidatesCache(t *testing.T) {
 		},
 	}
 
-	mockCache := &mockCacheRepo{
-		deleteBalanceFunc: func(ctx context.Context, walletID string) error {
-			if walletID != "wallet-789" {
-				t.Errorf("expected to delete cache for wallet-789, got %s", walletID)
-			}
-			deleteCalled = true
-			return nil
-		},
-	}
+	mockCache := &mockCacheRepo{}
 
 	svc := NewWalletService(mockDB, mockCache)
-	_, err := svc.UpdateBalanceWithOwnerCheck(context.Background(), "user-3", decimal.NewFromInt(50000), 1)
+	updatedWallet, err := svc.UpdateBalanceWithOwnerCheck(context.Background(), "user-3", decimal.NewFromInt(50000), 1)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if !deleteCalled {
-		t.Error("expected cache to be invalidated after balance update")
+	if updatedWallet.Balance.String() != "150000" {
+		t.Errorf("expected updated balance 150000, got %s", updatedWallet.Balance.String())
 	}
 }

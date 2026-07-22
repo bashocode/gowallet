@@ -92,32 +92,9 @@ func (s *ledgerService) ReconcileWalletBalance(ctx context.Context, userID strin
 }
 
 func (s *ledgerService) Create(ctx context.Context, entry *model.LedgerEntry) error {
-	if err := s.ledgerRepo.Create(ctx, entry); err != nil {
-		return err
-	}
-
-	_ = s.cacheRepo.DeleteBalance(ctx, entry.WalletID)
-	logger.Log.InfoContext(ctx, "[Cache Invalidation] Deleted ledger balance cache after new entry",
-		slog.String("wallet_id", entry.WalletID))
-
-	return nil
+	return s.ledgerRepo.Create(ctx, entry)
 }
 
 func (s *ledgerService) CreateBatch(ctx context.Context, entries []*model.LedgerEntry) error {
-	if err := s.ledgerRepo.CreateBatch(ctx, entries); err != nil {
-		return err
-	}
-
-	walletIDs := make(map[string]bool)
-	for _, e := range entries {
-		walletIDs[e.WalletID] = true
-	}
-
-	for walletID := range walletIDs {
-		_ = s.cacheRepo.DeleteBalance(ctx, walletID)
-		logger.Log.InfoContext(ctx, "[Cache Invalidation] Deleted ledger balance cache after batch insert",
-			slog.String("wallet_id", walletID))
-	}
-
-	return nil
+	return s.ledgerRepo.CreateBatch(ctx, entries)
 }
