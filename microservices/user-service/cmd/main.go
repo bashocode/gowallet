@@ -9,6 +9,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
 	"github.com/bashocode/gowallet/microservices/shared/storage"
+	userCache "github.com/bashocode/gowallet/microservices/user-service/internal/user/cache"
 	userGRPC "github.com/bashocode/gowallet/microservices/user-service/internal/user/grpc"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/handler"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/repository"
@@ -84,10 +85,11 @@ func main() {
 
 	// Initialize layers
 	userRepo := repository.NewMySQLUserRepository(db)
+	userCacheRepo := userCache.NewUserCacheRepository(rdb)
 	otpRepo := repository.NewMySQLOTPRepository(db)
 	notificationOutboxRepo := repository.NewMySQLNotificationOutboxRepository(db)
 
-	userSvc := service.NewUserService(db, rdb, userRepo, walletClient, otpRepo, notificationOutboxRepo, cfg.BaseURL)
+	userSvc := service.NewUserService(db, rdb, userRepo, userCacheRepo, walletClient, otpRepo, notificationOutboxRepo, cfg.BaseURL)
 	userHandler := handler.NewUserHandler(userSvc, minioStorage)
 
 	// Initialize and start the notification outbox worker

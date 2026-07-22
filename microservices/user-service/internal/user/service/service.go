@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"time"
@@ -12,6 +14,7 @@ import (
 	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	otpGenerator "github.com/bashocode/gowallet/microservices/user-service/internal/otp/generator"
+	"github.com/bashocode/gowallet/microservices/user-service/internal/user/cache"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/model"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/publisher"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/repository"
@@ -39,6 +42,7 @@ type userService struct {
 	db                     *sql.DB
 	rdb                    *redis.Client
 	userRepo               repository.UserRepository
+	cacheRepo              cache.UserCacheRepository
 	walletClient           pbWallet.WalletServiceClient
 	otpRepo                repository.OTPRepository
 	rtRepo                 repository.RefreshTokenRepository
@@ -50,6 +54,7 @@ func NewUserService(
 	db *sql.DB,
 	rdb *redis.Client,
 	uRepo repository.UserRepository,
+	cacheRepo cache.UserCacheRepository,
 	wClient pbWallet.WalletServiceClient,
 	otpRepo repository.OTPRepository,
 	notificationOutboxRepo repository.NotificationOutboxRepository,
@@ -59,6 +64,7 @@ func NewUserService(
 		db:                     db,
 		rdb:                    rdb,
 		userRepo:               uRepo,
+		cacheRepo:              cacheRepo,
 		walletClient:           wClient,
 		otpRepo:                otpRepo,
 		rtRepo:                 repository.NewMySQLRefreshTokenRepository(db),
@@ -115,10 +121,31 @@ func (s *userService) Register(ctx context.Context, req model.CreateUserRequest)
 }
 
 func (s *userService) GetProfile(ctx context.Context, id string) (*model.User, error) {
+	user, err := s.cacheRepo.GetUserByID(ctx, id)
+	if err == nil {
+		logger.Log.InfoContext(ctx, "[Cache Hit] Retrieved user from Redis",
+			slog.String("user_id", id))
+		return user, nil
+	}
+
+	if !errors.Is(err, redis.Nil) {
+		logger.Log.WarnContext(ctx, "[Cache] Redis error, falling back to DB",
+			slog.String("user_id", id),
+			slog.String("error", err.Error()))
+	} else {
+		logger.Log.InfoContext(ctx, "[Cache Miss] User not found in Redis, reading from DB",
+			slog.String("user_id", id))
+	}
+
 	u, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, customErr.NewAppError(http.StatusNotFound, "USER_NOT_FOUND", "user not found")
 	}
+
+	_ = s.cacheRepo.SetUserByID(ctx, id, u, 15*time.Minute)
+	logger.Log.InfoContext(ctx, "[Cache Set] Stored user in Redis with TTL 15m",
+		slog.String("user_id", id))
+
 	return u, nil
 }
 
@@ -133,7 +160,7 @@ func (s *userService) UpdateProfile(ctx context.Context, id string, req model.Up
 		return nil, customErr.ErrInternalServer
 	}
 
-	return s.userRepo.GetByID(ctx, id)
+	return user, nil
 }
 
 func (s *userService) UpdateAvatar(ctx context.Context, id string, path string) error {

@@ -8,9 +8,11 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
+	walletCache "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/cache"
 	walletGRPC "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/grpc"
 	walletHandler "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/handler"
 	walletRepository "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/repository"
+	walletService "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/service"
 	pb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
@@ -37,7 +39,9 @@ func main() {
 	defer db.Close()
 
 	wRepo := walletRepository.NewMySQLWalletRepository(db)
-	wHandler := walletHandler.NewWalletHandler(wRepo)
+	wCache := walletCache.NewWalletCacheRepository(rdb)
+	wSvc := walletService.NewWalletService(wRepo, wCache)
+	wHandler := walletHandler.NewWalletHandler(wSvc)
 
 	// Setup gRPC Server
 	_, port, err := net.SplitHostPort(cfg.WalletGRPCAddr)
@@ -51,7 +55,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	pb.RegisterWalletServiceServer(grpcServer, walletGRPC.NewWalletGRPCServer(wRepo))
+	pb.RegisterWalletServiceServer(grpcServer, walletGRPC.NewWalletGRPCServer(wSvc))
 
 	go func() {
 		logger.Log.Info("Wallet gRPC Server running on port " + cfg.WalletGRPCAddr)
