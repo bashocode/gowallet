@@ -134,9 +134,10 @@ func main() {
 	// Initialize layers
 	txRepo := transactionRepository.NewMySQLTransactionRepository(db)
 	txCache := transactionCache.NewTransactionCacheRepository(rdb)
+	cacheEvictionRepo := transactionRepository.NewCacheEvictionRepository(rdb)
 	outboundTransferRepo := transferRepository.NewMySQLOutboundTransferRepository(db)
 	transferOutboxRepo := transferRepository.NewMySQLTransferOutboxRepository(db)
-	txSvc := transactionService.NewTransactionService(db, txRepo, txCache, outboundTransferRepo, transferOutboxRepo, userClient, walletClient, ledgerClient, dlqPublisher, cfg.MonolithBaseURL, cfg.TransactionBaseURL, cfg.WebhookSecret)
+	txSvc := transactionService.NewTransactionService(db, txRepo, txCache, cacheEvictionRepo, outboundTransferRepo, transferOutboxRepo, userClient, walletClient, ledgerClient, dlqPublisher, cfg.MonolithBaseURL, cfg.TransactionBaseURL, cfg.WebhookSecret)
 	txHandler := transactionHandler.NewTransactionHandler(txSvc)
 
 	externalHandler := transactionHandler.NewTransferHandler(txSvc, cfg.WebhookSecret, cfg.MonolithBaseURL)

@@ -92,9 +92,19 @@ func (s *ledgerService) ReconcileWalletBalance(ctx context.Context, userID strin
 }
 
 func (s *ledgerService) Create(ctx context.Context, entry *model.LedgerEntry) error {
-	return s.ledgerRepo.Create(ctx, entry)
+	if err := s.ledgerRepo.Create(ctx, entry); err != nil {
+		return err
+	}
+	_ = s.cacheRepo.DeleteBalance(ctx, entry.WalletID)
+	return nil
 }
 
 func (s *ledgerService) CreateBatch(ctx context.Context, entries []*model.LedgerEntry) error {
-	return s.ledgerRepo.CreateBatch(ctx, entries)
+	if err := s.ledgerRepo.CreateBatch(ctx, entries); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		_ = s.cacheRepo.DeleteBalance(ctx, entry.WalletID)
+	}
+	return nil
 }
