@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/hmac"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/circuitbreaker"
+	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/cache"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
 	transferModel "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/model"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
@@ -24,6 +26,7 @@ import (
 	pbUser "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 )
 
@@ -59,6 +62,7 @@ type monolithTransferResult struct {
 type transactionService struct {
 	db                 *sql.DB
 	txRepo             repository.TransactionRepository
+	cacheRepo          cache.TransactionCacheRepository
 	transferRepo       transferRepo.OutboundTransferRepository
 	outboxRepo         transferRepo.TransferOutboxRepository
 	userClient         pbUser.UserServiceClient
@@ -77,6 +81,7 @@ type transactionService struct {
 func NewTransactionService(
 	db *sql.DB,
 	txRepo repository.TransactionRepository,
+	cacheRepo cache.TransactionCacheRepository,
 	transferRepo transferRepo.OutboundTransferRepository,
 	outboxRepo transferRepo.TransferOutboxRepository,
 	userClient pbUser.UserServiceClient,
@@ -90,6 +95,7 @@ func NewTransactionService(
 	return &transactionService{
 		db:                 db,
 		txRepo:             txRepo,
+		cacheRepo:          cacheRepo,
 		transferRepo:       transferRepo,
 		outboxRepo:         outboxRepo,
 		userClient:         userClient,
@@ -116,15 +122,29 @@ func isDuplicateKeyError(err error) bool {
 }
 
 func (s *transactionService) Transfer(ctx context.Context, senderUserID string, req model.TransferRequest) (*model.Transaction, error) {
-	// 1. Check Idempotency Key (double transaction security)
-	existing, _ := s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
+	// 1. Check Idempotency Key (double transaction security) - try cache first
+	existing, err := s.cacheRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
+	if err == nil {
+		logger.Log.InfoContext(ctx, "[Cache Hit] Idempotency key found in Redis",
+			slog.String("idempotency_key", req.IdempotencyKey))
+		return existing, nil
+	}
+
+	if !errors.Is(err, redis.Nil) && err != nil {
+		logger.Log.WarnContext(ctx, "[Cache] Redis error, checking DB",
+			slog.String("idempotency_key", req.IdempotencyKey),
+			slog.String("error", err.Error()))
+	}
+
+	existing, _ = s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
 	if existing != nil {
+		_ = s.cacheRepo.SetByIdempotencyKey(ctx, req.IdempotencyKey, existing, 1*time.Hour)
 		return existing, nil
 	}
 
 	// 2. Find & Validate Receiver User via User Service gRPC
 	var receiverUser *pbUser.UserResponse
-	err := s.userBreaker.Call(func() error {
+	err = s.userBreaker.Call(func() error {
 		var callErr error
 		receiverUser, callErr = s.userClient.GetUserByEmail(ctx, &pbUser.GetUserByEmailRequest{Email: req.ReceiverEmail})
 		return callErr
@@ -180,15 +200,20 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		if isDuplicateKeyError(err) {
 			existing, getErr := s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
 			if getErr == nil && existing != nil {
+				_ = s.cacheRepo.SetByIdempotencyKey(ctx, req.IdempotencyKey, existing, 1*time.Hour)
 				return existing, nil
 			}
 		}
-
 		return nil, customErr.ErrInternalServer
 	}
+
 	if err := initTx.Commit(); err != nil {
 		return nil, customErr.ErrInternalServer
 	}
+
+	_ = s.cacheRepo.SetByIdempotencyKey(ctx, req.IdempotencyKey, txRecord, 1*time.Hour)
+	logger.Log.InfoContext(ctx, "[Cache Set] Stored transaction by idempotency key with TTL 1h",
+		slog.String("idempotency_key", req.IdempotencyKey))
 
 	// 5. Contact Wallet Service & Ledger Service via gRPC for balance mutations (OUTSIDE LOCAL DATABASE TRANSACTION)
 	// We apply Saga Orchestration with manual rollback orchestration if any step fails.
@@ -562,15 +587,28 @@ func (s *transactionService) GetHistory(ctx context.Context, userID string, para
 }
 
 func (s *transactionService) TopUp(ctx context.Context, userID string, req model.TopUpRequest) (*model.Transaction, error) {
-	// 1. Idempotency check
-	existing, _ := s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
+	// 1. Check Idempotency Key (double transaction security) - try cache first
+	existing, err := s.cacheRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
+	if err == nil {
+		logger.Log.InfoContext(ctx, "[Cache Hit] TopUp idempotency key found in Redis",
+			slog.String("idempotency_key", req.IdempotencyKey))
+		return existing, nil
+	}
+
+	if !errors.Is(err, redis.Nil) && err != nil {
+		logger.Log.WarnContext(ctx, "[Cache] Redis error, checking DB",
+			slog.String("idempotency_key", req.IdempotencyKey))
+	}
+
+	existing, _ = s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
 	if existing != nil {
+		_ = s.cacheRepo.SetByIdempotencyKey(ctx, req.IdempotencyKey, existing, 1*time.Hour)
 		return existing, nil
 	}
 
 	// 2. Get user's wallet (with circuit breaker)
 	var wallet *pbWallet.WalletResponse
-	err := s.walletBreaker.Call(func() error {
+	err = s.walletBreaker.Call(func() error {
 		var callErr error
 		wallet, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: userID})
 		return callErr
@@ -597,12 +635,16 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 		if isDuplicateKeyError(err) {
 			existing, getErr := s.txRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
 			if getErr == nil && existing != nil {
+				_ = s.cacheRepo.SetByIdempotencyKey(ctx, req.IdempotencyKey, existing, 1*time.Hour)
 				return existing, nil
 			}
 		}
-
 		return nil, customErr.ErrInternalServer
 	}
+
+	_ = s.cacheRepo.SetByIdempotencyKey(ctx, req.IdempotencyKey, transaction, 1*time.Hour)
+	logger.Log.InfoContext(ctx, "[Cache Set] Stored TopUp transaction by idempotency key",
+		slog.String("idempotency_key", req.IdempotencyKey))
 
 	// 4. Saga: Credit wallet (positive amount = add balance)
 	err = s.walletBreaker.Call(func() error {

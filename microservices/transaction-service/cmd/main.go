@@ -11,6 +11,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/dlq"
+	transactionCache "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/cache"
 	transactionGRPC "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/grpc"
 	transactionHandler "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/handler"
 	transactionRepository "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
@@ -132,9 +133,10 @@ func main() {
 
 	// Initialize layers
 	txRepo := transactionRepository.NewMySQLTransactionRepository(db)
+	txCache := transactionCache.NewTransactionCacheRepository(rdb)
 	outboundTransferRepo := transferRepository.NewMySQLOutboundTransferRepository(db)
 	transferOutboxRepo := transferRepository.NewMySQLTransferOutboxRepository(db)
-	txSvc := transactionService.NewTransactionService(db, txRepo, outboundTransferRepo, transferOutboxRepo, userClient, walletClient, ledgerClient, dlqPublisher, cfg.MonolithBaseURL, cfg.TransactionBaseURL, cfg.WebhookSecret)
+	txSvc := transactionService.NewTransactionService(db, txRepo, txCache, outboundTransferRepo, transferOutboxRepo, userClient, walletClient, ledgerClient, dlqPublisher, cfg.MonolithBaseURL, cfg.TransactionBaseURL, cfg.WebhookSecret)
 	txHandler := transactionHandler.NewTransactionHandler(txSvc)
 
 	externalHandler := transactionHandler.NewTransferHandler(txSvc, cfg.WebhookSecret, cfg.MonolithBaseURL)

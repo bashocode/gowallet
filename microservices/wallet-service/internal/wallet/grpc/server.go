@@ -6,7 +6,7 @@ import (
 
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/model"
-	"github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/repository"
+	"github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/service"
 	pb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -16,11 +16,11 @@ import (
 
 type walletGRPCServer struct {
 	pb.UnimplementedWalletServiceServer
-	repo repository.WalletRepository
+	svc service.WalletService
 }
 
-func NewWalletGRPCServer(repo repository.WalletRepository) pb.WalletServiceServer {
-	return &walletGRPCServer{repo: repo}
+func NewWalletGRPCServer(svc service.WalletService) pb.WalletServiceServer {
+	return &walletGRPCServer{svc: svc}
 }
 
 func (s *walletGRPCServer) CreateWallet(ctx context.Context, req *pb.CreateWalletRequest) (*pb.WalletResponse, error) {
@@ -33,7 +33,7 @@ func (s *walletGRPCServer) CreateWallet(ctx context.Context, req *pb.CreateWalle
 		Version:  1,
 	}
 
-	err := s.repo.Create(ctx, w)
+	err := s.svc.Create(ctx, w)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create wallet: %v", err)
 	}
@@ -47,7 +47,7 @@ func (s *walletGRPCServer) CreateWallet(ctx context.Context, req *pb.CreateWalle
 }
 
 func (s *walletGRPCServer) GetWalletByUserID(ctx context.Context, req *pb.GetWalletRequest) (*pb.WalletResponse, error) {
-	w, err := s.repo.GetByUserID(ctx, req.GetUserId())
+	w, err := s.svc.GetByUserID(ctx, req.GetUserId())
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "wallet not found: %v", err)
 	}
@@ -66,7 +66,7 @@ func (s *walletGRPCServer) UpdateWalletBalance(ctx context.Context, req *pb.Upda
 		return nil, status.Errorf(codes.InvalidArgument, "invalid amount: %v", err)
 	}
 
-	w, err := s.repo.UpdateBalanceWithOwnerCheck(ctx, req.GetUserId(), amount, req.GetExpectedVersion())
+	w, err := s.svc.UpdateBalanceWithOwnerCheck(ctx, req.GetUserId(), amount, req.GetExpectedVersion())
 	if err != nil {
 		return nil, status.Errorf(codes.Aborted, "concurrent update failure or insufficient balance: %v", err)
 	}
@@ -86,7 +86,7 @@ func (s *walletGRPCServer) UpdateWalletBalance(ctx context.Context, req *pb.Upda
 func (s *walletGRPCServer) ReconcileBalances(ctx context.Context, _ *pb.ReconcileRequest) (*pb.ReconcileResponse, error) {
 	logger.Log.InfoContext(ctx, "[gRPC] ReconcileBalances triggered by scheduler-service")
 
-	mismatches, total, err := s.repo.ReconcileAll(ctx)
+	mismatches, total, err := s.svc.ReconcileAll(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "reconciliation failed: %v", err)
 	}
