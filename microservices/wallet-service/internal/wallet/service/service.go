@@ -68,7 +68,19 @@ func (s *walletService) GetByUserID(ctx context.Context, userID string) (*model.
 }
 
 func (s *walletService) UpdateBalanceWithOwnerCheck(ctx context.Context, userID string, amount decimal.Decimal, expectedVersion int32) (*model.Wallet, error) {
-	return s.dbRepo.UpdateBalanceWithOwnerCheck(ctx, userID, amount, expectedVersion)
+	wallet, err := s.dbRepo.UpdateBalanceWithOwnerCheck(ctx, userID, amount, expectedVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	// Evict cache after successful balance update
+	go func() {
+		bgCtx := context.Background()
+		_ = s.cacheRepo.DeleteWalletByUserID(bgCtx, userID)
+		_ = s.cacheRepo.DeleteWalletByID(bgCtx, wallet.ID)
+	}()
+
+	return wallet, nil
 }
 
 func (s *walletService) Create(ctx context.Context, w *model.Wallet) error {

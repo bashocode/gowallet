@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
 	customErr "github.com/bashocode/gowallet/monolith/internal/errors"
 	ledgerModel "github.com/bashocode/gowallet/monolith/internal/ledger/model"
@@ -125,6 +126,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		Description:      req.Description,
 		IdempotencyKey:   req.IdempotencyKey,
 		Status:           "success",
+		CreatedAt:        time.Now().UTC(),
 	}
 	if err = s.txRepo.CreateTx(ctx, tx, transaction); err != nil {
 		return nil, customErr.ErrInternalServer

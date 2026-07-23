@@ -45,7 +45,7 @@ func (r *mysqlPaymentRepository) GetByStripeSessionID(ctx context.Context, sessi
 }
 
 func (r *mysqlPaymentRepository) GetByStripeSessionIDTx(ctx context.Context, tx *sql.Tx, sessionID string) (*model.Payment, error) {
-	query := `SELECT id, user_id, amount, currency, stripe_session_id, status, created_at, updated_at FROM payments WHERE stripe_session_id = ?`
+	query := `SELECT id, user_id, amount, currency, stripe_session_id, status, created_at, updated_at FROM payments WHERE stripe_session_id = ? FOR UPDATE`
 	row := tx.QueryRowContext(ctx, query, sessionID)
 
 	var p model.Payment

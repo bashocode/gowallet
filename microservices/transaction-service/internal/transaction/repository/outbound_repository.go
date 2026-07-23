@@ -14,6 +14,7 @@ type OutboundTransferRepository interface {
 	GetByID(ctx context.Context, id string) (*model.OutboundTransfer, error)
 	GetByIdempotencyKey(ctx context.Context, key string) (*model.OutboundTransfer, error)
 	GetByIdempotencyKeyTx(ctx context.Context, tx *sql.Tx, key string) (*model.OutboundTransfer, error)
+	UpdateStatus(ctx context.Context, id string, status string) error
 	UpdateStatusTx(ctx context.Context, tx *sql.Tx, id string, status string) error
 }
 
@@ -57,17 +58,20 @@ func (r *mysqlOutboundTransferRepository) GetByID(ctx context.Context, id string
 }
 
 func (r *mysqlOutboundTransferRepository) GetByIdempotencyKey(ctx context.Context, key string) (*model.OutboundTransfer, error) {
-	return r.getByIdempotencyKey(ctx, r.db, key)
+	return r.getByIdempotencyKey(ctx, r.db, key, false)
 }
 
 func (r *mysqlOutboundTransferRepository) GetByIdempotencyKeyTx(ctx context.Context, tx *sql.Tx, key string) (*model.OutboundTransfer, error) {
-	return r.getByIdempotencyKey(ctx, tx, key)
+	return r.getByIdempotencyKey(ctx, tx, key, true)
 }
 
 func (r *mysqlOutboundTransferRepository) getByIdempotencyKey(ctx context.Context, q interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}, key string) (*model.OutboundTransfer, error) {
+}, key string, forUpdate bool) (*model.OutboundTransfer, error) {
 	query := `SELECT id, sender_user_id, sender_wallet_id, receiver_email, amount, currency, external_ewallet, status, idempotency_key, created_at, updated_at FROM transactions WHERE idempotency_key = ? AND type = 'external_transfer'`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
 	row := q.QueryRowContext(ctx, query, key)
 
 	var t model.OutboundTransfer
@@ -79,6 +83,15 @@ func (r *mysqlOutboundTransferRepository) getByIdempotencyKey(ctx context.Contex
 		return nil, err
 	}
 	return &t, nil
+}
+
+func (r *mysqlOutboundTransferRepository) UpdateStatus(ctx context.Context, id string, status string) error {
+	query := `UPDATE transactions SET status = ? WHERE id = ? AND type = 'external_transfer'`
+	_, err := r.db.ExecContext(ctx, query, status, id)
+	if err != nil {
+		return fmt.Errorf("update outbound transfer status: %w", err)
+	}
+	return nil
 }
 
 func (r *mysqlOutboundTransferRepository) UpdateStatusTx(ctx context.Context, tx *sql.Tx, id string, status string) error {

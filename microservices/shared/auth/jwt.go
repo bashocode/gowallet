@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"time"
 
@@ -9,16 +10,20 @@ import (
 )
 
 type JWTClaims struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
+	UserID    string `json:"user_id"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	TokenType string `json:"token_type"`
 	jwt.RegisteredClaims
 }
 
 func getSecretKey() []byte {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		// only for local
+		if os.Getenv("APP_ENV") == "production" {
+			panic("CRITICAL: JWT_SECRET environment variable is not set in production!")
+		}
+		// fallback for local development only
 		return []byte("fallback-local-development-secret-key")
 	}
 
@@ -26,14 +31,19 @@ func getSecretKey() []byte {
 }
 
 func GenerateToken(userID string, email string, role string, duration time.Duration) (string, error) {
+	return GenerateTokenWithType(userID, email, role, "access", duration)
+}
+
+func GenerateTokenWithType(userID string, email string, role string, tokenType string, duration time.Duration) (string, error) {
 	claims := &JWTClaims{
-		UserID: userID,
-		Email:  email,
-		Role:   role,
+		UserID:    userID,
+		Email:     email,
+		Role:      role,
+		TokenType: tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ID:        userID + "-" + time.Now().Format("20060102150405"),
+			ID:        fmt.Sprintf("%s-%s-%d", userID, tokenType, time.Now().UnixNano()),
 		},
 	}
 
