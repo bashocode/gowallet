@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -23,6 +25,11 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
+
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
 
 type AuthService interface {
 	Login(ctx context.Context, req model.LoginRequest) (*model.LoginResponse, error)
@@ -67,22 +74,22 @@ func (s *authService) Login(ctx context.Context, req model.LoginRequest) (*model
 	}
 
 	// generate access token 15 minutes
-	accessToken, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 15*time.Minute)
+	accessToken, err := sharedAuth.GenerateTokenWithType(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "access", 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
 	// generate refresh token 7 days
-	refreshToken, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 7*24*time.Hour)
+	refreshToken, err := sharedAuth.GenerateTokenWithType(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "refresh", 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
-	// save token to db
+	// save hashed token to db
 	rt := &model.RefreshToken{
 		ID:        uuid.New().String(),
 		UserID:    userResp.GetId(),
-		Token:     refreshToken,
+		Token:     hashToken(refreshToken),
 		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
 		Revoked:   false,
 	}
@@ -90,7 +97,7 @@ func (s *authService) Login(ctx context.Context, req model.LoginRequest) (*model
 		return nil, customErr.ErrInternalServer
 	}
 
-	// return the tokens
+	// return the raw tokens to user
 	return &model.LoginResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -98,8 +105,10 @@ func (s *authService) Login(ctx context.Context, req model.LoginRequest) (*model
 }
 
 func (s *authService) RefreshToken(ctx context.Context, oldTokenString string) (*model.LoginResponse, error) {
+	hashedOldToken := hashToken(oldTokenString)
+
 	// 1. Look up token in db
-	rt, err := s.rtRepo.GetByToken(ctx, oldTokenString)
+	rt, err := s.rtRepo.GetByToken(ctx, hashedOldToken)
 	if err != nil {
 		return nil, customErr.NewAppError(http.StatusUnauthorized, "INVALID_REFRESH_TOKEN", "Refresh token invalid.")
 	}
@@ -116,7 +125,7 @@ func (s *authService) RefreshToken(ctx context.Context, oldTokenString string) (
 	}
 
 	// 4. Revoke old token
-	if err := s.rtRepo.Revoke(ctx, oldTokenString); err != nil {
+	if err := s.rtRepo.Revoke(ctx, hashedOldToken); err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
@@ -127,12 +136,12 @@ func (s *authService) RefreshToken(ctx context.Context, oldTokenString string) (
 	}
 
 	// 6. Generate access token & new refresh token
-	newAccessToken, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 15*time.Minute)
+	newAccessToken, err := sharedAuth.GenerateTokenWithType(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "access", 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
-	newRefreshTokenString, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 7*24*time.Hour)
+	newRefreshTokenString, err := sharedAuth.GenerateTokenWithType(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "refresh", 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
@@ -141,7 +150,7 @@ func (s *authService) RefreshToken(ctx context.Context, oldTokenString string) (
 	newRT := &model.RefreshToken{
 		ID:        uuid.New().String(),
 		UserID:    userResp.GetId(),
-		Token:     newRefreshTokenString,
+		Token:     hashToken(newRefreshTokenString),
 		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
 		Revoked:   false,
 	}

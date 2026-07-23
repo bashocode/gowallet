@@ -45,6 +45,13 @@ func (h *UserHandler) Register(c *gin.Context) {
 
 func (h *UserHandler) GetProfile(c *gin.Context) {
 	id := c.Param("id")
+	authUserID, exist := c.Get("user_id")
+	role, _ := c.Get("role")
+	if exist && role != "admin" && fmt.Sprintf("%v", authUserID) != id {
+		c.Error(customErr.NewAppError(http.StatusForbidden, "FORBIDDEN", "You do not have permission to view this profile"))
+		return
+	}
+
 	user, err := h.svc.GetProfile(c.Request.Context(), id)
 	if err != nil {
 		c.Error(err)
@@ -56,6 +63,13 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	id := c.Param("id")
+	authUserID, exist := c.Get("user_id")
+	role, _ := c.Get("role")
+	if exist && role != "admin" && fmt.Sprintf("%v", authUserID) != id {
+		c.Error(customErr.NewAppError(http.StatusForbidden, "FORBIDDEN", "You do not have permission to update this profile"))
+		return
+	}
+
 	var req model.UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_INPUT", err.Error()))

@@ -162,6 +162,9 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		}
 		return nil, customErr.NewAppError(http.StatusNotFound, "RECEIVER_NOT_FOUND", "Receiver not found.")
 	}
+	if receiverUser == nil {
+		return nil, customErr.NewAppError(http.StatusNotFound, "RECEIVER_NOT_FOUND", "Receiver not found.")
+	}
 
 	// 3. Get Sender Wallet Details via Wallet Service gRPC
 	var senderWallet *pbWallet.WalletResponse
@@ -175,6 +178,21 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
 		}
 		return nil, customErr.NewAppError(http.StatusNotFound, "SENDER_WALLET_NOT_FOUND", "Sender wallet not found.")
+	}
+	if senderWallet == nil {
+		return nil, customErr.NewAppError(http.StatusNotFound, "SENDER_WALLET_NOT_FOUND", "Sender wallet not found.")
+	}
+
+	// Get Receiver Wallet Details for accurate transaction history
+	receiverWalletID := receiverUser.Id
+	var receiverWalletResp *pbWallet.WalletResponse
+	err = s.walletBreaker.Call(func() error {
+		var callErr error
+		receiverWalletResp, callErr = s.walletClient.GetWalletByUserID(ctx, &pbWallet.GetWalletRequest{UserId: receiverUser.Id})
+		return callErr
+	})
+	if err == nil && receiverWalletResp != nil && receiverWalletResp.Id != "" {
+		receiverWalletID = receiverWalletResp.Id
 	}
 
 	senderBalance, err := decimal.NewFromString(senderWallet.GetBalance())
@@ -191,11 +209,12 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 	txRecord := &model.Transaction{
 		ID:               txID,
 		SenderWalletID:   &senderWallet.Id,
-		ReceiverWalletID: receiverUser.Id, // Using User ID as destination WalletID
+		ReceiverWalletID: receiverWalletID,
 		Amount:           req.Amount,
 		Description:      req.Description,
 		IdempotencyKey:   req.IdempotencyKey,
 		Status:           "pending",
+		CreatedAt:        time.Now().UTC(),
 	}
 	initTx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -251,19 +270,23 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return nil, customErr.ErrInternalServer
 	}
 
-	// Compose Event Payload for Outbox
-	eventPayload := fmt.Sprintf(`{
-		"transaction_id": "%s",
-		"sender_user_id": "%s",
-		"receiver_user_id": "%s",
-		"amount": %s,
-		"description": "%s"
-	}`, txID, senderUserID, receiverUser.Id, req.Amount.String(), req.Description)
+	// Compose Event Payload for Outbox securely using json.Marshal
+	payloadMap := map[string]any{
+		"transaction_id":  txID,
+		"sender_user_id":   senderUserID,
+		"receiver_user_id": receiverUser.Id,
+		"amount":           req.Amount,
+		"description":      req.Description,
+	}
+	payloadBytes, err := json.Marshal(payloadMap)
+	if err != nil {
+		return nil, customErr.ErrInternalServer
+	}
 
 	outboxEvent := &model.OutboxEvent{
 		ID:        uuid.New().String(),
 		EventType: "transfer.completed",
-		Payload:   eventPayload,
+		Payload:   string(payloadBytes),
 		Status:    "pending",
 	}
 
@@ -1186,11 +1209,16 @@ func (s *transactionService) ProcessTransferInitiated(ctx context.Context, event
 		})
 	}
 
+	amount, err := decimal.NewFromString(event.Amount)
+	if err != nil {
+		return fmt.Errorf("invalid amount in transfer event %s: %w", event.TransferID, err)
+	}
+
 	transfer := &transferModel.OutboundTransfer{
 		ID:             event.TransferID,
 		SenderUserID:   event.SenderUserID,
 		ReceiverEmail:  event.ReceiverEmail,
-		Amount:         decimal.RequireFromString(event.Amount),
+		Amount:         amount,
 		Currency:       event.Currency,
 		IdempotencyKey: event.IdempotencyKey,
 	}
@@ -1360,7 +1388,7 @@ func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferMo
 		return customErr.NewAppError(http.StatusNotFound, "TRANSFER_NOT_FOUND", "Transfer not found.")
 	}
 
-	if transfer.Status == "success" || transfer.Status == "failed" {
+	if transfer.Status == "success" || transfer.Status == "failed" || transfer.Status == "refunded" {
 		return tx.Commit()
 	}
 
@@ -1373,8 +1401,12 @@ func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferMo
 	}
 
 	needsRefund := status == "failed" && transfer.Status != "initiated"
+	targetStatus := status
+	if needsRefund {
+		targetStatus = "refund_pending"
+	}
 
-	if err := s.transferRepo.UpdateStatusTx(ctx, tx, transfer.ID, status); err != nil {
+	if err := s.transferRepo.UpdateStatusTx(ctx, tx, transfer.ID, targetStatus); err != nil {
 		return err
 	}
 
@@ -1418,6 +1450,7 @@ func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferMo
 
 	if needsRefund {
 		s.refundSender(ctx, transfer.SenderUserID, transfer.Amount, transfer.ID)
+		_ = s.transferRepo.UpdateStatus(ctx, transfer.ID, "refunded")
 	}
 
 	logger.Log.Info("Transfer settled and outbox event queued",
@@ -1446,7 +1479,6 @@ func (s *transactionService) ReconcilePendingTransfers(ctx context.Context) erro
 		if err := rows.Scan(&t.ID, &t.SenderWalletID, &t.ReceiverEmail, &t.Amount, &t.IdempotencyKey); err == nil {
 			stale = append(stale, t)
 		}
-		stale = append(stale, t)
 	}
 
 	if err := rows.Err(); err != nil {

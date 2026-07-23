@@ -4,6 +4,9 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type CircuitBreaker struct {
@@ -23,6 +26,19 @@ func New(threshold int, resetTimeout time.Duration) *CircuitBreaker {
 	}
 }
 
+func isBusinessError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if st, ok := status.FromError(err); ok {
+		switch st.Code() {
+		case codes.NotFound, codes.InvalidArgument, codes.AlreadyExists, codes.PermissionDenied, codes.Unauthenticated, codes.FailedPrecondition:
+			return true
+		}
+	}
+	return false
+}
+
 func (cb *CircuitBreaker) Call(fn func() error) error {
 	cb.mu.Lock()
 	if cb.state == "open" {
@@ -37,17 +53,19 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 	defer cb.mu.Unlock()
 
 	if err != nil {
-		cb.failures++
-		if cb.failures >= cb.threshold {
-			cb.state = "open"
-			if cb.resetTimer != nil {
-				cb.resetTimer.Stop()
+		if !isBusinessError(err) {
+			cb.failures++
+			if cb.failures >= cb.threshold {
+				cb.state = "open"
+				if cb.resetTimer != nil {
+					cb.resetTimer.Stop()
+				}
+				cb.resetTimer = time.AfterFunc(cb.resetTimeout, func() {
+					cb.mu.Lock()
+					cb.state = "half-open"
+					cb.mu.Unlock()
+				})
 			}
-			cb.resetTimer = time.AfterFunc(cb.resetTimeout, func() {
-				cb.mu.Lock()
-				cb.state = "half-open"
-				cb.mu.Unlock()
-			})
 		}
 		return err
 	}

@@ -29,7 +29,6 @@ WORKDIR /app
 
 # Copy binary from builder stage
 # COPY --from=builder /service .
-
 COPY api-gateway/bin/api-gateway-linux ./service
 
 USER appuser

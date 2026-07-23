@@ -51,6 +51,12 @@ func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 			return
 		}
 
+		if claims.TokenType != "" && claims.TokenType != "access" {
+			c.Error(customErr.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN_TYPE", "refresh token cannot be used as access token."))
+			c.Abort()
+			return
+		}
+
 		// save to context
 		c.Set("user_id", claims.UserID)
 		c.Set("email", claims.Email)
