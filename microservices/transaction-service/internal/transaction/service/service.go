@@ -63,6 +63,7 @@ type transactionService struct {
 	db                 *sql.DB
 	txRepo             repository.TransactionRepository
 	cacheRepo          cache.TransactionCacheRepository
+	cacheEvictionRepo  repository.CacheEvictionRepository
 	transferRepo       transferRepo.OutboundTransferRepository
 	outboxRepo         transferRepo.TransferOutboxRepository
 	userClient         pbUser.UserServiceClient
@@ -82,6 +83,7 @@ func NewTransactionService(
 	db *sql.DB,
 	txRepo repository.TransactionRepository,
 	cacheRepo cache.TransactionCacheRepository,
+	cacheEvictionRepo repository.CacheEvictionRepository,
 	transferRepo transferRepo.OutboundTransferRepository,
 	outboxRepo transferRepo.TransferOutboxRepository,
 	userClient pbUser.UserServiceClient,
@@ -96,6 +98,7 @@ func NewTransactionService(
 		db:                 db,
 		txRepo:             txRepo,
 		cacheRepo:          cacheRepo,
+		cacheEvictionRepo:  cacheEvictionRepo,
 		transferRepo:       transferRepo,
 		outboxRepo:         outboxRepo,
 		userClient:         userClient,
@@ -225,9 +228,13 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 
 	// 5. Contact Wallet Service & Ledger Service via gRPC for balance mutations (OUTSIDE LOCAL DATABASE TRANSACTION)
 	// We apply Saga Orchestration with manual rollback orchestration if any step fails.
-	if err := s.executeGrpcTransferChain(ctx, txID, senderUserID, receiverUser.Id, req.Amount, senderWallet); err != nil {
+	receiverWallet, err := s.executeGrpcTransferChain(ctx, txID, senderUserID, receiverUser.Id, req.Amount, senderWallet)
+	if err != nil {
 		// If failed, update status to failed
 		s.txRepo.UpdateStatus(ctx, txID, "failed")
+		if s.cacheRepo != nil {
+			_ = s.cacheRepo.DeleteByIdempotencyKey(ctx, req.IdempotencyKey)
+		}
 		return nil, err
 	}
 
@@ -270,6 +277,25 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return nil, customErr.ErrInternalServer
 	}
 
+	if s.cacheRepo != nil {
+		_ = s.cacheRepo.SetByIdempotencyKey(ctx, req.IdempotencyKey, txRecord, 1*time.Hour)
+	}
+
+	// Database transaction is committed! Now evict Redis cache for both wallets.
+	// We run this outside the MySQL transaction block to keep DB transactions short and avoid holding locks.
+	if s.cacheEvictionRepo != nil {
+		go func() {
+			// We use background context here because the request context might be cancelled after response returns
+			bgCtx := context.Background()
+			_ = s.cacheEvictionRepo.EvictWalletCache(bgCtx, senderUserID, senderWallet.Id)
+			receiverWalletID := ""
+			if receiverWallet != nil {
+				receiverWalletID = receiverWallet.Id
+			}
+			_ = s.cacheEvictionRepo.EvictWalletCache(bgCtx, receiverUser.Id, receiverWalletID)
+		}()
+	}
+
 	return txRecord, nil
 }
 
@@ -282,7 +308,7 @@ func (s *transactionService) executeGrpcTransferChain(
 	txID, senderUserID, receiverUserID string,
 	amount decimal.Decimal,
 	senderWallet *pbWallet.WalletResponse,
-) error {
+) (*pbWallet.WalletResponse, error) {
 	debitAmount := amount.Neg()
 	// 5. Deduct Sender Balance (Debit) via Wallet Service gRPC
 	err := s.walletBreaker.Call(func() error {
@@ -296,9 +322,9 @@ func (s *transactionService) executeGrpcTransferChain(
 	})
 	if err != nil {
 		if err.Error() == "circuit breaker is open — service unavailable" {
-			return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
 		}
-		return customErr.NewAppError(http.StatusConflict, "CONCURRENT_ERROR", "Failed to process transaction. Try again.")
+		return nil, customErr.NewAppError(http.StatusConflict, "CONCURRENT_ERROR", "Failed to process transaction. Try again.")
 	}
 
 	// 6. Add Receiver Balance (Credit) via Wallet Service gRPC
@@ -319,7 +345,7 @@ func (s *transactionService) executeGrpcTransferChain(
 		if compReadErr != nil {
 			logger.Error(ctx, "CRITICAL: compensation re-read sender failed", slog.String("transaction_id", txID), slog.Any("error", compReadErr))
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "get_sender_wallet_for_compensation", "error": compReadErr.Error()})
-			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 		compRefundErr := s.walletBreaker.Call(func() error {
 			var callErr error
@@ -333,12 +359,12 @@ func (s *transactionService) executeGrpcTransferChain(
 		if compRefundErr != nil {
 			logger.Error(ctx, "CRITICAL: compensation refund sender failed", slog.String("transaction_id", txID), slog.Any("error", compRefundErr))
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "refund_sender_after_receiver_wallet_not_found", "error": compRefundErr.Error()})
-			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 		if err.Error() == "circuit breaker is open — service unavailable" {
-			return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
 		}
-		return customErr.NewAppError(http.StatusNotFound, "RECEIVER_WALLET_NOT_FOUND", "Receiver wallet not found.")
+		return nil, customErr.NewAppError(http.StatusNotFound, "RECEIVER_WALLET_NOT_FOUND", "Receiver wallet not found.")
 	}
 
 	err = s.walletBreaker.Call(func() error {
@@ -361,7 +387,7 @@ func (s *transactionService) executeGrpcTransferChain(
 		if compReadErr != nil {
 			logger.Error(ctx, "CRITICAL: compensation re-read sender failed", slog.String("transaction_id", txID), slog.Any("error", compReadErr))
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "get_sender_wallet_for_compensation", "error": compReadErr.Error()})
-			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 		compRefundErr := s.walletBreaker.Call(func() error {
 			var callErr error
@@ -375,12 +401,12 @@ func (s *transactionService) executeGrpcTransferChain(
 		if compRefundErr != nil {
 			logger.Error(ctx, "CRITICAL: compensation refund sender failed", slog.String("transaction_id", txID), slog.Any("error", compRefundErr))
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "refund_sender_after_credit_fail", "error": compRefundErr.Error()})
-			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 		if err.Error() == "circuit breaker is open — service unavailable" {
-			return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
 		}
-		return customErr.ErrInternalServer
+		return nil, customErr.ErrInternalServer
 	}
 
 	// 7. Record Financial Audit Trail in Ledger Service gRPC
@@ -448,13 +474,13 @@ func (s *transactionService) executeGrpcTransferChain(
 
 		if compFailed {
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "compensation_after_ledger_debit_fail"})
-			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 
 		if err.Error() == "circuit breaker is open — service unavailable" {
-			return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
 		}
-		return customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record audit log. Transaction cancelled.")
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record audit log. Transaction cancelled.")
 	}
 
 	err = s.ledgerBreaker.Call(func() error {
@@ -536,16 +562,16 @@ func (s *transactionService) executeGrpcTransferChain(
 
 		if compFailed {
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "compensation_after_ledger_credit_fail"})
-			return customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
+			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 
 		if err.Error() == "circuit breaker is open — service unavailable" {
-			return customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
+			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
 		}
-		return customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record receiver audit log. Transaction cancelled.")
+		return nil, customErr.NewAppError(http.StatusInternalServerError, "LEDGER_ERROR", "Failed to record receiver audit log. Transaction cancelled.")
 	}
 
-	return nil
+	return receiverWallet, nil
 }
 
 func (s *transactionService) GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error) {
@@ -675,6 +701,9 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 	})
 	if err != nil {
 		s.markFailed(ctx, transactionID)
+		if s.cacheRepo != nil {
+			_ = s.cacheRepo.DeleteByIdempotencyKey(ctx, req.IdempotencyKey)
+		}
 		if err.Error() == "circuit breaker is open — service unavailable" {
 			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wallet service is currently unavailable.")
 		}
@@ -716,6 +745,9 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 				"error":          compReadErr.Error(),
 			})
 			s.markFailed(ctx, transactionID)
+			if s.cacheRepo != nil {
+				_ = s.cacheRepo.DeleteByIdempotencyKey(ctx, req.IdempotencyKey)
+			}
 			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 
@@ -740,11 +772,17 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 				"error":          compDebitErr.Error(),
 			})
 			s.markFailed(ctx, transactionID)
+			if s.cacheRepo != nil {
+				_ = s.cacheRepo.DeleteByIdempotencyKey(ctx, req.IdempotencyKey)
+			}
 			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
 
 		// Compensation succeeded, mark transaction as failed and return original error
 		s.markFailed(ctx, transactionID)
+		if s.cacheRepo != nil {
+			_ = s.cacheRepo.DeleteByIdempotencyKey(ctx, req.IdempotencyKey)
+		}
 
 		if err.Error() == "circuit breaker is open — service unavailable" {
 			return nil, customErr.NewAppError(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Ledger service is currently unavailable.")
@@ -760,6 +798,18 @@ func (s *transactionService) TopUp(ctx context.Context, userID string, req model
 		)
 	}
 	transaction.Status = "success"
+
+	if s.cacheRepo != nil {
+		_ = s.cacheRepo.SetByIdempotencyKey(ctx, req.IdempotencyKey, transaction, 1*time.Hour)
+	}
+
+	// Evict cache for the wallet after successful top-up
+	if s.cacheEvictionRepo != nil {
+		go func() {
+			bgCtx := context.Background()
+			_ = s.cacheEvictionRepo.EvictWalletCache(bgCtx, userID, wallet.Id)
+		}()
+	}
 
 	return transaction, nil
 }
@@ -1090,6 +1140,14 @@ func (s *transactionService) CreateExternalTransfer(ctx context.Context, senderU
 		slog.String("event_id", event.EventID),
 	)
 
+	// Evict cache for the sender's wallet after successful debit
+	if s.cacheEvictionRepo != nil {
+		go func() {
+			bgCtx := context.Background()
+			_ = s.cacheEvictionRepo.EvictWalletCache(bgCtx, senderUserID, senderWallet.Id)
+		}()
+	}
+
 	transfer.Status = "pending"
 	return transfer, nil
 }
@@ -1277,6 +1335,14 @@ func (s *transactionService) refundSender(ctx context.Context, senderUserID stri
 		slog.String("user_id", senderUserID),
 		slog.String("amount", amount.String()),
 	)
+
+	// Evict cache for the sender's wallet after successful refund
+	if s.cacheEvictionRepo != nil {
+		go func() {
+			bgCtx := context.Background()
+			_ = s.cacheEvictionRepo.EvictWalletCache(bgCtx, senderUserID, senderWallet.Id)
+		}()
+	}
 }
 
 func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferModel.TransferCallback) error {
