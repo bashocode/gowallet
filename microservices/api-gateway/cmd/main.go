@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	_ "github.com/bashocode/gowallet/microservices/api-gateway/docs"
@@ -43,8 +47,10 @@ func main() {
 		Password: "",
 		DB:       0,
 	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		logger.Log.Warn("Redis unavailable — rate limiter will skip. addr=" + cfg.RedisAddr + " err=" + err.Error())
 		rdb = nil
@@ -106,6 +112,20 @@ func main() {
 		})
 	})
 
+	r.GET("/live", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "UP"})
+	})
+
+	r.GET("/ready", func(c *gin.Context) {
+		if rdb != nil {
+			if err := rdb.Ping(c.Request.Context()).Err(); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "DOWN", "reason": "Redis cache not responding"})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "READY"})
+	})
+
 	//    RateLimiter throttles abusive clients (60 req/min per IP)
 	if rdb != nil {
 		r.Use(sharedMiddleware.RateLimiter(rdb, 60, time.Minute))
@@ -150,8 +170,39 @@ func main() {
 		paymentProxy.ServeHTTP(c.Writer, c.Request)
 	})
 
-	logger.Log.Info("API Gateway listening on port " + cfg.GatewayPort + "...")
-	if err := r.Run(":" + cfg.GatewayPort); err != nil {
-		logger.Fatal(context.Background(), "Gateway failed", "error", err)
+	srv := &http.Server{
+		Addr:    ":" + cfg.GatewayPort,
+		Handler: r,
 	}
+
+	go func() {
+		logger.Log.Info("API Gateway listening on port " + cfg.GatewayPort + "...")
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Fatal(context.Background(), "Server listen failed", "error", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Log.Info("Shutdown signal received. Starting graceful shutdown...")
+
+	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelShutdown()
+
+	if err := srv.Shutdown(ctxShutdown); err != nil {
+		logger.Error(ctxShutdown, "HTTP Server forced to shutdown", "error", err.Error())
+	} else {
+		logger.Log.Info("HTTP Server closed cleanly.")
+	}
+
+	logger.Log.Info("Closing Redis connection...")
+	if rdb != nil {
+		if err := rdb.Close(); err != nil {
+			logger.Error(ctxShutdown, "Failed to close Redis client", "error", err.Error())
+		}
+	}
+
+	logger.Log.Info("API Gateway successfully stopped.")
 }

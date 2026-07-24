@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	paymentGRPC "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/grpc"
 	paymentHandler "github.com/bashocode/gowallet/microservices/payment-service/internal/payment/handler"
@@ -33,14 +36,12 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to Redis", "error", err)
 	}
-	defer rdb.Close()
 
 	// Connect to MySQL
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to MySQL", "error", err)
 	}
-	defer db.Close()
 
 	pub, err := paymentPublisher.NewRabbitMQPaymentPublisher(cfg.RabbitMQURL)
 	if err != nil {
@@ -68,7 +69,6 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	go worker.Start(ctx)
 
@@ -78,6 +78,26 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.CorrelationID())
+
+	r.GET("/live", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "UP"})
+	})
+
+	r.GET("/ready", func(c *gin.Context) {
+		if err := db.PingContext(c.Request.Context()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "DOWN", "reason": "MySQL database not responding"})
+			return
+		}
+		if err := rdb.Ping(c.Request.Context()).Err(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "DOWN", "reason": "Redis cache not responding"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "READY"})
+	})
+
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "HEALTHY"})
+	})
 
 	v1 := r.Group("/api/v1")
 	{
@@ -115,21 +135,50 @@ func main() {
 		}
 	}()
 
-	// Graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	srv := &http.Server{
+		Addr:    ":" + cfg.PaymentPort,
+		Handler: r,
+	}
 
 	go func() {
 		logger.Log.Info("Payment Service listening on port " + cfg.PaymentPort + "...")
-		if err := r.Run(":" + cfg.PaymentPort); err != nil {
-			logger.Fatal(context.Background(), "Failed to run HTTP server", "error", err)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Fatal(context.Background(), "Server listen failed", "error", err)
 		}
 	}()
 
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	logger.Log.Info("Shutting down Payment Service...")
+
+	logger.Log.Info("Shutdown signal received. Starting graceful shutdown...")
+
+	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelShutdown()
+
+	if err := srv.Shutdown(ctxShutdown); err != nil {
+		logger.Error(ctxShutdown, "HTTP Server forced to shutdown", "error", err.Error())
+	} else {
+		logger.Log.Info("HTTP Server closed cleanly.")
+	}
+
+	logger.Log.Info("Stopping gRPC server...")
+	grpcServer.GracefulStop()
+	logger.Log.Info("gRPC Server closed cleanly.")
+
+	logger.Log.Info("Stopping background workers...")
 	cancel()
 	worker.Stop()
-	grpcServer.GracefulStop()
-	logger.Log.Info("Payment Service stopped")
+
+	logger.Log.Info("Closing database and cache connections...")
+
+	if err := rdb.Close(); err != nil {
+		logger.Error(ctxShutdown, "Failed to close Redis client", "error", err.Error())
+	}
+
+	if err := db.Close(); err != nil {
+		logger.Error(ctxShutdown, "Failed to close MySQL connection", "error", err.Error())
+	}
+
+	logger.Log.Info("Payment Microservice successfully stopped.")
 }

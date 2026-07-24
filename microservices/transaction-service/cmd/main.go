@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	pbLedger "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
@@ -37,20 +42,17 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to Redis", "error", err)
 	}
-	defer rdb.Close()
 
 	// Connect to MySQL
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to MySQL", "error", err)
 	}
-	defer db.Close()
 
 	// Initialize & Start Outbox Worker
 	outboxWorker := worker.NewOutboxWorker(db, cfg.RabbitMQURL)
 
 	bgCtx, cancelWorker := context.WithCancel(context.Background())
-	defer cancelWorker()
 
 	go outboxWorker.Start(bgCtx)
 
@@ -75,7 +77,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Failed to connect to user service", "error", err)
 	}
-	defer userConn.Close()
 
 	userClient := pbUser.NewUserServiceClient(userConn)
 
@@ -100,7 +101,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Failed to connect to wallet service", "error", err)
 	}
-	defer walletConn.Close()
 
 	walletClient := pbWallet.NewWalletServiceClient(walletConn)
 
@@ -125,7 +125,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Failed to connect to ledger service", "error", err)
 	}
-	defer ledgerConn.Close()
 
 	dlqPublisher := dlq.NewNoOpPublisher()
 
@@ -205,6 +204,26 @@ func main() {
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.CorrelationID())
 
+	r.GET("/live", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "UP"})
+	})
+
+	r.GET("/ready", func(c *gin.Context) {
+		if err := db.PingContext(c.Request.Context()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "DOWN", "reason": "MySQL database not responding"})
+			return
+		}
+		if err := rdb.Ping(c.Request.Context()).Err(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "DOWN", "reason": "Redis cache not responding"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "READY"})
+	})
+
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "HEALTHY"})
+	})
+
 	v1 := r.Group("/api/v1")
 	{
 		protected := v1.Group("")
@@ -225,8 +244,60 @@ func main() {
 		}
 	}
 
-	logger.Log.Info("Transaction Service HTTP server listening on port " + cfg.TransactionPort + "...")
-	if err := r.Run(":" + cfg.TransactionPort); err != nil {
-		logger.Fatal(context.Background(), "Failed to run HTTP server", "error", err)
+	srv := &http.Server{
+		Addr:    ":" + cfg.TransactionPort,
+		Handler: r,
 	}
+
+	go func() {
+		logger.Log.Info("Transaction Service HTTP server listening on port " + cfg.TransactionPort + "...")
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Fatal(context.Background(), "Server listen failed", "error", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Log.Info("Shutdown signal received. Starting graceful shutdown...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error(ctx, "HTTP Server forced to shutdown", "error", err.Error())
+	} else {
+		logger.Log.Info("HTTP Server closed cleanly.")
+	}
+
+	logger.Log.Info("Stopping gRPC server...")
+	grpcServer.GracefulStop()
+	logger.Log.Info("gRPC Server closed cleanly.")
+
+	logger.Log.Info("Stopping background workers...")
+	cancelWorker()
+
+	logger.Log.Info("Closing gRPC client connections...")
+	if err := userConn.Close(); err != nil {
+		logger.Error(ctx, "Failed to close user service connection", "error", err.Error())
+	}
+	if err := walletConn.Close(); err != nil {
+		logger.Error(ctx, "Failed to close wallet service connection", "error", err.Error())
+	}
+	if err := ledgerConn.Close(); err != nil {
+		logger.Error(ctx, "Failed to close ledger service connection", "error", err.Error())
+	}
+
+	logger.Log.Info("Closing database and cache connections...")
+
+	if err := rdb.Close(); err != nil {
+		logger.Error(ctx, "Failed to close Redis client", "error", err.Error())
+	}
+
+	if err := db.Close(); err != nil {
+		logger.Error(ctx, "Failed to close MySQL connection", "error", err.Error())
+	}
+
+	logger.Log.Info("Transaction Microservice successfully stopped.")
 }

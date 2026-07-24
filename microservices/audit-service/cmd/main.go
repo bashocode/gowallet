@@ -15,7 +15,7 @@ import (
 
 func main() {
 	logger.InitLogger()
-	logger.Info(nil, "starting audit-service...")
+	logger.Info(context.Background(), "starting audit-service...")
 
 	cfg := config.LoadConfig()
 
@@ -23,28 +23,32 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "failed to connect to MongoDB", "error", err)
 	}
-	defer func() {
-		if err := mongoClient.Disconnect(context.Background()); err != nil {
-			logger.Error(nil, "error disconnecting from MongoDB", "error", err)
-		}
-	}()
 
 	db := mongoClient.Database("gowallet_audit")
-	logger.Info(nil, "connected to MongoDB database: gowallet_audit")
+	logger.Info(context.Background(), "connected to MongoDB database: gowallet_audit")
 
 	auditRepo := repository.NewAuditRepository(db)
 	auditConsumer := consumer.NewAuditConsumer(cfg.RabbitMQURL, auditRepo)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	go auditConsumer.Start(ctx)
 
-	logger.Info(nil, "audit-service started successfully")
+	logger.Info(context.Background(), "audit-service started successfully")
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	logger.Info(nil, "shutting down audit-service...")
+	logger.Info(context.Background(), "Shutdown signal received. Starting graceful shutdown...")
+
+	logger.Info(context.Background(), "Stopping consumer workers...")
+	cancel()
+
+	logger.Info(context.Background(), "Closing MongoDB connection...")
+	if err := mongoClient.Disconnect(context.Background()); err != nil {
+		logger.Error(context.Background(), "Failed to disconnect from MongoDB", "error", err)
+	}
+
+	logger.Info(context.Background(), "Audit Microservice successfully stopped.")
 }
