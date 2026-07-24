@@ -2,7 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
@@ -29,14 +35,12 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to Redis", "error", err)
 	}
-	defer rdb.Close()
 
 	// Connect to MySQL
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to MySQL", "error", err)
 	}
-	defer db.Close()
 
 	wRepo := walletRepository.NewMySQLWalletRepository(db)
 	wCache := walletCache.NewWalletCacheRepository(rdb)
@@ -71,6 +75,29 @@ func main() {
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.CorrelationID())
 
+	// Register Health, Readiness, & Liveness Endpoints
+	r.GET("/live", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "UP"})
+	})
+
+	r.GET("/ready", func(c *gin.Context) {
+		// Make sure MySQL is connected properly
+		if err := db.PingContext(c.Request.Context()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "DOWN", "reason": "MySQL database not responding"})
+			return
+		}
+		// Make sure Redis is connected properly
+		if err := rdb.Ping(c.Request.Context()).Err(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "DOWN", "reason": "Redis cache not responding"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "READY"})
+	})
+
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "HEALTHY"})
+	})
+
 	v1 := r.Group("/api/v1")
 	{
 		protected := v1.Group("")
@@ -80,8 +107,54 @@ func main() {
 		}
 	}
 
-	logger.Log.Info("Wallet HTTP Server running on port " + cfg.WalletPort + "...")
-	if err := r.Run(":" + cfg.WalletPort); err != nil {
-		logger.Fatal(context.Background(), "Failed to run HTTP server", "error", err)
+	srv := &http.Server{
+		Addr:    ":" + cfg.WalletPort,
+		Handler: r,
 	}
+
+	// Run HTTP server in background (goroutine)
+	go func() {
+		logger.Log.Info("Wallet HTTP Server running on port " + cfg.WalletPort + "...")
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Fatal(context.Background(), "Server listen failed", "error", err)
+		}
+	}()
+
+	// Wait for shutdown signal from OS (Ctrl+C or Docker stop)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Log.Info("Shutdown signal received. Starting graceful shutdown...")
+
+	// Set wait time tolerance for request completion (e.g., 15 seconds)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Stop accepting new HTTP requests & wait for running requests to finish
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error(ctx, "HTTP Server forced to shutdown", "error", err.Error())
+	} else {
+		logger.Log.Info("HTTP Server closed cleanly.")
+	}
+
+	// Stop gRPC server gracefully
+	logger.Log.Info("Stopping gRPC server...")
+	grpcServer.GracefulStop()
+	logger.Log.Info("gRPC Server closed cleanly.")
+
+	// Clean up all other resource connections
+	logger.Log.Info("Closing database and cache connections...")
+
+	// Close Redis Client
+	if err := rdb.Close(); err != nil {
+		logger.Error(ctx, "Failed to close Redis client", "error", err.Error())
+	}
+
+	// Close MySQL Connection
+	if err := db.Close(); err != nil {
+		logger.Error(ctx, "Failed to close MySQL connection", "error", err.Error())
+	}
+
+	logger.Log.Info("Wallet Microservice successfully stopped.")
 }

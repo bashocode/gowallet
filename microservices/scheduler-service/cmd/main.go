@@ -48,7 +48,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to Auth gRPC", "error", err)
 	}
-	defer authConn.Close()
 	authClient := authPb.NewAuthServiceClient(authConn)
 
 	// 2. gRPC connection to Wallet Service
@@ -72,7 +71,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to Wallet gRPC", "error", err)
 	}
-	defer walletConn.Close()
 	walletClient := walletPb.NewWalletServiceClient(walletConn)
 
 	// 3. gRPC connection to Transaction Service
@@ -96,7 +94,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to Transaction gRPC", "error", err)
 	}
-	defer txConn.Close()
 	txClient := txPb.NewTransactionServiceClient(txConn)
 
 	// 4. gRPC connection to User Service
@@ -120,7 +117,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to User gRPC", "error", err)
 	}
-	defer userConn.Close()
 	userClient := userPb.NewUserServiceClient(userConn)
 
 	// gRPC connection to Payment Service
@@ -144,7 +140,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to Payment gRPC", "error", err)
 	}
-	defer payConn.Close()
 	paymentClient := paymentPb.NewPaymentServiceClient(payConn)
 
 	// 5. Initialize & Start Scheduler
@@ -168,7 +163,6 @@ func main() {
 
 	// 7. Start Outbox Archiver Workers
 	bgCtx, cancelArchiver := context.WithCancel(context.Background())
-	defer cancelArchiver()
 
 	txArchiver := archiver.NewOutboxArchiver("transaction", "outbox-archives", &archiver.TransactionOutboxAdapter{Client: txClient}, minioStorage, archiveAge, 1*time.Hour)
 	userArchiver := archiver.NewOutboxArchiver("user", "outbox-archives", &archiver.UserOutboxAdapter{Client: userClient}, minioStorage, archiveAge, 1*time.Hour)
@@ -183,5 +177,30 @@ func main() {
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
 	<-stopChan
 
+	logger.Log.Info("Shutdown signal received. Starting graceful shutdown...")
+
+	logger.Log.Info("Stopping scheduler...")
 	sched.Stop()
+
+	logger.Log.Info("Stopping archiver workers...")
+	cancelArchiver()
+
+	logger.Log.Info("Closing gRPC client connections...")
+	if err := authConn.Close(); err != nil {
+		logger.Error(context.Background(), "Failed to close auth service connection", "error", err.Error())
+	}
+	if err := walletConn.Close(); err != nil {
+		logger.Error(context.Background(), "Failed to close wallet service connection", "error", err.Error())
+	}
+	if err := txConn.Close(); err != nil {
+		logger.Error(context.Background(), "Failed to close transaction service connection", "error", err.Error())
+	}
+	if err := userConn.Close(); err != nil {
+		logger.Error(context.Background(), "Failed to close user service connection", "error", err.Error())
+	}
+	if err := payConn.Close(); err != nil {
+		logger.Error(context.Background(), "Failed to close payment service connection", "error", err.Error())
+	}
+
+	logger.Log.Info("Scheduler Service successfully stopped.")
 }

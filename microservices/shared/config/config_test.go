@@ -56,7 +56,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 	cfg := LoadConfig()
 
-	if cfg.SMTPHost != "localhost" {
+	if cfg.SMTPHost != "127.0.0.1" {
 		t.Errorf("expected default SMTPHost to be 'localhost', got %q", cfg.SMTPHost)
 	}
 	if cfg.SMTPPort != "1025" {
