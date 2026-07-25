@@ -2,55 +2,30 @@ package security
 
 import (
 	"encoding/json"
-	"regexp"
 	"strings"
+
+	"github.com/microcosm-cc/bluemonday"
 )
 
-// Sanitizer provides HTML sanitization for user input.
+// Sanitizer provides HTML sanitization for user input using bluemonday.
 type Sanitizer struct {
-	// htmlTagPattern matches any HTML tag
-	htmlTagPattern *regexp.Regexp
-	// scriptPattern matches script tags and their content
-	scriptPattern *regexp.Regexp
-	// stylePattern matches style tags and their content
-	stylePattern *regexp.Regexp
-	// eventHandlerPattern matches HTML event handlers (onclick, onerror, etc.)
-	eventHandlerPattern *regexp.Regexp
+	policy *bluemonday.Policy
 }
 
 func NewSanitizer() *Sanitizer {
 	return &Sanitizer{
-		// Match actual HTML tags: < followed by letter or /, then any chars until >
-		htmlTagPattern:      regexp.MustCompile(`</?[a-zA-Z][^>]*>`),
-		scriptPattern:       regexp.MustCompile(`(?i)<script[^>]*>.*?</script>`),
-		stylePattern:        regexp.MustCompile(`(?i)<style[^>]*>.*?</style>`),
-		eventHandlerPattern: regexp.MustCompile(`(?i)\son\w+\s*=\s*[^>\s]*`),
+		policy: bluemonday.StrictPolicy(),
 	}
 }
 
 // SanitizeString removes all HTML tags and attributes from a string.
-// It uses multiple layers of protection:
-// 1. Remove script tags and their content
-// 2. Remove style tags and their content
-// 3. Remove event handlers (onclick, onerror, etc.)
-// 4. Strip all HTML tags
+// It uses bluemonday's StrictPolicy to tokenize and strip all HTML tags safely.
 func (s *Sanitizer) SanitizeString(input string) string {
 	if input == "" {
 		return input
 	}
 
-	// Remove script tags and their content
-	clean := s.scriptPattern.ReplaceAllString(input, "")
-
-	// Remove style tags and their content
-	clean = s.stylePattern.ReplaceAllString(clean, "")
-
-	// Remove event handlers
-	clean = s.eventHandlerPattern.ReplaceAllString(clean, "")
-
-	// Strip all HTML tags
-	clean = s.htmlTagPattern.ReplaceAllString(clean, "")
-
+	clean := s.policy.Sanitize(input)
 	return strings.TrimSpace(clean)
 }
 

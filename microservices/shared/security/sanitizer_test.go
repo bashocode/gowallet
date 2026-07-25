@@ -169,10 +169,34 @@ func TestSanitizeString_HandlesSpecialCharacters(t *testing.T) {
 	s := security.NewSanitizer()
 
 	input := "Hello & goodbye < > \" '"
-	want := "Hello & goodbye < > \" '"
+	want := "Hello &amp; goodbye &lt; &gt; &#34; &#39;"
 
 	got := s.SanitizeString(input)
 
+	if got != want {
+		t.Errorf("SanitizeString() = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeString_StripsJavascriptProtocol(t *testing.T) {
+	s := security.NewSanitizer()
+
+	input := `<a href="javascript:alert('xss')">Click Here</a>`
+	want := "Click Here"
+
+	got := s.SanitizeString(input)
+	if got != want {
+		t.Errorf("SanitizeString() = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeString_StripsMalformedNestedScript(t *testing.T) {
+	s := security.NewSanitizer()
+
+	input := `<scr<script>ipt>alert(1)</script>`
+	want := "ipt&gt;alert(1)"
+
+	got := s.SanitizeString(input)
 	if got != want {
 		t.Errorf("SanitizeString() = %q, want %q", got, want)
 	}
