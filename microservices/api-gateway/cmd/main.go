@@ -15,6 +15,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	sharedMiddleware "github.com/bashocode/gowallet/microservices/shared/middleware"
+	"github.com/bashocode/gowallet/microservices/shared/security"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	swaggerFiles "github.com/swaggo/files"
@@ -91,6 +92,9 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to initialize payment proxy", "error", err)
 	}
 
+	// Initialize sanitizer for XSS protection
+	sanitizer := security.NewSanitizer()
+
 	r := gin.New()
 
 	r.Use(gin.Logger())
@@ -103,6 +107,10 @@ func main() {
 	r.Use(sharedMiddleware.CorrelationID())
 	//    CORS allows browser-based clients
 	r.Use(middleware.CORSMiddleware())
+	//    Security headers protect against XSS and other browser-based attacks
+	r.Use(sharedMiddleware.SecurityHeaders())
+	//    Sanitize all incoming JSON payloads to strip HTML/script tags
+	r.Use(sharedMiddleware.SanitizeBody(sanitizer))
 
 	// Health check endpoint
 	r.GET("/health", func(c *gin.Context) {
