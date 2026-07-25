@@ -111,6 +111,24 @@ func main() {
 	r.Use(sharedMiddleware.SecurityHeaders())
 	//    Sanitize all incoming JSON payloads to strip HTML/script tags
 	r.Use(sharedMiddleware.SanitizeBody(sanitizer))
+	//    CSRF middleware implements Double Submit Cookie protection
+	r.Use(sharedMiddleware.CSRFMiddleware())
+
+	// CSRF token retrieval endpoint
+	r.GET("/api/v1/csrf-token", func(c *gin.Context) {
+		token, err := security.GetCSRFCookie(c)
+		if err != nil || token == "" {
+			token, err = security.RotateCSRFToken(c)
+			if err != nil {
+				c.Error(err)
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"csrf_token": token,
+			"message":    "Include this token as X-CSRF-Token header in all state-changing requests",
+		})
+	})
 
 	// Health check endpoint
 	r.GET("/health", func(c *gin.Context) {
