@@ -14,6 +14,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/storage"
 	userCache "github.com/bashocode/gowallet/microservices/user-service/internal/user/cache"
 	userGRPC "github.com/bashocode/gowallet/microservices/user-service/internal/user/grpc"
@@ -50,6 +51,10 @@ func main() {
 	conn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("user-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -98,6 +103,7 @@ func main() {
 	notifWorker := userWorker.NewNotificationOutboxWorker(notificationOutboxRepo, cfg.RabbitMQURL)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	go notifWorker.Start(ctx)
 
@@ -117,7 +123,7 @@ func main() {
 			return
 		}
 		if err := rdb.Ping(c.Request.Context()).Err(); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "DOWN", "reason": "Redis cache not responding"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "DOWN", "reason": "Redis not responding"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "READY"})
@@ -166,7 +172,9 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC port"+port, "error", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("auth-service", "transaction-service", "api-gateway")),
+	)
 	pb.RegisterUserServiceServer(grpcServer, userGRPC.NewUserGRPCServer(userRepo, otpRepo, notificationOutboxRepo))
 
 	go func() {

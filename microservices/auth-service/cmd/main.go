@@ -17,6 +17,7 @@ import (
 	pbAuth "github.com/bashocode/gowallet/microservices/auth-service/proto/auth"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
@@ -49,6 +50,10 @@ func main() {
 	userConn, err := grpc.NewClient(
 		cfg.UserGRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("auth-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"methodConfig": [{
 				"name": [{"service": "user.UserService"}],
@@ -72,6 +77,10 @@ func main() {
 	walletConn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("auth-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -137,7 +146,9 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen Auth gRPC", "error", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("scheduler-service", "api-gateway")),
+	)
 	pbAuth.RegisterAuthServiceServer(grpcServer, authGRPC.NewAuthGRPCServer(rtRepo))
 
 	go func() {

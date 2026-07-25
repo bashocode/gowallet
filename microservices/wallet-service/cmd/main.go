@@ -19,6 +19,7 @@ import (
 	walletHandler "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/handler"
 	walletRepository "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/repository"
 	walletService "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/service"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	pb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
@@ -58,7 +59,9 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC", "error", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("transaction-service", "ledger-service", "user-service", "auth-service", "api-gateway")),
+	)
 	pb.RegisterWalletServiceServer(grpcServer, walletGRPC.NewWalletGRPCServer(wSvc))
 
 	go func() {

@@ -23,6 +23,7 @@ import (
 	transferRepository "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/repository"
 	transactionService "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/service"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/worker"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	pb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	pbUser "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
@@ -60,6 +61,10 @@ func main() {
 	userConn, err := grpc.NewClient(
 		cfg.UserGRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("transaction-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -84,6 +89,10 @@ func main() {
 	walletConn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("transaction-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -108,6 +117,10 @@ func main() {
 	ledgerConn, err := grpc.NewClient(
 		cfg.LedgerGRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("transaction-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -185,7 +198,9 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC", "error", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("api-gateway", "payment-service", "scheduler-service")),
+	)
 	pb.RegisterTransactionServiceServer(grpcServer, transactionGRPC.NewTransactionGRPCServer(txSvc, txRepo))
 
 	go func() {

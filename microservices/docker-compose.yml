@@ -11,7 +11,7 @@ services:
       MYSQL_USER: ${DB_USER}
       MYSQL_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "${DB_PORT}:${DB_PORT}"
+      - "127.0.0.1:${DB_PORT}:${DB_PORT}"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./db-init:/docker-entrypoint-initdb.d
@@ -27,7 +27,7 @@ services:
     image: redis:7-alpine
     container_name: gowallet-redis-ms
     ports:
-      - "${REDIS_PORT}:${REDIS_PORT}"
+      - "127.0.0.1:${REDIS_PORT}:${REDIS_PORT}"
     networks:
       - gowallet-network
     healthcheck:
@@ -40,8 +40,8 @@ services:
     image: mailhog/mailhog:latest
     container_name: gowallet-mailhog-ms
     ports:
-      - "${MAILHOG_PORT}:${MAILHOG_PORT}" # SMTP port
-      - "${MAILHOG_WEB_PORT}:${MAILHOG_WEB_PORT}" # Web UI dashboard port
+      - "127.0.0.1:${MAILHOG_PORT}:${MAILHOG_PORT}" # SMTP port
+      - "127.0.0.1:${MAILHOG_WEB_PORT}:${MAILHOG_WEB_PORT}" # Web UI dashboard port
     networks:
       - gowallet-network
     restart: always
@@ -50,8 +50,8 @@ services:
     image: rabbitmq:3-management-alpine
     container_name: gowallet-rabbitmq
     ports:
-      - "${RABBITMQ_PORT}:${RABBITMQ_PORT}"     # AMQP port for application connections
-      - "${RABBITMQ_MGMT_PORT}:${RABBITMQ_MGMT_PORT}"   # Web UI Management Console port
+      - "127.0.0.1:${RABBITMQ_PORT}:${RABBITMQ_PORT}"     # AMQP port for application connections
+      - "127.0.0.1:${RABBITMQ_MGMT_PORT}:${RABBITMQ_MGMT_PORT}"   # Web UI Management Console port
     networks:
       - gowallet-network
     restart: always
@@ -60,7 +60,7 @@ services:
     image: mongo:7.0
     container_name: gowallet-mongodb
     ports:
-      - "${MONGO_PORT}:${MONGO_PORT}"
+      - "127.0.0.1:${MONGO_PORT}:${MONGO_PORT}"
     volumes:
       - mongo_data:/data/db
     networks:
@@ -72,8 +72,8 @@ services:
     container_name: gowallet-minio
     command: server /data --console-address ":${MINIO_WEB_PORT}"
     ports:
-      - "${MINIO_PORT}:${MINIO_PORT}"
-      - "${MINIO_WEB_PORT}:${MINIO_WEB_PORT}"
+      - "127.0.0.1:${MINIO_PORT}:${MINIO_PORT}"
+      - "127.0.0.1:${MINIO_WEB_PORT}:${MINIO_WEB_PORT}"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
@@ -129,8 +129,8 @@ services:
       dockerfile: auth-service/Dockerfile
     container_name: gowallet-auth-service-ms
     ports:
-      - "${AUTH_PORT}:${AUTH_PORT}"
-      - "${AUTH_GRPC_PORT}:${AUTH_GRPC_PORT}"
+      - "127.0.0.1:${AUTH_PORT}:${AUTH_PORT}"
+      - "127.0.0.1:${AUTH_GRPC_PORT}:${AUTH_GRPC_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -161,7 +161,7 @@ services:
       dockerfile: user-service/Dockerfile
     container_name: gowallet-user-service-ms
     ports:
-      - "${USER_PORT}:${USER_PORT}"
+      - "127.0.0.1:${USER_PORT}:${USER_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -199,8 +199,8 @@ services:
       dockerfile: wallet-service/Dockerfile
     container_name: gowallet-wallet-service-ms
     ports:
-      - "${WALLET_PORT}:${WALLET_PORT}"
-      - "${WALLET_GRPC_PORT}:${WALLET_GRPC_PORT}"
+      - "127.0.0.1:${WALLET_PORT}:${WALLET_PORT}"
+      - "127.0.0.1:${WALLET_GRPC_PORT}:${WALLET_GRPC_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -224,8 +224,8 @@ services:
       dockerfile: ledger-service/Dockerfile
     container_name: gowallet-ledger-service-ms
     ports:
-      - "${LEDGER_PORT}:${LEDGER_PORT}"
-      - "${LEDGER_GRPC_PORT}:${LEDGER_GRPC_PORT}"
+      - "127.0.0.1:${LEDGER_PORT}:${LEDGER_PORT}"
+      - "127.0.0.1:${LEDGER_GRPC_PORT}:${LEDGER_GRPC_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -250,8 +250,8 @@ services:
       dockerfile: transaction-service/Dockerfile
     container_name: gowallet-transaction-service-ms
     ports:
-      - "${TRANSACTION_PORT}:${TRANSACTION_PORT}"
-      - "${TRANSACTION_GRPC_PORT}:${TRANSACTION_GRPC_PORT}"
+      - "127.0.0.1:${TRANSACTION_PORT}:${TRANSACTION_PORT}"
+      - "127.0.0.1:${TRANSACTION_GRPC_PORT}:${TRANSACTION_GRPC_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -288,8 +288,8 @@ services:
       dockerfile: payment-service/Dockerfile
     container_name: gowallet-payment-service-ms
     ports:
-      - "${PAYMENT_PORT}:${PAYMENT_PORT}"
-      - "${PAYMENT_GRPC_PORT}:${PAYMENT_GRPC_PORT}"
+      - "127.0.0.1:${PAYMENT_PORT}:${PAYMENT_PORT}"
+      - "127.0.0.1:${PAYMENT_GRPC_PORT}:${PAYMENT_GRPC_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}

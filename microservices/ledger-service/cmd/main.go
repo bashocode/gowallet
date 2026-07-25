@@ -20,6 +20,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
@@ -48,6 +49,10 @@ func main() {
 	conn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("ledger-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -86,7 +91,9 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC", "error", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("transaction-service", "wallet-service", "api-gateway")),
+	)
 	pb.RegisterLedgerServiceServer(grpcServer, ledgerGRPC.NewLedgerGRPCServer(lRepo))
 
 	go func() {

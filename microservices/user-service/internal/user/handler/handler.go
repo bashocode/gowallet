@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"net/http"
-	"path/filepath"
 	"time"
 
 	customErr "github.com/bashocode/gowallet/microservices/shared/errors"
@@ -141,23 +144,48 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 	}
 	defer file.Close()
 
-	contentType := fileHeader.Header.Get("Content-Type")
-	if contentType != "image/png" && contentType != "image/jpeg" {
-		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_FILE", "Only PNG and JPEG formats are allowed"))
+	// Inspect decoded content; do not trust header or file extension
+	img, format, err := image.Decode(file)
+	if err != nil {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_IMAGE", "Uploaded file is not a valid image or is corrupted."))
 		return
 	}
 
-	ext := filepath.Ext(fileHeader.Filename)
-	if ext == "" {
-		if contentType == "image/png" {
-			ext = ".png"
-		} else {
-			ext = ".jpg"
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width > 4096 || height > 4096 {
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "IMAGE_TOO_LARGE", "Image dimensions must not exceed 4096x4096 pixels."))
+		return
+	}
+
+	// Re-encode image into a clean buffer to strip EXIF and embedded scripts
+	var buf bytes.Buffer
+	var mimeType string
+	var ext string
+
+	switch format {
+	case "png":
+		if err := png.Encode(&buf, img); err != nil {
+			c.Error(customErr.ErrInternalServer)
+			return
 		}
+		mimeType = "image/png"
+		ext = ".png"
+	case "jpeg":
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85}); err != nil {
+			c.Error(customErr.ErrInternalServer)
+			return
+		}
+		mimeType = "image/jpeg"
+		ext = ".jpg"
+	default:
+		c.Error(customErr.NewAppError(http.StatusBadRequest, "INVALID_FORMAT", "Only PNG and JPEG images are allowed."))
+		return
 	}
 
 	objectName := fmt.Sprintf("avatar-%s-%d%s", userIDStr, time.Now().Unix(), ext)
-	avatarURL, err := h.storage.UploadStream(c.Request.Context(), "avatars", objectName, file, fileHeader.Size, contentType)
+	avatarURL, err := h.storage.UploadStream(c.Request.Context(), "avatars", objectName, &buf, int64(buf.Len()), mimeType)
 	if err != nil {
 		logger.Error(c.Request.Context(), "Failed to upload avatar to MinIO", "error", err.Error())
 		c.Error(customErr.ErrInternalServer)

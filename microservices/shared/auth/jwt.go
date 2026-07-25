@@ -9,6 +9,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const ExpectedIssuer = "gowallet-auth-service"
+const ExpectedAudience = "gowallet-api"
+
 type JWTClaims struct {
 	UserID    string `json:"user_id"`
 	Email     string `json:"email"`
@@ -19,14 +22,15 @@ type JWTClaims struct {
 
 func getSecretKey() []byte {
 	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		if os.Getenv("APP_ENV") == "production" {
-			panic("CRITICAL: JWT_SECRET environment variable is not set in production!")
+	if os.Getenv("APP_ENV") == "production" {
+		if secret == "" || len(secret) < 32 {
+			panic("CRITICAL: JWT_SECRET environment variable is missing or less than 32 characters in production!")
 		}
-		// fallback for local development only
-		return []byte("fallback-local-development-secret-key")
 	}
-
+	if secret == "" {
+		// fallback for local development only
+		return []byte("fallback-local-development-secret-key-must-be-long-enough-32bytes!")
+	}
 	return []byte(secret)
 }
 
@@ -35,15 +39,19 @@ func GenerateToken(userID string, email string, role string, duration time.Durat
 }
 
 func GenerateTokenWithType(userID string, email string, role string, tokenType string, duration time.Duration) (string, error) {
+	now := time.Now()
 	claims := &JWTClaims{
 		UserID:    userID,
 		Email:     email,
 		Role:      role,
 		TokenType: tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ID:        fmt.Sprintf("%s-%s-%d", userID, tokenType, time.Now().UnixNano()),
+			Issuer:    ExpectedIssuer,
+			Audience:  jwt.ClaimStrings{ExpectedAudience},
+			ExpiresAt: jwt.NewNumericDate(now.Add(duration)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			ID:        fmt.Sprintf("%s-%s-%d", userID, tokenType, now.UnixNano()),
 		},
 	}
 
@@ -52,7 +60,15 @@ func GenerateTokenWithType(userID string, email string, role string, tokenType s
 }
 
 func ValidateToken(tokenString string) (*JWTClaims, error) {
+	return ValidateTokenWithType(tokenString, "")
+}
+
+func ValidateTokenWithType(tokenString string, expectedType string) (*JWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(t *jwt.Token) (interface{}, error) {
+		// Pin signing algorithm to HMAC-SHA256 only
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok || t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
 		return getSecretKey(), nil
 	})
 
@@ -63,6 +79,10 @@ func ValidateToken(tokenString string) (*JWTClaims, error) {
 	claims, ok := token.Claims.(*JWTClaims)
 	if !ok || !token.Valid {
 		return nil, errors.New("invalid token claims")
+	}
+
+	if expectedType != "" && claims.TokenType != expectedType {
+		return nil, fmt.Errorf("token type mismatch: expected %s, got %s", expectedType, claims.TokenType)
 	}
 
 	return claims, nil
