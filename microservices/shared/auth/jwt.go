@@ -3,7 +3,6 @@ package auth
 import (
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -20,25 +19,14 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
-func getSecretKey() []byte {
-	secret := os.Getenv("JWT_SECRET")
-	if os.Getenv("APP_ENV") == "production" {
-		if secret == "" || len(secret) < 32 {
-			panic("CRITICAL: JWT_SECRET environment variable is missing or less than 32 characters in production!")
-		}
-	}
-	if secret == "" {
-		// fallback for local development only
-		return []byte("fallback-local-development-secret-key-must-be-long-enough-32bytes!")
-	}
-	return []byte(secret)
+func GenerateToken(secretKey string, userID string, email string, role string, duration time.Duration) (string, error) {
+	return GenerateTokenWithType(secretKey, userID, email, role, "access", duration)
 }
 
-func GenerateToken(userID string, email string, role string, duration time.Duration) (string, error) {
-	return GenerateTokenWithType(userID, email, role, "access", duration)
-}
-
-func GenerateTokenWithType(userID string, email string, role string, tokenType string, duration time.Duration) (string, error) {
+func GenerateTokenWithType(secretKey string, userID string, email string, role string, tokenType string, duration time.Duration) (string, error) {
+	if secretKey == "" {
+		return "", errors.New("jwt secret key is required")
+	}
 	now := time.Now()
 	claims := &JWTClaims{
 		UserID:    userID,
@@ -56,20 +44,23 @@ func GenerateTokenWithType(userID string, email string, role string, tokenType s
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(getSecretKey())
+	return token.SignedString([]byte(secretKey))
 }
 
-func ValidateToken(tokenString string) (*JWTClaims, error) {
-	return ValidateTokenWithType(tokenString, "")
+func ValidateToken(secretKey string, tokenString string) (*JWTClaims, error) {
+	return ValidateTokenWithType(secretKey, tokenString, "")
 }
 
-func ValidateTokenWithType(tokenString string, expectedType string) (*JWTClaims, error) {
+func ValidateTokenWithType(secretKey string, tokenString string, expectedType string) (*JWTClaims, error) {
+	if secretKey == "" {
+		return nil, errors.New("jwt secret key is required")
+	}
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(t *jwt.Token) (interface{}, error) {
 		// Pin signing algorithm to HMAC-SHA256 only
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok || t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
-		return getSecretKey(), nil
+		return []byte(secretKey), nil
 	})
 
 	if err != nil {

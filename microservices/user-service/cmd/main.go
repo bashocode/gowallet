@@ -143,7 +143,7 @@ func main() {
 
 		// Protected Routes
 		protected := v1.Group("")
-		protected.Use(middleware.AuthMiddleware(rdb))
+		protected.Use(middleware.AuthMiddleware(rdb, cfg.JWTSecret))
 		{
 			protected.GET("/users/me", userHandler.GetProfileMe)
 			protected.POST("/users/avatar", userHandler.UploadAvatar)
@@ -173,7 +173,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("auth-service", "transaction-service", "api-gateway")),
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "auth-service", "transaction-service", "api-gateway")),
 	)
 	pb.RegisterUserServiceServer(grpcServer, userGRPC.NewUserGRPCServer(userRepo, otpRepo, notificationOutboxRepo))
 

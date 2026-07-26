@@ -124,6 +124,10 @@ func LoadConfig() *Config {
 	return &cfg
 }
 
+func (c *Config) IsProduction() bool {
+	return c.AppEnv == "production"
+}
+
 func setDefaults() {
 	viper.SetDefault("REDIS_HOST", "localhost")
 	viper.SetDefault("REDIS_PORT", "6379")

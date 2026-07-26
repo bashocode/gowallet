@@ -110,7 +110,7 @@ func main() {
 
 		// Protected endpoints (JWT required)
 		protected := v1.Group("")
-		protected.Use(middleware.AuthMiddleware(rdb))
+		protected.Use(middleware.AuthMiddleware(rdb, cfg.JWTSecret))
 		{
 			protected.POST("/payments/stripe/checkout", payHandler.CreateCheckoutSession)
 		}
@@ -128,7 +128,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("scheduler-service", "api-gateway", "notification-service")),
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "scheduler-service", "api-gateway", "notification-service")),
 	)
 	pb.RegisterPaymentServiceServer(grpcServer, paymentGRPC.NewPaymentGRPCServer(outboxRepo))
 

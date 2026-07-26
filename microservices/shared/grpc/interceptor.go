@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"google.golang.org/grpc"
@@ -19,14 +18,15 @@ import (
 const ServiceIdentityMetadataKey = "x-service-identity"
 
 // RequireServiceIdentity creates a gRPC server unary interceptor that enforces workload identity allowlists.
-func RequireServiceIdentity(allowed ...string) grpc.UnaryServerInterceptor {
+// In production mode (allowInsecureFallback = false), mTLS peer certificates are strictly required.
+func RequireServiceIdentity(allowInsecureFallback bool, allowed ...string) grpc.UnaryServerInterceptor {
 	allowedSet := make(map[string]struct{}, len(allowed))
 	for _, identity := range allowed {
 		allowedSet[identity] = struct{}{}
 	}
 
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		identity, err := CallerIdentityFromContext(ctx)
+		identity, err := CallerIdentityFromContextWithFallback(ctx, allowInsecureFallback)
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "service identity required")
 		}
@@ -39,8 +39,13 @@ func RequireServiceIdentity(allowed ...string) grpc.UnaryServerInterceptor {
 	}
 }
 
-// CallerIdentityFromContext extracts the calling service identity from TLS peer certificates or context metadata.
+// CallerIdentityFromContext extracts the calling service identity from TLS peer certificates.
 func CallerIdentityFromContext(ctx context.Context) (string, error) {
+	return CallerIdentityFromContextWithFallback(ctx, false)
+}
+
+// CallerIdentityFromContextWithFallback extracts the calling service identity from TLS peer certificates or context metadata.
+func CallerIdentityFromContextWithFallback(ctx context.Context, allowInsecureFallback bool) (string, error) {
 	// 1. Inspect mTLS Peer certificate if present
 	if p, ok := peer.FromContext(ctx); ok && p.AuthInfo != nil {
 		if tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo); ok {
@@ -59,8 +64,8 @@ func CallerIdentityFromContext(ctx context.Context) (string, error) {
 		}
 	}
 
-	// 2. Fall back to gRPC metadata header (e.g. x-service-identity) only in dev/test profiles
-	if IsInsecureAllowed() {
+	// 2. Fall back to gRPC metadata header (e.g. x-service-identity) only in non-production/test profiles
+	if allowInsecureFallback {
 		if md, ok := metadata.FromIncomingContext(ctx); ok {
 			if val := md.Get(ServiceIdentityMetadataKey); len(val) > 0 && val[0] != "" {
 				return val[0], nil
@@ -92,15 +97,6 @@ func UnaryClientTimeout(defaultTimeout time.Duration) grpc.UnaryClientIntercepto
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
-}
-
-// IsInsecureAllowed returns true if local development mode allows insecure transport.
-func IsInsecureAllowed() bool {
-	env := os.Getenv("APP_ENV")
-	if env == "production" {
-		return false
-	}
-	return true
 }
 
 // ValidateCertificates checks client/server TLS certificate validity.

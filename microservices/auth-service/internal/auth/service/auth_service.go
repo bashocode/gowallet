@@ -46,14 +46,16 @@ type authService struct {
 	rtRepo       repository.RefreshTokenRepository
 	userClient   pb.UserServiceClient
 	walletClient pbWallet.WalletServiceClient
+	jwtSecret    string
 }
 
-func NewAuthService(rdb *redis.Client, rtRepo repository.RefreshTokenRepository, userClient pb.UserServiceClient, walletClient pbWallet.WalletServiceClient) AuthService {
+func NewAuthService(rdb *redis.Client, rtRepo repository.RefreshTokenRepository, userClient pb.UserServiceClient, walletClient pbWallet.WalletServiceClient, jwtSecret string) AuthService {
 	return &authService{
 		rdb:          rdb,
 		rtRepo:       rtRepo,
 		userClient:   userClient,
 		walletClient: walletClient,
+		jwtSecret:    jwtSecret,
 	}
 }
 
@@ -76,13 +78,13 @@ func (s *authService) Login(ctx context.Context, req model.LoginRequest) (*model
 	}
 
 	// generate access token 15 minutes
-	accessToken, err := sharedAuth.GenerateTokenWithType(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "access", 15*time.Minute)
+	accessToken, err := sharedAuth.GenerateTokenWithType(s.jwtSecret, userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "access", 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
 	// generate refresh token 7 days
-	refreshToken, err := sharedAuth.GenerateTokenWithType(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "refresh", 7*24*time.Hour)
+	refreshToken, err := sharedAuth.GenerateTokenWithType(s.jwtSecret, userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "refresh", 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
@@ -138,12 +140,12 @@ func (s *authService) RefreshToken(ctx context.Context, oldTokenString string) (
 	}
 
 	// 6. Generate access token & new refresh token
-	newAccessToken, err := sharedAuth.GenerateTokenWithType(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "access", 15*time.Minute)
+	newAccessToken, err := sharedAuth.GenerateTokenWithType(s.jwtSecret, userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "access", 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
-	newRefreshTokenString, err := sharedAuth.GenerateTokenWithType(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "refresh", 7*24*time.Hour)
+	newRefreshTokenString, err := sharedAuth.GenerateTokenWithType(s.jwtSecret, userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "refresh", 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
@@ -168,7 +170,7 @@ func (s *authService) RefreshToken(ctx context.Context, oldTokenString string) (
 
 func (s *authService) Logout(ctx context.Context, tokenString string) error {
 	// Validate token
-	claims, err := sharedAuth.ValidateToken(tokenString)
+	claims, err := sharedAuth.ValidateToken(s.jwtSecret, tokenString)
 	if err != nil {
 		return customErr.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN", "token is invalid or expired.")
 	}
@@ -309,12 +311,12 @@ func (s *authService) HandleGoogleCallback(ctx context.Context, code string, sta
 	}
 
 	// Generate tokens
-	accessToken, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 15*time.Minute)
+	accessToken, err := sharedAuth.GenerateToken(s.jwtSecret, userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 15*time.Minute)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}
 
-	refreshToken, err := sharedAuth.GenerateTokenWithType(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "refresh", 7*24*time.Hour)
+	refreshToken, err := sharedAuth.GenerateTokenWithType(s.jwtSecret, userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "refresh", 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}

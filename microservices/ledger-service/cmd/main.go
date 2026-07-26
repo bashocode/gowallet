@@ -92,7 +92,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("transaction-service", "wallet-service", "api-gateway")),
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "transaction-service", "wallet-service", "api-gateway")),
 	)
 	pb.RegisterLedgerServiceServer(grpcServer, ledgerGRPC.NewLedgerGRPCServer(lRepo))
 
@@ -133,7 +133,7 @@ func main() {
 	v1 := r.Group("/api/v1")
 	{
 		protected := v1.Group("")
-		protected.Use(middleware.AuthMiddleware(rdb))
+		protected.Use(middleware.AuthMiddleware(rdb, cfg.JWTSecret))
 		{
 			protected.GET("/ledger/mutations", lHandler.GetMutations)
 			protected.GET("/ledger/reconcile", lHandler.Reconcile)

@@ -1,13 +1,14 @@
 package auth
 
 import (
-	"os"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 )
+
+const testSecret = "test-secret-key-must-be-32bytes-long!"
 
 func TestGenerateAndValidateToken(t *testing.T) {
 	userID := "user-123"
@@ -16,12 +17,12 @@ func TestGenerateAndValidateToken(t *testing.T) {
 	duration := 15 * time.Minute
 
 	// Test GenerateToken
-	token, err := GenerateToken(userID, email, role, duration)
+	token, err := GenerateToken(testSecret, userID, email, role, duration)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
 	// Test ValidateToken with valid token
-	claims, err := ValidateToken(token)
+	claims, err := ValidateToken(testSecret, token)
 	assert.NoError(t, err)
 	assert.NotNil(t, claims)
 	assert.Equal(t, userID, claims.UserID)
@@ -31,7 +32,7 @@ func TestGenerateAndValidateToken(t *testing.T) {
 
 func TestValidateToken_Invalid(t *testing.T) {
 	// Test with malformed token
-	claims, err := ValidateToken("invalid-token-string")
+	claims, err := ValidateToken(testSecret, "invalid-token-string")
 	assert.Error(t, err)
 	assert.Nil(t, claims)
 
@@ -41,11 +42,11 @@ func TestValidateToken_Invalid(t *testing.T) {
 	role := "user"
 	duration := -5 * time.Minute // expired 5 minutes ago
 
-	expiredToken, err := GenerateToken(userID, email, role, duration)
+	expiredToken, err := GenerateToken(testSecret, userID, email, role, duration)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, expiredToken)
 
-	claims, err = ValidateToken(expiredToken)
+	claims, err = ValidateToken(testSecret, expiredToken)
 	assert.Error(t, err)
 	assert.Nil(t, claims)
 }
@@ -57,35 +58,31 @@ func TestValidateToken_AlgorithmConfusion(t *testing.T) {
 		Email:     "hacker@example.com",
 		Role:      "admin",
 		TokenType: "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:   ExpectedIssuer,
+			Audience: jwt.ClaimStrings{ExpectedAudience},
+		},
 	}
 	noneToken := jwt.NewWithClaims(jwt.SigningMethodNone, claims)
 	noneTokenString, _ := noneToken.SignedString(jwt.UnsafeAllowNoneSignatureType)
 
-	validClaims, err := ValidateToken(noneTokenString)
+	validClaims, err := ValidateToken(testSecret, noneTokenString)
 	assert.Error(t, err, "none algorithm token must be rejected")
 	assert.Nil(t, validClaims)
 }
 
 func TestValidateTokenWithType_Mismatch(t *testing.T) {
-	token, err := GenerateTokenWithType("user-1", "test@example.com", "user", "refresh", 10*time.Minute)
+	token, err := GenerateTokenWithType(testSecret, "user-1", "test@example.com", "user", "refresh", 10*time.Minute)
 	assert.NoError(t, err)
 
-	_, err = ValidateTokenWithType(token, "access")
+	_, err = ValidateTokenWithType(testSecret, token, "access")
 	assert.Error(t, err, "refresh token must not be accepted as access token")
 }
 
-func TestGetSecretKey_ProductionFailClosed(t *testing.T) {
-	oldEnv := os.Getenv("APP_ENV")
-	oldSecret := os.Getenv("JWT_SECRET")
-	defer func() {
-		os.Setenv("APP_ENV", oldEnv)
-		os.Setenv("JWT_SECRET", oldSecret)
-	}()
+func TestValidateToken_SecretKeyRequired(t *testing.T) {
+	_, err := GenerateToken("", "user-1", "test@example.com", "user", 10*time.Minute)
+	assert.Error(t, err, "secret key must be required")
 
-	os.Setenv("APP_ENV", "production")
-	os.Setenv("JWT_SECRET", "short")
-
-	assert.Panics(t, func() {
-		getSecretKey()
-	}, "must panic if secret < 32 chars in production")
+	_, err = ValidateToken("", "token")
+	assert.Error(t, err, "secret key must be required")
 }

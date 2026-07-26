@@ -20,7 +20,7 @@ func dummyHandler(ctx context.Context, req any) (any, error) {
 }
 
 func TestRequireServiceIdentity_MissingIdentity(t *testing.T) {
-	interceptor := sharedGRPC.RequireServiceIdentity("allowed-service")
+	interceptor := sharedGRPC.RequireServiceIdentity(true, "allowed-service")
 	ctx := context.Background()
 
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.TestService/TestMethod"}
@@ -36,7 +36,7 @@ func TestRequireServiceIdentity_MissingIdentity(t *testing.T) {
 }
 
 func TestRequireServiceIdentity_UnauthorizedCaller(t *testing.T) {
-	interceptor := sharedGRPC.RequireServiceIdentity("transaction-service")
+	interceptor := sharedGRPC.RequireServiceIdentity(true, "transaction-service")
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(sharedGRPC.ServiceIdentityMetadataKey, "unauthorized-service"))
 
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.TestService/TestMethod"}
@@ -52,7 +52,7 @@ func TestRequireServiceIdentity_UnauthorizedCaller(t *testing.T) {
 }
 
 func TestRequireServiceIdentity_AllowedCaller(t *testing.T) {
-	interceptor := sharedGRPC.RequireServiceIdentity("transaction-service", "wallet-service")
+	interceptor := sharedGRPC.RequireServiceIdentity(true, "transaction-service", "wallet-service")
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(sharedGRPC.ServiceIdentityMetadataKey, "transaction-service"))
 
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.TestService/TestMethod"}

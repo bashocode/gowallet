@@ -103,7 +103,7 @@ func main() {
 
 	// Initialize layers
 	rtRepo := repository.NewMySQLRefreshTokenRepository(db)
-	authSvc := service.NewAuthService(rdb, rtRepo, userClient, walletClient)
+	authSvc := service.NewAuthService(rdb, rtRepo, userClient, walletClient, cfg.JWTSecret)
 	authHandler := handler.NewAuthHandler(authSvc)
 
 	r := gin.New()
@@ -147,7 +147,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("scheduler-service", "api-gateway")),
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "scheduler-service", "api-gateway")),
 	)
 	pbAuth.RegisterAuthServiceServer(grpcServer, authGRPC.NewAuthGRPCServer(rtRepo))
 
@@ -167,7 +167,7 @@ func main() {
 		v1.GET("/auth/google/callback", authHandler.GoogleCallback)
 
 		protected := v1.Group("")
-		protected.Use(middleware.AuthMiddleware(rdb))
+		protected.Use(middleware.AuthMiddleware(rdb, cfg.JWTSecret))
 		{
 			protected.POST("/auth/logout", authHandler.Logout)
 		}

@@ -199,7 +199,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("api-gateway", "payment-service", "scheduler-service")),
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "api-gateway", "payment-service", "scheduler-service")),
 	)
 	pb.RegisterTransactionServiceServer(grpcServer, transactionGRPC.NewTransactionGRPCServer(txSvc, txRepo))
 
@@ -242,7 +242,7 @@ func main() {
 	v1 := r.Group("/api/v1")
 	{
 		protected := v1.Group("")
-		protected.Use(middleware.AuthMiddleware(rdb))
+		protected.Use(middleware.AuthMiddleware(rdb, cfg.JWTSecret))
 		{
 			protected.POST("/transactions/transfer", txHandler.Transfer)
 			protected.GET("/transactions/history", txHandler.GetHistory)
