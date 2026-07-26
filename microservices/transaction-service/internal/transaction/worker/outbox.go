@@ -133,7 +133,7 @@ func (w *OutboxWorker) processPendingEvents(ctx context.Context) {
 		err = w.channel.PublishWithContext(
 			ctx,
 			"wallet.events", // exchange
-			event.EventType, // routing key (e.g., "transfer.completed")
+			event.EventType, // routing key (e.g., "transfer.success")
 			false,           // mandatory
 			false,           // immediate
 			amqp.Publishing{

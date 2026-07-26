@@ -447,9 +447,9 @@ func (c *TransferNotificationConsumer) handleTransferSettled(ctx context.Context
 				return
 			}
 
-			subject := "Transfer Completed - GoWallet"
+			subject := "Transfer Successful - GoWallet"
 			body := fmt.Sprintf(
-				"Dear %s,\n\nYour transfer has been completed successfully.\n\nTransfer ID: %s\nRecipient: %s\nAmount: %s %s\n\nThank you for using GoWallet!",
+				"Dear %s,\n\nYour transfer was successful.\n\nTransfer ID: %s\nRecipient: %s\nAmount: %s %s\n\nThank you for using GoWallet!",
 				senderResp.GetFullName(),
 				event.TransferID,
 				event.ReceiverEmail,
@@ -468,8 +468,8 @@ func (c *TransferNotificationConsumer) handleTransferSettled(ctx context.Context
 					ctx,
 					event.SenderUserID,
 					sharedWebSocket.MessageTypeTransferSent,
-					"Transfer Completed",
-					fmt.Sprintf("Your transfer of %s %s was completed", event.Currency, event.Amount),
+					"Transfer Successful",
+					fmt.Sprintf("Your transfer of %s %s was successful", event.Currency, event.Amount),
 					map[string]interface{}{
 						"transfer_id":    event.TransferID,
 						"amount":         event.Amount,
