@@ -127,9 +127,13 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC port "+grpcPort, "error", err)
 	}
 
-	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "scheduler-service", "api-gateway", "notification-service")),
-	)
+	serverOpts, err := sharedGRPC.GetServerOptions(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath)
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC server credentials", "error", err)
+	}
+	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "scheduler-service", "api-gateway", "notification-service")))
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	pb.RegisterPaymentServiceServer(grpcServer, paymentGRPC.NewPaymentGRPCServer(outboxRepo))
 
 	go func() {

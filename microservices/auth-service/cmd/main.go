@@ -24,7 +24,6 @@ import (
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -46,10 +45,15 @@ func main() {
 		logger.Fatal(context.Background(), "Could not connect to database", "error", err)
 	}
 
+	userCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "user-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for user-service", "error", err)
+	}
+
 	// Connect to User Service via gRPC
 	userConn, err := grpc.NewClient(
 		cfg.UserGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(userCreds),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("auth-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -73,10 +77,15 @@ func main() {
 
 	userClient := pb.NewUserServiceClient(userConn)
 
+	walletCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "wallet-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for wallet-service", "error", err)
+	}
+
 	// Connect to Wallet Service via gRPC (for OAuth user wallet creation)
 	walletConn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(walletCreds),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("auth-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -146,9 +155,13 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen Auth gRPC", "error", err)
 	}
 
-	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "scheduler-service", "api-gateway")),
-	)
+	serverOpts, err := sharedGRPC.GetServerOptions(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath)
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC server credentials", "error", err)
+	}
+	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "scheduler-service", "api-gateway")))
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	pbAuth.RegisterAuthServiceServer(grpcServer, authGRPC.NewAuthGRPCServer(rtRepo))
 
 	go func() {

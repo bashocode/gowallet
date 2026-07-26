@@ -29,7 +29,6 @@ import (
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -57,10 +56,15 @@ func main() {
 
 	go outboxWorker.Start(bgCtx)
 
+	userCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "user-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for user-service", "error", err)
+	}
+
 	// Connect to User Service gRPC
 	userConn, err := grpc.NewClient(
 		cfg.UserGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(userCreds),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("transaction-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -85,10 +89,15 @@ func main() {
 
 	userClient := pbUser.NewUserServiceClient(userConn)
 
+	walletCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "wallet-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for wallet-service", "error", err)
+	}
+
 	// Connect to Wallet Service gRPC
 	walletConn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(walletCreds),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("transaction-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -113,10 +122,15 @@ func main() {
 
 	walletClient := pbWallet.NewWalletServiceClient(walletConn)
 
+	ledgerCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "ledger-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for ledger-service", "error", err)
+	}
+
 	// Connect to Ledger Service gRPC
 	ledgerConn, err := grpc.NewClient(
 		cfg.LedgerGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(ledgerCreds),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("transaction-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -198,9 +212,13 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC", "error", err)
 	}
 
-	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "api-gateway", "payment-service", "scheduler-service")),
-	)
+	serverOpts, err := sharedGRPC.GetServerOptions(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath)
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC server credentials", "error", err)
+	}
+	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "api-gateway", "payment-service", "scheduler-service")))
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	pb.RegisterTransactionServiceServer(grpcServer, transactionGRPC.NewTransactionGRPCServer(txSvc, txRepo))
 
 	go func() {

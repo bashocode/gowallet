@@ -33,6 +33,9 @@ type Config struct {
 	LedgerGRPCAddr        string `mapstructure:"LEDGER_GRPC_ADDR"`
 	TransactionGRPCAddr   string `mapstructure:"TRANSACTION_GRPC_ADDR"`
 	PaymentGRPCAddr       string `mapstructure:"PAYMENT_GRPC_ADDR"`
+	GRPCSSLCertPath       string `mapstructure:"GRPC_SSL_CERT_PATH"`
+	GRPCSSLKeyPath        string `mapstructure:"GRPC_SSL_KEY_PATH"`
+	GRPCSSLCAPath         string `mapstructure:"GRPC_SSL_CA_PATH"`
 	StripeSecretKey       string `mapstructure:"STRIPE_SECRET_KEY"`
 	AuthGRPCAddr          string `mapstructure:"AUTH_GRPC_ADDR"`
 	StripeWebhookSecret   string `mapstructure:"STRIPE_WEBHOOK_SECRET"`
