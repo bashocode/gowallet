@@ -8,6 +8,7 @@ require (
 	github.com/bashocode/gowallet/microservices/shared v0.0.0-20260713161533-63ca5e8f9fa2
 	github.com/bashocode/gowallet/microservices/user-service v0.0.0-20260713161533-63ca5e8f9fa2
 	github.com/rabbitmq/amqp091-go v1.12.0
+	github.com/redis/go-redis/v9 v9.21.0
 	google.golang.org/grpc v1.82.1
 )
 
@@ -21,7 +22,6 @@ require (
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
-	github.com/redis/go-redis/v9 v9.21.0 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect

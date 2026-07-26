@@ -120,6 +120,26 @@ func (w *PaymentConsumerWorker) ensureConnection() error {
 
 		if err := ch.QueueBind(
 			queue.Name,
+			"payment.success",
+			"payment.events",
+			false,
+			nil,
+		); err != nil {
+			ch.Close()
+			conn.Close()
+			lastErr = err
+			if attempt < maxRetries {
+				time.Sleep(backoff)
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
+			continue
+		}
+
+		if err := ch.QueueBind(
+			queue.Name,
 			"payment.settled",
 			"payment.events",
 			false,
@@ -217,7 +237,7 @@ func (w *PaymentConsumerWorker) processMessage(ctx context.Context, msg amqp.Del
 		w.deadLetter(ctx, msg, err)
 		return
 	}
-	if event.EventID == "" || event.EventType != "payment.settled" || event.Provider == "" || event.ProviderPaymentID == "" || event.PaymentID == "" || event.UserID == "" || event.Amount == "" {
+	if event.EventID == "" || (event.EventType != "payment.success" && event.EventType != "payment.settled") || event.Provider == "" || event.ProviderPaymentID == "" || event.PaymentID == "" || event.UserID == "" || event.Amount == "" {
 		w.deadLetter(ctx, msg, fmt.Errorf("invalid payment event: required fields missing"))
 		return
 	}

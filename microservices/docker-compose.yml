@@ -116,6 +116,8 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      WEBSOCKET_CHANNEL: ${WEBSOCKET_CHANNEL}
       GRPC_SSL_CA_PATH: /certs/ca.crt
       GRPC_SSL_CERT_PATH: /certs/api-gateway.crt
       GRPC_SSL_KEY_PATH: /certs/api-gateway.key
@@ -430,6 +432,9 @@ services:
       - RABBITMQ_USER=${RABBITMQ_USER}
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
       - USER_GRPC_ADDR=${USER_GRPC_ADDR}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - WEBSOCKET_CHANNEL=${WEBSOCKET_CHANNEL}
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_FROM=${SMTP_FROM}
@@ -443,6 +448,7 @@ services:
       - ./certs/notification-service.key:/certs/notification-service.key:ro
     depends_on:
       - mysql
+      - redis
       - rabbitmq
       - payment-service
       - user-service
