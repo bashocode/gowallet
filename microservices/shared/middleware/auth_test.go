@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const testJWTSecret = "test-secret-key-must-be-32bytes-long!"
+
 func init() {
 	logger.InitLogger()
 }
@@ -26,7 +28,7 @@ func TestAuthMiddleware(t *testing.T) {
 		rdb, _ := redismock.NewClientMock()
 		r := gin.New()
 		r.Use(ErrorHandler())
-		r.Use(AuthMiddleware(rdb))
+		r.Use(AuthMiddleware(rdb, testJWTSecret))
 		r.GET("/test", func(c *gin.Context) {
 			c.Status(http.StatusOK)
 		})
@@ -47,7 +49,7 @@ func TestAuthMiddleware(t *testing.T) {
 		rdb, _ := redismock.NewClientMock()
 		r := gin.New()
 		r.Use(ErrorHandler())
-		r.Use(AuthMiddleware(rdb))
+		r.Use(AuthMiddleware(rdb, testJWTSecret))
 		r.GET("/test", func(c *gin.Context) {
 			c.Status(http.StatusOK)
 		})
@@ -70,7 +72,7 @@ func TestAuthMiddleware(t *testing.T) {
 		rdb, mockRedis := redismock.NewClientMock()
 		r := gin.New()
 		r.Use(ErrorHandler())
-		r.Use(AuthMiddleware(rdb))
+		r.Use(AuthMiddleware(rdb, testJWTSecret))
 		r.GET("/test", func(c *gin.Context) {
 			c.Status(http.StatusOK)
 		})
@@ -98,7 +100,7 @@ func TestAuthMiddleware(t *testing.T) {
 		rdb, mockRedis := redismock.NewClientMock()
 		r := gin.New()
 		r.Use(ErrorHandler())
-		r.Use(AuthMiddleware(rdb))
+		r.Use(AuthMiddleware(rdb, testJWTSecret))
 		r.GET("/test", func(c *gin.Context) {
 			c.Status(http.StatusOK)
 		})
@@ -126,7 +128,7 @@ func TestAuthMiddleware(t *testing.T) {
 		rdb, mockRedis := redismock.NewClientMock()
 		r := gin.New()
 		r.Use(ErrorHandler())
-		r.Use(AuthMiddleware(rdb))
+		r.Use(AuthMiddleware(rdb, testJWTSecret))
 
 		var ctxUserID, ctxEmail, ctxToken string
 		r.GET("/test", func(c *gin.Context) {
@@ -140,7 +142,7 @@ func TestAuthMiddleware(t *testing.T) {
 		expectedEmail := "test@example.com"
 		expectedRole := "user"
 
-		token, err := auth.GenerateToken(expectedUserID, expectedEmail, expectedRole, 15*time.Minute)
+		token, err := auth.GenerateToken(testJWTSecret, expectedUserID, expectedEmail, expectedRole, 15*time.Minute)
 		assert.NoError(t, err)
 
 		blacklistKey := fmt.Sprintf("blacklist:%s", token)

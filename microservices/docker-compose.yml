@@ -11,7 +11,7 @@ services:
       MYSQL_USER: ${DB_USER}
       MYSQL_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "${DB_PORT}:${DB_PORT}"
+      - "127.0.0.1:${DB_PORT}:${DB_PORT}"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./db-init:/docker-entrypoint-initdb.d
@@ -27,7 +27,7 @@ services:
     image: redis:7-alpine
     container_name: gowallet-redis-ms
     ports:
-      - "${REDIS_PORT}:${REDIS_PORT}"
+      - "127.0.0.1:${REDIS_PORT}:${REDIS_PORT}"
     networks:
       - gowallet-network
     healthcheck:
@@ -40,8 +40,8 @@ services:
     image: mailhog/mailhog:latest
     container_name: gowallet-mailhog-ms
     ports:
-      - "${MAILHOG_PORT}:${MAILHOG_PORT}" # SMTP port
-      - "${MAILHOG_WEB_PORT}:${MAILHOG_WEB_PORT}" # Web UI dashboard port
+      - "127.0.0.1:${MAILHOG_PORT}:${MAILHOG_PORT}" # SMTP port
+      - "127.0.0.1:${MAILHOG_WEB_PORT}:${MAILHOG_WEB_PORT}" # Web UI dashboard port
     networks:
       - gowallet-network
     restart: always
@@ -50,8 +50,8 @@ services:
     image: rabbitmq:3-management-alpine
     container_name: gowallet-rabbitmq
     ports:
-      - "${RABBITMQ_PORT}:${RABBITMQ_PORT}"     # AMQP port for application connections
-      - "${RABBITMQ_MGMT_PORT}:${RABBITMQ_MGMT_PORT}"   # Web UI Management Console port
+      - "127.0.0.1:${RABBITMQ_PORT}:${RABBITMQ_PORT}"     # AMQP port for application connections
+      - "127.0.0.1:${RABBITMQ_MGMT_PORT}:${RABBITMQ_MGMT_PORT}"   # Web UI Management Console port
     networks:
       - gowallet-network
     restart: always
@@ -60,7 +60,7 @@ services:
     image: mongo:7.0
     container_name: gowallet-mongodb
     ports:
-      - "${MONGO_PORT}:${MONGO_PORT}"
+      - "127.0.0.1:${MONGO_PORT}:${MONGO_PORT}"
     volumes:
       - mongo_data:/data/db
     networks:
@@ -72,8 +72,8 @@ services:
     container_name: gowallet-minio
     command: server /data --console-address ":${MINIO_WEB_PORT}"
     ports:
-      - "${MINIO_PORT}:${MINIO_PORT}"
-      - "${MINIO_WEB_PORT}:${MINIO_WEB_PORT}"
+      - "127.0.0.1:${MINIO_PORT}:${MINIO_PORT}"
+      - "127.0.0.1:${MINIO_WEB_PORT}:${MINIO_WEB_PORT}"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
@@ -82,6 +82,20 @@ services:
     networks:
       - gowallet-network
     restart: always
+
+  stripe-cli:
+    image: stripe/stripe-cli:latest
+    container_name: gowallet-stripe-cli
+    command: listen --forward-to http://api-gateway:${GATEWAY_PORT}/api/v1/payments/webhook --api-key ${STRIPE_SECRET_KEY}
+    environment:
+      - STRIPE_API_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_DEVICE_NAME=gowallet-docker
+    depends_on:
+      - payment-service
+      - api-gateway
+    networks:
+      - gowallet-network
+    restart: unless-stopped
 
   # === Application Services ===
   api-gateway:
@@ -102,6 +116,13 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       JWT_SECRET: ${JWT_SECRET}
+      GRPC_SSL_CA_PATH: /certs/ca.crt
+      GRPC_SSL_CERT_PATH: /certs/api-gateway.crt
+      GRPC_SSL_KEY_PATH: /certs/api-gateway.key
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/api-gateway.crt:/certs/api-gateway.crt:ro
+      - ./certs/api-gateway.key:/certs/api-gateway.key:ro
     depends_on:
       auth-service:
         condition: service_started
@@ -129,8 +150,8 @@ services:
       dockerfile: auth-service/Dockerfile
     container_name: gowallet-auth-service-ms
     ports:
-      - "${AUTH_PORT}:${AUTH_PORT}"
-      - "${AUTH_GRPC_PORT}:${AUTH_GRPC_PORT}"
+      - "127.0.0.1:${AUTH_PORT}:${AUTH_PORT}"
+      - "127.0.0.1:${AUTH_GRPC_PORT}:${AUTH_GRPC_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -147,6 +168,13 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
+      - GRPC_SSL_CA_PATH=/certs/ca.crt
+      - GRPC_SSL_CERT_PATH=/certs/auth-service.crt
+      - GRPC_SSL_KEY_PATH=/certs/auth-service.key
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/auth-service.crt:/certs/auth-service.crt:ro
+      - ./certs/auth-service.key:/certs/auth-service.key:ro
     depends_on:
       - mysql
       - redis
@@ -161,7 +189,7 @@ services:
       dockerfile: user-service/Dockerfile
     container_name: gowallet-user-service-ms
     ports:
-      - "${USER_PORT}:${USER_PORT}"
+      - "127.0.0.1:${USER_PORT}:${USER_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -184,6 +212,13 @@ services:
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
+      - GRPC_SSL_CA_PATH=/certs/ca.crt
+      - GRPC_SSL_CERT_PATH=/certs/user-service.crt
+      - GRPC_SSL_KEY_PATH=/certs/user-service.key
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/user-service.crt:/certs/user-service.crt:ro
+      - ./certs/user-service.key:/certs/user-service.key:ro
     depends_on:
       - mysql
       - redis
@@ -199,8 +234,8 @@ services:
       dockerfile: wallet-service/Dockerfile
     container_name: gowallet-wallet-service-ms
     ports:
-      - "${WALLET_PORT}:${WALLET_PORT}"
-      - "${WALLET_GRPC_PORT}:${WALLET_GRPC_PORT}"
+      - "127.0.0.1:${WALLET_PORT}:${WALLET_PORT}"
+      - "127.0.0.1:${WALLET_GRPC_PORT}:${WALLET_GRPC_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -211,6 +246,13 @@ services:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - JWT_SECRET=${JWT_SECRET}
+      - GRPC_SSL_CA_PATH=/certs/ca.crt
+      - GRPC_SSL_CERT_PATH=/certs/wallet-service.crt
+      - GRPC_SSL_KEY_PATH=/certs/wallet-service.key
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/wallet-service.crt:/certs/wallet-service.crt:ro
+      - ./certs/wallet-service.key:/certs/wallet-service.key:ro
     depends_on:
       - mysql
       - redis
@@ -224,8 +266,8 @@ services:
       dockerfile: ledger-service/Dockerfile
     container_name: gowallet-ledger-service-ms
     ports:
-      - "${LEDGER_PORT}:${LEDGER_PORT}"
-      - "${LEDGER_GRPC_PORT}:${LEDGER_GRPC_PORT}"
+      - "127.0.0.1:${LEDGER_PORT}:${LEDGER_PORT}"
+      - "127.0.0.1:${LEDGER_GRPC_PORT}:${LEDGER_GRPC_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -237,6 +279,13 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - JWT_SECRET=${JWT_SECRET}
       - WALLET_GRPC_ADDR=${WALLET_GRPC_ADDR}
+      - GRPC_SSL_CA_PATH=/certs/ca.crt
+      - GRPC_SSL_CERT_PATH=/certs/ledger-service.crt
+      - GRPC_SSL_KEY_PATH=/certs/ledger-service.key
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/ledger-service.crt:/certs/ledger-service.crt:ro
+      - ./certs/ledger-service.key:/certs/ledger-service.key:ro
     depends_on:
       - mysql
       - redis
@@ -250,8 +299,8 @@ services:
       dockerfile: transaction-service/Dockerfile
     container_name: gowallet-transaction-service-ms
     ports:
-      - "${TRANSACTION_PORT}:${TRANSACTION_PORT}"
-      - "${TRANSACTION_GRPC_PORT}:${TRANSACTION_GRPC_PORT}"
+      - "127.0.0.1:${TRANSACTION_PORT}:${TRANSACTION_PORT}"
+      - "127.0.0.1:${TRANSACTION_GRPC_PORT}:${TRANSACTION_GRPC_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -272,6 +321,13 @@ services:
       - MONOLITH_BASE_URL=${MONOLITH_BASE_URL}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       - GATEWAY_CALLBACK_URL=${GATEWAY_CALLBACK_URL}
+      - GRPC_SSL_CA_PATH=/certs/ca.crt
+      - GRPC_SSL_CERT_PATH=/certs/transaction-service.crt
+      - GRPC_SSL_KEY_PATH=/certs/transaction-service.key
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/transaction-service.crt:/certs/transaction-service.crt:ro
+      - ./certs/transaction-service.key:/certs/transaction-service.key:ro
     depends_on:
       - mysql
       - redis
@@ -288,8 +344,8 @@ services:
       dockerfile: payment-service/Dockerfile
     container_name: gowallet-payment-service-ms
     ports:
-      - "${PAYMENT_PORT}:${PAYMENT_PORT}"
-      - "${PAYMENT_GRPC_PORT}:${PAYMENT_GRPC_PORT}"
+      - "127.0.0.1:${PAYMENT_PORT}:${PAYMENT_PORT}"
+      - "127.0.0.1:${PAYMENT_GRPC_PORT}:${PAYMENT_GRPC_PORT}"
     environment:
       - APP_ENV=${APP_ENV}
       - DB_USER=${DB_USER}
@@ -308,6 +364,13 @@ services:
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - RABBITMQ_USER=${RABBITMQ_USER}
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - GRPC_SSL_CA_PATH=/certs/ca.crt
+      - GRPC_SSL_CERT_PATH=/certs/payment-service.crt
+      - GRPC_SSL_KEY_PATH=/certs/payment-service.key
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/payment-service.crt:/certs/payment-service.crt:ro
+      - ./certs/payment-service.key:/certs/payment-service.key:ro
     depends_on:
       - mysql
       - redis
@@ -334,6 +397,13 @@ services:
       - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
       - OUTBOX_ARCHIVE_AGE=${OUTBOX_ARCHIVE_AGE}
       - JWT_SECRET=${JWT_SECRET}
+      - GRPC_SSL_CA_PATH=/certs/ca.crt
+      - GRPC_SSL_CERT_PATH=/certs/scheduler-service.crt
+      - GRPC_SSL_KEY_PATH=/certs/scheduler-service.key
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/scheduler-service.crt:/certs/scheduler-service.crt:ro
+      - ./certs/scheduler-service.key:/certs/scheduler-service.key:ro
     depends_on:
       - auth-service
       - user-service
@@ -364,6 +434,13 @@ services:
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_FROM=${SMTP_FROM}
       - JWT_SECRET=${JWT_SECRET}
+      - GRPC_SSL_CA_PATH=/certs/ca.crt
+      - GRPC_SSL_CERT_PATH=/certs/notification-service.crt
+      - GRPC_SSL_KEY_PATH=/certs/notification-service.key
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/notification-service.crt:/certs/notification-service.crt:ro
+      - ./certs/notification-service.key:/certs/notification-service.key:ro
     depends_on:
       - mysql
       - rabbitmq
@@ -390,20 +467,6 @@ services:
       - mongodb
       - rabbitmq
       - payment-service
-    networks:
-      - gowallet-network
-    restart: unless-stopped
-
-  stripe-cli:
-    image: stripe/stripe-cli:latest
-    container_name: gowallet-stripe-cli
-    command: listen --forward-to http://api-gateway:${GATEWAY_PORT}/api/v1/payments/webhook --api-key ${STRIPE_SECRET_KEY}
-    environment:
-      - STRIPE_API_KEY=${STRIPE_SECRET_KEY}
-      - STRIPE_DEVICE_NAME=gowallet-docker
-    depends_on:
-      - payment-service
-      - api-gateway
     networks:
       - gowallet-network
     restart: unless-stopped

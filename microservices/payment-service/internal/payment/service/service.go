@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -34,6 +33,7 @@ type paymentService struct {
 	stripeWebhookSecret string
 	baseURL             string
 	publisher           publisher.PaymentPublisher
+	appEnv              string
 }
 
 func NewPaymentService(
@@ -44,6 +44,7 @@ func NewPaymentService(
 	stripeWebhookSecret string,
 	pub publisher.PaymentPublisher,
 	baseURL string,
+	appEnv string,
 ) PaymentService {
 	// Initialize stripe key globally
 	stripe.Key = stripeSecretKey
@@ -56,12 +57,13 @@ func NewPaymentService(
 		stripeWebhookSecret: stripeWebhookSecret,
 		baseURL:             baseURL,
 		publisher:           pub,
+		appEnv:              appEnv,
 	}
 }
 
 func (s *paymentService) CreateCheckoutSession(ctx context.Context, userID string, req model.StripeCheckoutRequest) (*model.StripeCheckoutResponse, error) {
 	if req.Amount.LessThanOrEqual(decimal.Zero) {
-		return nil, errors.New("amount must be greater than zero")
+		return nil, fmt.Errorf("amount must be greater than zero")
 	}
 
 	currency := strings.ToLower(req.Currency)
@@ -133,6 +135,11 @@ func (s *paymentService) ProcessWebhook(ctx context.Context, payload []byte, sig
 			return fmt.Errorf("bad webhook signature: %w", err)
 		}
 	} else {
+		if s.appEnv == "production" {
+			errMsg := "CRITICAL: STRIPE_WEBHOOK_SECRET environment variable is missing in production profile"
+			logger.Log.Error(errMsg)
+			return fmt.Errorf("%s", errMsg)
+		}
 		// Fallback for development without configured webhook secret
 		if err := json.Unmarshal(payload, &stripeEvent); err != nil {
 			logger.Log.Error("Failed to parse Stripe webhook event json", slog.Any("error", err))

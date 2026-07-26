@@ -106,7 +106,7 @@ func main() {
 	//    CorrelationID assigns a unique ID to every request
 	r.Use(sharedMiddleware.CorrelationID())
 	//    CORS allows browser-based clients
-	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.CORSMiddleware(cfg.BaseURL))
 	//    Security headers protect against XSS and other browser-based attacks
 	r.Use(sharedMiddleware.SecurityHeaders())
 	//    Sanitize all incoming JSON payloads to strip HTML/script tags
@@ -179,8 +179,12 @@ func main() {
 	})
 
 	srv := &http.Server{
-		Addr:    ":" + cfg.GatewayPort,
-		Handler: r,
+		Addr:              ":" + cfg.GatewayPort,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {

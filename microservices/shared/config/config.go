@@ -33,6 +33,9 @@ type Config struct {
 	LedgerGRPCAddr        string `mapstructure:"LEDGER_GRPC_ADDR"`
 	TransactionGRPCAddr   string `mapstructure:"TRANSACTION_GRPC_ADDR"`
 	PaymentGRPCAddr       string `mapstructure:"PAYMENT_GRPC_ADDR"`
+	GRPCSSLCertPath       string `mapstructure:"GRPC_SSL_CERT_PATH"`
+	GRPCSSLKeyPath        string `mapstructure:"GRPC_SSL_KEY_PATH"`
+	GRPCSSLCAPath         string `mapstructure:"GRPC_SSL_CA_PATH"`
 	StripeSecretKey       string `mapstructure:"STRIPE_SECRET_KEY"`
 	AuthGRPCAddr          string `mapstructure:"AUTH_GRPC_ADDR"`
 	StripeWebhookSecret   string `mapstructure:"STRIPE_WEBHOOK_SECRET"`
@@ -107,8 +110,13 @@ func LoadConfig() *Config {
 	}
 
 	if cfg.JWTSecret == "" {
-		logger.Fatal(context.Background(), "JWT_SECRET is required")
+		if env != "production" {
+			cfg.JWTSecret = "development-secret-key-must-be-long-enough-32bytes!"
+		} else {
+			logger.Fatal(context.Background(), "JWT_SECRET is required in production")
+		}
 	}
+
 	if env == "production" && len(cfg.JWTSecret) < 32 {
 		logger.Fatal(context.Background(), "JWT_SECRET must contain at least 32 bytes in production")
 	}
@@ -118,6 +126,10 @@ func LoadConfig() *Config {
 	}
 
 	return &cfg
+}
+
+func (c *Config) IsProduction() bool {
+	return c.AppEnv == "production"
 }
 
 func setDefaults() {
@@ -142,6 +154,9 @@ func setDefaults() {
 	viper.SetDefault("WALLET_GRPC_ADDR", "localhost:50053")
 	viper.SetDefault("LEDGER_GRPC_ADDR", "localhost:50054")
 	viper.SetDefault("TRANSACTION_GRPC_ADDR", "localhost:50055")
+	viper.SetDefault("GRPC_SSL_CERT_PATH", "")
+	viper.SetDefault("GRPC_SSL_KEY_PATH", "")
+	viper.SetDefault("GRPC_SSL_CA_PATH", "")
 	viper.SetDefault("PAYMENT_GRPC_ADDR", "localhost:50056")
 	viper.SetDefault("AUTH_GRPC_ADDR", "localhost:50051")
 	viper.SetDefault("BASE_URL", "http://localhost:8080")
@@ -174,7 +189,7 @@ func validateProductionSecrets(cfg *Config) {
 
 	for name, value := range secrets {
 		if value == "" {
-			continue
+			logger.Fatal(context.Background(), "Production secret %s must not be empty", name)
 		}
 		for _, placeholder := range placeholders {
 			if len(value) > 0 && containsIgnoreCase(value, placeholder) {

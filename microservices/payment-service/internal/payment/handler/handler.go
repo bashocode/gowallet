@@ -72,10 +72,17 @@ func (h *PaymentHandler) CreateCheckoutSession(c *gin.Context) {
 // @Produce		json
 // @Router		/payments/webhook [post]
 func (h *PaymentHandler) ProcessWebhook(c *gin.Context) {
+	// Limit request body size to 64KB max to prevent memory exhaustion attacks
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64*1024)
+
 	// Read payload body
 	payload, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.Error(customErr.NewAppError(http.StatusBadRequest, "BAD_REQUEST", "Failed to read request body"))
+		c.Error(customErr.NewAppError(
+			http.StatusBadRequest,
+			"BAD_REQUEST",
+			"Failed to read request body or body size exceeded 64KB limit",
+		))
 		return
 	}
 
