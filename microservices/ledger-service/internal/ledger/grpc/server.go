@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 
+	"github.com/bashocode/gowallet/microservices/ledger-service/internal/ledger/cache"
 	"github.com/bashocode/gowallet/microservices/ledger-service/internal/ledger/model"
 	"github.com/bashocode/gowallet/microservices/ledger-service/internal/ledger/repository"
 	pb "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
@@ -14,11 +15,15 @@ import (
 
 type ledgerGRPCServer struct {
 	pb.UnimplementedLedgerServiceServer
-	repo repository.LedgerRepository
+	repo      repository.LedgerRepository
+	cacheRepo cache.LedgerCacheRepository
 }
 
-func NewLedgerGRPCServer(repo repository.LedgerRepository) pb.LedgerServiceServer {
-	return &ledgerGRPCServer{repo: repo}
+func NewLedgerGRPCServer(repo repository.LedgerRepository, cacheRepo cache.LedgerCacheRepository) pb.LedgerServiceServer {
+	return &ledgerGRPCServer{
+		repo:      repo,
+		cacheRepo: cacheRepo,
+	}
 }
 
 func (s *ledgerGRPCServer) RecordLedgerEntry(ctx context.Context, req *pb.RecordEntryRequest) (*pb.RecordEntryResponse, error) {
@@ -38,6 +43,9 @@ func (s *ledgerGRPCServer) RecordLedgerEntry(ctx context.Context, req *pb.Record
 	if err := s.repo.Create(ctx, entry); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to record ledger entry: %v", err)
 	}
+
+	// Invalidate ledger balance cache so reconciliation remains consistent
+	_ = s.cacheRepo.DeleteBalance(ctx, entry.WalletID)
 
 	return &pb.RecordEntryResponse{
 		EntryId: entry.ID,
@@ -63,6 +71,11 @@ func (s *ledgerGRPCServer) RecordLedgerEntries(ctx context.Context, req *pb.Reco
 
 	if err := s.repo.CreateBatch(ctx, entries); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to record ledger entries: %v", err)
+	}
+
+	// Invalidate ledger balance cache for all affected wallets
+	for _, entry := range entries {
+		_ = s.cacheRepo.DeleteBalance(ctx, entry.WalletID)
 	}
 
 	return &pb.RecordEntriesResponse{Success: true}, nil
