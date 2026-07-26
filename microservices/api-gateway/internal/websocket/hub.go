@@ -37,10 +37,9 @@ func (h *Hub) Run() {
 		case client := <-h.register:
 			h.mu.Lock()
 
-			// If user already has a connection, close the old one
-			// This handles the case where a user opens multiple tabs
+			// If user already has a connection, close the old one.
+			// Conn.Close() will cause old client's readPump to trigger unregister safely.
 			if existing, ok := h.clients[client.UserID]; ok {
-				close(existing.Send)
 				existing.Conn.Close()
 			}
 
@@ -51,14 +50,14 @@ func (h *Hub) Run() {
 		case client := <-h.unregister:
 			h.mu.Lock()
 
-			// Only unregister if this is the current connection for the user
-			// (could have been replaced by a newer connection)
+			// Only delete from map if this client is still the active connection for the user
 			if existing, ok := h.clients[client.UserID]; ok {
 				if existing == client {
 					delete(h.clients, client.UserID)
-					close(client.Send)
 				}
 			}
+			// Safely close the disconnected client's send channel
+			close(client.Send)
 
 			h.mu.Unlock()
 		}
