@@ -128,6 +128,7 @@ func main() {
 	notifWorker := userWorker.NewNotificationOutboxWorker(notificationOutboxRepo, cfg.RabbitMQURL)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	go notifWorker.Start(ctx)
 
