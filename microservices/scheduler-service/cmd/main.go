@@ -12,13 +12,13 @@ import (
 	"github.com/bashocode/gowallet/microservices/scheduler-service/internal/archiver"
 	"github.com/bashocode/gowallet/microservices/scheduler-service/internal/scheduler"
 	"github.com/bashocode/gowallet/microservices/shared/config"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/storage"
 	txPb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	userPb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	walletPb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -28,9 +28,18 @@ func main() {
 	cfg := config.LoadConfig()
 
 	// 1. gRPC connection to Auth Service
+	authCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "auth-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for auth-service", "error", err)
+	}
+
 	authConn, err := grpc.NewClient(
 		cfg.AuthGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(authCreds),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("scheduler-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -51,9 +60,18 @@ func main() {
 	authClient := authPb.NewAuthServiceClient(authConn)
 
 	// 2. gRPC connection to Wallet Service
+	walletCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "wallet-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for wallet-service", "error", err)
+	}
+
 	walletConn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(walletCreds),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("scheduler-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -74,9 +92,18 @@ func main() {
 	walletClient := walletPb.NewWalletServiceClient(walletConn)
 
 	// 3. gRPC connection to Transaction Service
+	txCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "transaction-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for transaction-service", "error", err)
+	}
+
 	txConn, err := grpc.NewClient(
 		cfg.TransactionGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(txCreds),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("scheduler-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -97,9 +124,18 @@ func main() {
 	txClient := txPb.NewTransactionServiceClient(txConn)
 
 	// 4. gRPC connection to User Service
+	userCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "user-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for user-service", "error", err)
+	}
+
 	userConn, err := grpc.NewClient(
 		cfg.UserGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(userCreds),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("scheduler-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -119,10 +155,19 @@ func main() {
 	}
 	userClient := userPb.NewUserServiceClient(userConn)
 
-	// gRPC connection to Payment Service
+	// 5. gRPC connection to Payment Service
+	payCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "payment-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for payment-service", "error", err)
+	}
+
 	payConn, err := grpc.NewClient(
 		cfg.PaymentGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(payCreds),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("scheduler-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -142,11 +187,11 @@ func main() {
 	}
 	paymentClient := paymentPb.NewPaymentServiceClient(payConn)
 
-	// 5. Initialize & Start Scheduler
+	// 6. Initialize & Start Scheduler
 	sched := scheduler.NewScheduler(authClient, walletClient, txClient, userClient)
 	sched.Start()
 
-	// 6. Initialize MinIO for Outbox Archiver
+	// 7. Initialize MinIO for Outbox Archiver
 	minioStorage, err := storage.NewMinioStorage(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioPublicURL, false)
 	if err != nil {
 		logger.Fatal(context.Background(), "Failed to initialize MinIO storage", "error", err)
@@ -161,7 +206,7 @@ func main() {
 		logger.Fatal(context.Background(), "Invalid OUTBOX_ARCHIVE_AGE format", "error", err)
 	}
 
-	// 7. Start Outbox Archiver Workers
+	// 8. Start Outbox Archiver Workers
 	bgCtx, cancelArchiver := context.WithCancel(context.Background())
 
 	txArchiver := archiver.NewOutboxArchiver("transaction", "outbox-archives", &archiver.TransactionOutboxAdapter{Client: txClient}, minioStorage, archiveAge, 1*time.Hour)

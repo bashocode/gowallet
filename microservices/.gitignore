@@ -9,3 +9,9 @@
 
 # Compiled binaries
 */bin
+
+# mTLS TLS certificates and private keys (never commit to git)
+certs/
+*.crt
+*.key
+*.srl

@@ -180,7 +180,7 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Failed to load gRPC server credentials", "error", err)
 	}
-	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "auth-service", "transaction-service", "api-gateway")))
+	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "auth-service", "transaction-service", "api-gateway", "scheduler-service", "notification-service")))
 
 	grpcServer := grpc.NewServer(serverOpts...)
 	pb.RegisterUserServiceServer(grpcServer, userGRPC.NewUserGRPCServer(userRepo, otpRepo, notificationOutboxRepo))

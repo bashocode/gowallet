@@ -5,16 +5,17 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/bashocode/gowallet/microservices/notification-service/internal/consumer"
 	"github.com/bashocode/gowallet/microservices/notification-service/internal/email"
 	"github.com/bashocode/gowallet/microservices/notification-service/internal/repository"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -28,7 +29,19 @@ func main() {
 		logger.Fatal(context.Background(), "could not connect to database", "error", err)
 	}
 
-	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	userCreds, err := sharedGRPC.GetClientDialCredentials(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath, "user-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for user-service", "error", err)
+	}
+
+	userConn, err := grpc.NewClient(
+		cfg.UserGRPCAddr,
+		grpc.WithTransportCredentials(userCreds),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("notification-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
+	)
 	if err != nil {
 		logger.Fatal(context.Background(), "could not connect to user-service gRPC", "error", err)
 	}
