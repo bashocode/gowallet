@@ -188,20 +188,20 @@ func (s *paymentService) markPaymentSettledTx(ctx context.Context, stripeSession
 	}
 
 	// Idempotency check
-	if p.Status == "completed" {
+	if p.Status == "success" || p.Status == "completed" {
 		logger.Log.Info("Payment already completed, skipping", "session_id", stripeSessionID)
 		return tx.Commit()
 	}
 
 	// Update payment status
-	if err := s.paymentRepo.UpdateStatusTx(ctx, tx, stripeSessionID, "completed"); err != nil {
+	if err := s.paymentRepo.UpdateStatusTx(ctx, tx, stripeSessionID, "success"); err != nil {
 		return fmt.Errorf("failed to update payment status: %w", err)
 	}
 
 	// Create payment event
 	event := model.PaymentSettledEvent{
 		EventID:           uuid.NewString(),
-		EventType:         "payment.settled",
+		EventType:         "payment.success",
 		Provider:          "stripe",
 		ProviderPaymentID: stripeSessionID,
 		PaymentID:         p.ID,

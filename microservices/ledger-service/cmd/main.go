@@ -108,7 +108,7 @@ func main() {
 	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "transaction-service", "wallet-service", "api-gateway")))
 
 	grpcServer := grpc.NewServer(serverOpts...)
-	pb.RegisterLedgerServiceServer(grpcServer, ledgerGRPC.NewLedgerGRPCServer(lRepo))
+	pb.RegisterLedgerServiceServer(grpcServer, ledgerGRPC.NewLedgerGRPCServer(lRepo, lCache))
 
 	go func() {
 		logger.Log.Info("Ledger gRPC Server running on", "port", port)

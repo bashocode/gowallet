@@ -21,6 +21,12 @@ func SanitizeBody(sanitizer *security.Sanitizer) gin.HandlerFunc {
 			return
 		}
 
+		// Skip webhook endpoints (e.g. Stripe, provider webhooks) to preserve exact raw bytes needed for HMAC signature verification
+		if strings.HasSuffix(c.Request.URL.Path, "/webhook") || strings.Contains(c.Request.URL.Path, "/webhook") {
+			c.Next()
+			return
+		}
+
 		contentType := c.GetHeader("Content-Type")
 		if !strings.Contains(contentType, "application/json") {
 			c.Next()

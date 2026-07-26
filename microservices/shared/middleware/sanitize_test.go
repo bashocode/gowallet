@@ -3,8 +3,10 @@ package middleware_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
@@ -273,5 +275,31 @@ func verifyEqual(t *testing.T, expected, actual map[string]interface{}) {
 				t.Errorf("Key %q: expected float64, got %T", key, actualVal)
 			}
 		}
+	}
+}
+
+func TestSanitizeBody_WebhookBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	sanitizer := security.NewSanitizer()
+
+	r := gin.New()
+	r.Use(middleware.SanitizeBody(sanitizer))
+
+	var rawReceived string
+	r.POST("/api/v1/payments/webhook", func(c *gin.Context) {
+		body, _ := io.ReadAll(c.Request.Body)
+		rawReceived = string(body)
+		c.Status(http.StatusOK)
+	})
+
+	inputJSON := `{"event":"checkout.session.completed","data":"<script>alert(1)</script>"}`
+	req := httptest.NewRequest("POST", "/api/v1/payments/webhook", strings.NewReader(inputJSON))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if rawReceived != inputJSON {
+		t.Errorf("Webhook raw body was modified!\nGot:  %s\nWant: %s", rawReceived, inputJSON)
 	}
 }

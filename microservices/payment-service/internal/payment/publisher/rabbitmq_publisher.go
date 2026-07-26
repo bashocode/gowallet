@@ -57,7 +57,7 @@ func (p *RabbitMQPaymentPublisher) PublishPaymentSettled(ctx context.Context, ev
 	err = p.channel.PublishWithContext(
 		ctx,
 		"payment.events",
-		"payment.settled",
+		evt.EventType,
 		false,
 		false,
 		amqp.Publishing{

@@ -97,14 +97,34 @@ func (w *PaymentConsumerWorker) ensureConnection() error {
 			continue
 		}
 
-		if err := rabbitresilience.Declare(ch, rabbitresilience.QueueConfig{MainQueue: "transaction.payment_settled", RetryQueue: "transaction.payment_settled.retry", DLQ: "transaction.payment_settled.dlq", DLX: "transaction.dlx", MainExchange: "payment.events", RoutingKey: "payment.settled", RetryTTL: 10000}); err != nil {
+		if err := rabbitresilience.Declare(ch, rabbitresilience.QueueConfig{MainQueue: "transaction.payment_success", RetryQueue: "transaction.payment_success.retry", DLQ: "transaction.payment_success.dlq", DLX: "transaction.dlx", MainExchange: "payment.events", RoutingKey: "payment.success", RetryTTL: 10000}); err != nil {
 			ch.Close()
 			conn.Close()
 			lastErr = err
 			continue
 		}
-		queue, err := ch.QueueDeclarePassive("transaction.payment_settled", true, false, false, false, nil)
+		queue, err := ch.QueueDeclarePassive("transaction.payment_success", true, false, false, false, nil)
 		if err != nil {
+			ch.Close()
+			conn.Close()
+			lastErr = err
+			if attempt < maxRetries {
+				time.Sleep(backoff)
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
+			continue
+		}
+
+		if err := ch.QueueBind(
+			queue.Name,
+			"payment.success",
+			"payment.events",
+			false,
+			nil,
+		); err != nil {
 			ch.Close()
 			conn.Close()
 			lastErr = err
@@ -173,7 +193,7 @@ func (w *PaymentConsumerWorker) Start(ctx context.Context) {
 		}
 
 		msgs, err := w.channel.Consume(
-			"transaction.payment_settled",
+			"transaction.payment_success",
 			"payment-consumer",
 			false,
 			false,
@@ -182,13 +202,13 @@ func (w *PaymentConsumerWorker) Start(ctx context.Context) {
 			nil,
 		)
 		if err != nil {
-			logger.Error(ctx, "Failed to consume from transaction.payment_settled", "error", err.Error())
+			logger.Error(ctx, "Failed to consume from transaction.payment_success", "error", err.Error())
 			w.cleanupConnection()
 			time.Sleep(5 * time.Second)
 			continue
 		}
 
-		logger.Log.Info("Consuming payment.settled events from queue...")
+		logger.Log.Info("Consuming payment.success events from queue...")
 
 		for {
 			select {
@@ -217,7 +237,7 @@ func (w *PaymentConsumerWorker) processMessage(ctx context.Context, msg amqp.Del
 		w.deadLetter(ctx, msg, err)
 		return
 	}
-	if event.EventID == "" || event.EventType != "payment.settled" || event.Provider == "" || event.ProviderPaymentID == "" || event.PaymentID == "" || event.UserID == "" || event.Amount == "" {
+	if event.EventID == "" || (event.EventType != "payment.success" && event.EventType != "payment.settled") || event.Provider == "" || event.ProviderPaymentID == "" || event.PaymentID == "" || event.UserID == "" || event.Amount == "" {
 		w.deadLetter(ctx, msg, fmt.Errorf("invalid payment event: required fields missing"))
 		return
 	}
@@ -240,7 +260,7 @@ func (w *PaymentConsumerWorker) processMessage(ctx context.Context, msg amqp.Del
 }
 
 func (w *PaymentConsumerWorker) retry(ctx context.Context, msg amqp.Delivery, cause error) {
-	if rabbitresilience.RetryCount(msg.Headers, "transaction.payment_settled.retry") >= rabbitresilience.MaxRetries {
+	if rabbitresilience.RetryCount(msg.Headers, "transaction.payment_success.retry") >= rabbitresilience.MaxRetries {
 		w.deadLetter(ctx, msg, cause)
 		return
 	}
@@ -252,7 +272,7 @@ func (w *PaymentConsumerWorker) retry(ctx context.Context, msg amqp.Delivery, ca
 }
 
 func (w *PaymentConsumerWorker) deadLetter(ctx context.Context, msg amqp.Delivery, cause error) {
-	if err := rabbitresilience.PublishConfirmed(ctx, w.channel, w.confirms, "transaction.dlx", msg.RoutingKey, msg, rabbitresilience.Headers(msg, cause.Error(), "transaction.payment_settled.retry")); err == nil {
+	if err := rabbitresilience.PublishConfirmed(ctx, w.channel, w.confirms, "transaction.dlx", msg.RoutingKey, msg, rabbitresilience.Headers(msg, cause.Error(), "transaction.payment_success.retry")); err == nil {
 		_ = msg.Ack(false)
 		return
 	}

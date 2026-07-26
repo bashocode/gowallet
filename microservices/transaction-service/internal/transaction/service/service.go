@@ -281,12 +281,20 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 	}
 
 	// Compose Event Payload for Outbox securely using json.Marshal
+	eventID := uuid.New().String()
 	payloadMap := map[string]any{
+		"event_id":         eventID,
+		"event_type":       "transfer.success",
+		"transfer_id":      txID,
 		"transaction_id":   txID,
 		"sender_user_id":   senderUserID,
 		"receiver_user_id": receiverUser.Id,
-		"amount":           req.Amount,
+		"receiver_email":   receiverUser.Email,
+		"amount":           req.Amount.String(),
+		"currency":         "IDR",
+		"status":           "success",
 		"description":      req.Description,
+		"occurred_at":      time.Now().UTC().Format(time.RFC3339),
 	}
 	payloadBytes, err := json.Marshal(payloadMap)
 	if err != nil {
@@ -294,8 +302,8 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 	}
 
 	outboxEvent := &model.OutboxEvent{
-		ID:        uuid.New().String(),
-		EventType: "transfer.completed",
+		ID:        eventID,
+		EventType: "transfer.success",
 		Payload:   string(payloadBytes),
 		Status:    "pending",
 	}
@@ -1422,7 +1430,10 @@ func (s *transactionService) SettleTransferTx(ctx context.Context, cb transferMo
 		return err
 	}
 
-	eventType := "transfer.settled"
+	eventType := "transfer.success"
+	if status == "settled" {
+		status = "success"
+	}
 	if status == "failed" {
 		eventType = "transfer.failed"
 	}

@@ -229,14 +229,14 @@ func TestTransfer_HappyPath(t *testing.T) {
 		t.Errorf("Expected saved transaction status to be success")
 	}
 
-	// Outbox: a single pending "transfer.completed" event must be recorded.
+	// Outbox: a single pending "transfer.success" event must be recorded.
 	events := txRepo.GetOutboxEvents()
 	if len(events) != 1 {
 		t.Fatalf("Expected 1 outbox event, got %d", len(events))
 	}
 	ev := events[0]
-	if ev.EventType != "transfer.completed" {
-		t.Errorf("Expected event_type transfer.completed, got %s", ev.EventType)
+	if ev.EventType != "transfer.success" {
+		t.Errorf("Expected event_type transfer.success, got %s", ev.EventType)
 	}
 	if ev.Status != "pending" {
 		t.Errorf("Expected outbox status pending, got %s", ev.Status)

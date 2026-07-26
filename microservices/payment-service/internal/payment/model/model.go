@@ -12,7 +12,7 @@ type Payment struct {
 	Amount          decimal.Decimal `json:"amount"`
 	Currency        string          `json:"currency"`
 	StripeSessionID string          `json:"stripe_session_id"`
-	Status          string          `json:"status"` // 'pending', 'completed', 'failed', 'expired'
+	Status          string          `json:"status"` // 'pending', 'success', 'failed', 'expired'
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
 }
