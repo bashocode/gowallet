@@ -85,5 +85,20 @@ func ValidateTokenWithType(tokenString string, expectedType string) (*JWTClaims,
 		return nil, fmt.Errorf("token type mismatch: expected %s, got %s", expectedType, claims.TokenType)
 	}
 
+	if claims.Issuer != ExpectedIssuer {
+		return nil, fmt.Errorf("invalid token issuer: expected %s, got %s", ExpectedIssuer, claims.Issuer)
+	}
+
+	var audValid bool
+	for _, aud := range claims.Audience {
+		if aud == ExpectedAudience {
+			audValid = true
+			break
+		}
+	}
+	if !audValid {
+		return nil, fmt.Errorf("invalid token audience: expected %s", ExpectedAudience)
+	}
+
 	return claims, nil
 }

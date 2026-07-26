@@ -2,11 +2,11 @@ package repository
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/bashocode/gowallet/microservices/audit-service/internal/model"
+	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 )
@@ -14,10 +14,8 @@ import (
 func TestAuditRepository_SaveAuditLog(t *testing.T) {
 	logger.InitLogger()
 
-	mongoURL := os.Getenv("MONGO_URL")
-	if mongoURL == "" {
-		mongoURL = "mongodb://localhost:27017"
-	}
+	cfg := config.LoadConfig()
+	mongoURL := cfg.MongoURL
 
 	client, err := database.ConnectMongoDB(mongoURL)
 	if err != nil {

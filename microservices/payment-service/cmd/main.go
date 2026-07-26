@@ -19,6 +19,7 @@ import (
 	pb "github.com/bashocode/gowallet/microservices/payment-service/proto/payment"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
 	"github.com/gin-gonic/gin"
@@ -59,6 +60,7 @@ func main() {
 		cfg.StripeWebhookSecret,
 		pub,
 		cfg.BaseURL,
+		cfg.AppEnv,
 	)
 	payHandler := paymentHandler.NewPaymentHandler(paySvc)
 
@@ -125,7 +127,9 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC port "+grpcPort, "error", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity("scheduler-service", "api-gateway", "notification-service")),
+	)
 	pb.RegisterPaymentServiceServer(grpcServer, paymentGRPC.NewPaymentGRPCServer(outboxRepo))
 
 	go func() {

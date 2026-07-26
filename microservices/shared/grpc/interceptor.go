@@ -59,14 +59,16 @@ func CallerIdentityFromContext(ctx context.Context) (string, error) {
 		}
 	}
 
-	// 2. Fall back to gRPC metadata header (e.g. x-service-identity)
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if val := md.Get(ServiceIdentityMetadataKey); len(val) > 0 && val[0] != "" {
-			return val[0], nil
+	// 2. Fall back to gRPC metadata header (e.g. x-service-identity) only in dev/test profiles
+	if IsInsecureAllowed() {
+		if md, ok := metadata.FromIncomingContext(ctx); ok {
+			if val := md.Get(ServiceIdentityMetadataKey); len(val) > 0 && val[0] != "" {
+				return val[0], nil
+			}
 		}
 	}
 
-	return "", errors.New("service identity required")
+	return "", errors.New("service identity required via mTLS peer certificate")
 }
 
 // UnaryClientIdentity attaches client service identity metadata to all outgoing gRPC calls.
@@ -95,7 +97,10 @@ func UnaryClientTimeout(defaultTimeout time.Duration) grpc.UnaryClientIntercepto
 // IsInsecureAllowed returns true if local development mode allows insecure transport.
 func IsInsecureAllowed() bool {
 	env := os.Getenv("APP_ENV")
-	return env != "production" || os.Getenv("GRPC_INSECURE") == "true"
+	if env == "production" {
+		return false
+	}
+	return true
 }
 
 // ValidateCertificates checks client/server TLS certificate validity.

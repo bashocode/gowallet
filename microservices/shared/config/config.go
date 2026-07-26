@@ -107,7 +107,11 @@ func LoadConfig() *Config {
 	}
 
 	if cfg.JWTSecret == "" {
-		logger.Fatal(context.Background(), "JWT_SECRET is required")
+		if env != "production" {
+			cfg.JWTSecret = "development-secret-key-must-be-long-enough-32bytes!"
+		} else {
+			logger.Fatal(context.Background(), "JWT_SECRET is required in production")
+		}
 	}
 	if env == "production" && len(cfg.JWTSecret) < 32 {
 		logger.Fatal(context.Background(), "JWT_SECRET must contain at least 32 bytes in production")
@@ -174,7 +178,7 @@ func validateProductionSecrets(cfg *Config) {
 
 	for name, value := range secrets {
 		if value == "" {
-			continue
+			logger.Fatal(context.Background(), "Production secret %s must not be empty", name)
 		}
 		for _, placeholder := range placeholders {
 			if len(value) > 0 && containsIgnoreCase(value, placeholder) {

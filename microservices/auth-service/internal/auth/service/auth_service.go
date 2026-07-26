@@ -314,7 +314,7 @@ func (s *authService) HandleGoogleCallback(ctx context.Context, code string, sta
 		return nil, customErr.ErrInternalServer
 	}
 
-	refreshToken, err := sharedAuth.GenerateToken(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), 7*24*time.Hour)
+	refreshToken, err := sharedAuth.GenerateTokenWithType(userResp.GetId(), userResp.GetEmail(), userResp.GetRole(), "refresh", 7*24*time.Hour)
 	if err != nil {
 		return nil, customErr.ErrInternalServer
 	}

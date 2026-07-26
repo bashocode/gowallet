@@ -50,7 +50,11 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 	id := c.Param("id")
 	authUserID, exist := c.Get("user_id")
 	role, _ := c.Get("role")
-	if exist && role != "admin" && fmt.Sprintf("%v", authUserID) != id {
+	if !exist {
+		c.Error(customErr.NewAppError(http.StatusUnauthorized, "UNAUTHORIZED", "User context not found"))
+		return
+	}
+	if role != "admin" && fmt.Sprintf("%v", authUserID) != id {
 		c.Error(customErr.NewAppError(http.StatusForbidden, "FORBIDDEN", "You do not have permission to view this profile"))
 		return
 	}
