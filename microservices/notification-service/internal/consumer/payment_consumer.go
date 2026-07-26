@@ -8,8 +8,10 @@ import (
 
 	"github.com/bashocode/gowallet/microservices/notification-service/internal/email"
 	"github.com/bashocode/gowallet/microservices/notification-service/internal/repository"
+	"github.com/bashocode/gowallet/microservices/notification-service/internal/websocket"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/rabbitresilience"
+	sharedWebSocket "github.com/bashocode/gowallet/microservices/shared/websocket"
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -33,17 +35,19 @@ type PaymentNotificationConsumer struct {
 	notificationRepo *repository.NotificationRepository
 	userGRPCClient   pb.UserServiceClient
 	emailSender      email.EmailSender
+	wsPublisher      *websocket.Publisher
 	amqpConn         *amqp.Connection
 	channel          *amqp.Channel
 	confirms         chan amqp.Confirmation
 }
 
-func NewPaymentNotificationConsumer(rabbitmqURL string, repo *repository.NotificationRepository, userClient pb.UserServiceClient, emailSender email.EmailSender) *PaymentNotificationConsumer {
+func NewPaymentNotificationConsumer(rabbitmqURL string, repo *repository.NotificationRepository, userClient pb.UserServiceClient, emailSender email.EmailSender, wsPublisher *websocket.Publisher) *PaymentNotificationConsumer {
 	w := &PaymentNotificationConsumer{
 		rabbitmqURL:      rabbitmqURL,
 		notificationRepo: repo,
 		userGRPCClient:   userClient,
 		emailSender:      emailSender,
+		wsPublisher:      wsPublisher,
 	}
 	if err := w.ensureConnection(); err != nil {
 		logger.Fatal(context.Background(), "failed to initialize RabbitMQ connection for notification consumer", "error", err)
@@ -286,6 +290,27 @@ func (c *PaymentNotificationConsumer) processMessage(ctx context.Context, msg am
 		logger.Error(ctx, "failed to send email notification", "error", err, "user_email", userResp.GetEmail())
 		c.retry(ctx, msg, err)
 		return
+	}
+
+	// Send WebSocket notification
+	if c.wsPublisher != nil {
+		wsErr := c.wsPublisher.PublishNotification(
+			ctx,
+			event.UserID,
+			sharedWebSocket.MessageTypeTopupSuccess,
+			"Top-up Successful",
+			fmt.Sprintf("Your wallet was credited with %s %s", event.Currency, event.Amount),
+			map[string]interface{}{
+				"payment_id": event.PaymentID,
+				"amount":     event.Amount,
+				"currency":   event.Currency,
+				"status":     event.Status,
+			},
+		)
+		if wsErr != nil {
+			// WebSocket notification failure is non-critical - log and continue
+			logger.Warn(ctx, "failed to send WebSocket notification", "error", wsErr, "user_id", event.UserID)
+		}
 	}
 
 	if err := c.notificationRepo.MarkProcessed(ctx, event.EventID); err != nil {

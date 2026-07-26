@@ -67,6 +67,8 @@ type Config struct {
 	RabbitMQPort          string `mapstructure:"RABBITMQ_PORT"`
 	RabbitMQUser          string `mapstructure:"RABBITMQ_USER"`
 	RabbitMQPassword      string `mapstructure:"RABBITMQ_PASSWORD"`
+	AllowedOrigins        string `mapstructure:"ALLOWED_ORIGINS"`
+	WebSocketChannel      string `mapstructure:"WEBSOCKET_CHANNEL"`
 }
 
 func LoadConfig() *Config {
@@ -176,6 +178,8 @@ func setDefaults() {
 	viper.SetDefault("MINIO_SECRET_KEY", "minioadmin")
 	viper.SetDefault("MINIO_PUBLIC_URL", "http://localhost:9000")
 	viper.SetDefault("OUTBOX_ARCHIVE_AGE", "24h")
+	viper.SetDefault("ALLOWED_ORIGINS", "http://localhost:3000")
+	viper.SetDefault("WEBSOCKET_CHANNEL", "websocket:notifications")
 }
 
 func validateProductionSecrets(cfg *Config) {

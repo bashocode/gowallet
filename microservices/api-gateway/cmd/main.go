@@ -12,6 +12,7 @@ import (
 	_ "github.com/bashocode/gowallet/microservices/api-gateway/docs"
 	"github.com/bashocode/gowallet/microservices/api-gateway/internal/middleware"
 	"github.com/bashocode/gowallet/microservices/api-gateway/internal/proxy"
+	"github.com/bashocode/gowallet/microservices/api-gateway/internal/websocket"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	sharedMiddleware "github.com/bashocode/gowallet/microservices/shared/middleware"
@@ -57,6 +58,24 @@ func main() {
 		rdb = nil
 	} else {
 		logger.Log.Info("Connected to Redis successfully!")
+	}
+
+	// Initialize WebSocket Hub and Redis Subscriber
+	hub := websocket.NewHub()
+	go hub.Run()
+	logger.Log.Info("WebSocket Hub initialized and running")
+
+	var redisSubscriber *websocket.RedisSubscriber
+	if rdb != nil {
+		redisSubscriber = websocket.NewRedisSubscriber(rdb, hub, cfg.WebSocketChannel)
+		go func() {
+			if err := redisSubscriber.Start(); err != nil {
+				logger.Error(context.Background(), "Redis Subscriber stopped", "error", err.Error())
+			}
+		}()
+		logger.Log.Info("WebSocket Redis Subscriber started on channel: " + cfg.WebSocketChannel)
+	} else {
+		logger.Log.Warn("Redis unavailable — WebSocket notifications will not work across multiple instances")
 	}
 
 	// 2. Create proxy routers for each target microservice
@@ -142,6 +161,15 @@ func main() {
 	// Swagger UI — registered before proxy routes so it's excluded from rate limiting
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
+	// WebSocket endpoint (authenticated via query param token)
+	allowedOrigins := websocket.ParseAllowedOrigins(cfg.AllowedOrigins)
+	if rdb != nil {
+		r.GET("/ws", websocket.WebSocketHandler(hub, rdb, cfg.JWTSecret, allowedOrigins))
+		logger.Log.Info("WebSocket endpoint registered at /ws")
+	} else {
+		logger.Log.Warn("WebSocket endpoint not registered — Redis is required for token blacklist checking")
+	}
+
 	// 4. Define proxy routing rules
 	// /api/v1/auth/* is forwarded to Auth Service (login, refresh, logout, Google OAuth)
 	r.Any("/api/v1/auth/*path", func(c *gin.Context) {
@@ -207,6 +235,11 @@ func main() {
 		logger.Error(ctxShutdown, "HTTP Server forced to shutdown", "error", err.Error())
 	} else {
 		logger.Log.Info("HTTP Server closed cleanly.")
+	}
+
+	logger.Log.Info("Stopping WebSocket Redis Subscriber...")
+	if redisSubscriber != nil {
+		redisSubscriber.Stop()
 	}
 
 	logger.Log.Info("Closing Redis connection...")
