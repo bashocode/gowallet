@@ -18,12 +18,12 @@ import (
 	pb "github.com/bashocode/gowallet/microservices/ledger-service/proto/ledger"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -44,10 +44,25 @@ func main() {
 		logger.Fatal(context.Background(), "Could not connect to MySQL", "error", err)
 	}
 
+	walletCreds, err := sharedGRPC.GetClientDialCredentials(
+		cfg.IsProduction(),
+		cfg.GRPCSSLCertPath,
+		cfg.GRPCSSLKeyPath,
+		cfg.GRPCSSLCAPath,
+		"wallet-service",
+	)
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for wallet-service", "error", err)
+	}
+
 	// Connect to wallet-service gRPC
 	conn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(walletCreds),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("ledger-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -86,7 +101,13 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC", "error", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	serverOpts, err := sharedGRPC.GetServerOptions(cfg.IsProduction(), cfg.GRPCSSLCertPath, cfg.GRPCSSLKeyPath, cfg.GRPCSSLCAPath)
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC server credentials", "error", err)
+	}
+	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "transaction-service", "wallet-service", "api-gateway")))
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	pb.RegisterLedgerServiceServer(grpcServer, ledgerGRPC.NewLedgerGRPCServer(lRepo))
 
 	go func() {
@@ -126,7 +147,7 @@ func main() {
 	v1 := r.Group("/api/v1")
 	{
 		protected := v1.Group("")
-		protected.Use(middleware.AuthMiddleware(rdb))
+		protected.Use(middleware.AuthMiddleware(rdb, cfg.JWTSecret))
 		{
 			protected.GET("/ledger/mutations", lHandler.GetMutations)
 			protected.GET("/ledger/reconcile", lHandler.Reconcile)

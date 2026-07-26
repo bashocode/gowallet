@@ -1,25 +1,17 @@
 package database
 
 import (
-	"os"
 	"testing"
 
+	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 )
 
 func TestConnectRedis(t *testing.T) {
 	logger.InitLogger()
 
-	redisHost := os.Getenv("REDIS_HOST")
-	if redisHost == "" {
-		redisHost = "localhost"
-	}
-	redisPort := os.Getenv("REDIS_PORT")
-	if redisPort == "" {
-		redisPort = "6379"
-	}
-
-	addr := redisHost + ":" + redisPort
+	cfg := config.LoadConfig()
+	addr := cfg.RedisAddr
 	rdb, err := ConnectRedis(addr)
 	if err != nil {
 		t.Skipf("Skipping Redis integration test: redis not reachable: %v", err)

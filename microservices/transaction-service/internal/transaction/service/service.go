@@ -125,7 +125,12 @@ func isDuplicateKeyError(err error) bool {
 }
 
 func (s *transactionService) Transfer(ctx context.Context, senderUserID string, req model.TransferRequest) (*model.Transaction, error) {
-	// 1. Check Idempotency Key (double transaction security) - try cache first
+	// 1. Validate Amount (> 0)
+	if req.Amount.LessThanOrEqual(decimal.Zero) {
+		return nil, customErr.NewAppError(http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than zero.")
+	}
+
+	// 2. Check Idempotency Key (double transaction security) - try cache first
 	if s.cacheRepo != nil {
 		existing, err := s.cacheRepo.GetByIdempotencyKey(ctx, req.IdempotencyKey)
 		if err == nil {
@@ -149,7 +154,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return existing, nil
 	}
 
-	// 2. Find & Validate Receiver User via User Service gRPC
+	// 3. Find & Validate Receiver User via User Service gRPC
 	var receiverUser *pbUser.UserResponse
 	err := s.userBreaker.Call(func() error {
 		var callErr error
@@ -166,7 +171,12 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return nil, customErr.NewAppError(http.StatusNotFound, "RECEIVER_NOT_FOUND", "Receiver not found.")
 	}
 
-	// 3. Get Sender Wallet Details via Wallet Service gRPC
+	// Reject self-transfer
+	if senderUserID == receiverUser.Id {
+		return nil, customErr.NewAppError(http.StatusBadRequest, "SELF_TRANSFER_PROHIBITED", "Cannot transfer money to yourself.")
+	}
+
+	// 4. Get Sender Wallet Details via Wallet Service gRPC
 	var senderWallet *pbWallet.WalletResponse
 	err = s.walletBreaker.Call(func() error {
 		var callErr error
@@ -203,7 +213,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return nil, customErr.NewAppError(http.StatusBadRequest, "INSUFFICIENT_BALANCE", "Insufficient balance.")
 	}
 
-	// 4. Record PENDING transaction record to database.
+	// 5. Record PENDING transaction record to database.
 	// We do this in a separate short transaction to release database lock quickly.
 	txID := uuid.New().String()
 	txRecord := &model.Transaction{
@@ -245,7 +255,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 			slog.String("idempotency_key", req.IdempotencyKey))
 	}
 
-	// 5. Contact Wallet Service & Ledger Service via gRPC for balance mutations (OUTSIDE LOCAL DATABASE TRANSACTION)
+	// 6. Contact Wallet Service & Ledger Service via gRPC for balance mutations (OUTSIDE LOCAL DATABASE TRANSACTION)
 	// We apply Saga Orchestration with manual rollback orchestration if any step fails.
 	receiverWallet, err := s.executeGrpcTransferChain(ctx, txID, senderUserID, receiverUser.Id, req.Amount, senderWallet)
 	if err != nil {
@@ -257,7 +267,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 		return nil, err
 	}
 
-	// 6. If gRPC chain succeeds: Start new super-fast local SQL transaction
+	// 7. If gRPC chain succeeds: Start new super-fast local SQL transaction
 	// to update transaction status to SUCCESS and insert outbox event.
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -272,7 +282,7 @@ func (s *transactionService) Transfer(ctx context.Context, senderUserID string, 
 
 	// Compose Event Payload for Outbox securely using json.Marshal
 	payloadMap := map[string]any{
-		"transaction_id":  txID,
+		"transaction_id":   txID,
 		"sender_user_id":   senderUserID,
 		"receiver_user_id": receiverUser.Id,
 		"amount":           req.Amount,
@@ -496,6 +506,7 @@ func (s *transactionService) executeGrpcTransferChain(
 		}
 
 		if compFailed {
+			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "compensation_after_ledger_debit_fail"})
 			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}
@@ -584,6 +595,7 @@ func (s *transactionService) executeGrpcTransferChain(
 		}
 
 		if compFailed {
+			s.txRepo.UpdateStatus(ctx, txID, "COMPENSATION_FAILED")
 			s.dlqPublisher.Publish(ctx, "compensation.failed", map[string]string{"transaction_id": txID, "step": "compensation_after_ledger_credit_fail"})
 			return nil, customErr.NewAppError(http.StatusInternalServerError, "COMPENSATION_FAILED", "Compensation failed. Manual intervention required.")
 		}

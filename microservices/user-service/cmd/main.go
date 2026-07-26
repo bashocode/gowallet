@@ -12,6 +12,7 @@ import (
 
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
 	"github.com/bashocode/gowallet/microservices/shared/storage"
@@ -21,11 +22,11 @@ import (
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/repository"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/service"
 	userWorker "github.com/bashocode/gowallet/microservices/user-service/internal/user/worker"
+
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -46,10 +47,24 @@ func main() {
 		logger.Fatal(context.Background(), "Could not connect to database", "error", err)
 	}
 
+	walletCreds, err := sharedGRPC.GetClientDialCredentials(
+		cfg.IsProduction(),
+		cfg.GRPCSSLCertPath,
+		cfg.GRPCSSLKeyPath,
+		cfg.GRPCSSLCAPath,
+		"wallet-service")
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC client credentials for wallet-service", "error", err)
+	}
+
 	// Connect to wallet-service gRPC
 	conn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(walletCreds),
+		grpc.WithChainUnaryInterceptor(
+			sharedGRPC.UnaryClientIdentity("user-service"),
+			sharedGRPC.UnaryClientTimeout(5*time.Second),
+		),
 		grpc.WithDefaultServiceConfig(`{
 			"loadBalancingConfig": [{"round_robin":{}}],
 			"methodConfig": [{
@@ -71,7 +86,13 @@ func main() {
 	walletClient := pbWallet.NewWalletServiceClient(conn)
 
 	// Initialize MinIO storage
-	minioStorage, err := storage.NewMinioStorage(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioPublicURL, false)
+	minioStorage, err := storage.NewMinioStorage(
+		cfg.MinioEndpoint,
+		cfg.MinioAccessKey,
+		cfg.MinioSecretKey,
+		cfg.MinioPublicURL,
+		false,
+	)
 	if err != nil {
 		logger.Fatal(context.Background(), "Failed to initialize MinIO storage", "error", err)
 	}
@@ -91,7 +112,16 @@ func main() {
 	otpRepo := repository.NewMySQLOTPRepository(db)
 	notificationOutboxRepo := repository.NewMySQLNotificationOutboxRepository(db)
 
-	userSvc := service.NewUserService(db, rdb, userRepo, userCacheRepo, walletClient, otpRepo, notificationOutboxRepo, cfg.BaseURL)
+	userSvc := service.NewUserService(
+		db,
+		rdb,
+		userRepo,
+		userCacheRepo,
+		walletClient,
+		otpRepo,
+		notificationOutboxRepo,
+		cfg.BaseURL,
+	)
 	userHandler := handler.NewUserHandler(userSvc, minioStorage)
 
 	// Initialize and start the notification outbox worker
@@ -137,7 +167,7 @@ func main() {
 
 		// Protected Routes
 		protected := v1.Group("")
-		protected.Use(middleware.AuthMiddleware(rdb))
+		protected.Use(middleware.AuthMiddleware(rdb, cfg.JWTSecret))
 		{
 			protected.GET("/users/me", userHandler.GetProfileMe)
 			protected.POST("/users/avatar", userHandler.UploadAvatar)
@@ -166,7 +196,18 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC port"+port, "error", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	serverOpts, err := sharedGRPC.GetServerOptions(
+		cfg.IsProduction(),
+		cfg.GRPCSSLCertPath,
+		cfg.GRPCSSLKeyPath,
+		cfg.GRPCSSLCAPath,
+	)
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC server credentials", "error", err)
+	}
+	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "auth-service", "transaction-service", "api-gateway", "scheduler-service", "notification-service")))
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	pb.RegisterUserServiceServer(grpcServer, userGRPC.NewUserGRPCServer(userRepo, otpRepo, notificationOutboxRepo))
 
 	go func() {

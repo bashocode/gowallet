@@ -11,7 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
+func AuthMiddleware(rdb *redis.Client, jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -44,15 +44,9 @@ func AuthMiddleware(rdb *redis.Client) gin.HandlerFunc {
 		}
 
 		// validate token
-		claims, err := auth.ValidateToken(tokenString)
+		claims, err := auth.ValidateTokenWithType(jwtSecret, tokenString, "access")
 		if err != nil {
 			c.Error(customErr.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN", "token is invalid or expired."))
-			c.Abort()
-			return
-		}
-
-		if claims.TokenType != "" && claims.TokenType != "access" {
-			c.Error(customErr.NewAppError(http.StatusUnauthorized, "INVALID_TOKEN_TYPE", "refresh token cannot be used as access token."))
 			c.Abort()
 			return
 		}

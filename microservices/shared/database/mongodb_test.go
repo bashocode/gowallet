@@ -2,19 +2,17 @@ package database
 
 import (
 	"context"
-	"os"
 	"testing"
 
+	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 )
 
 func TestConnectMongoDB(t *testing.T) {
 	logger.InitLogger()
 
-	mongoURL := os.Getenv("MONGO_URL")
-	if mongoURL == "" {
-		mongoURL = "mongodb://localhost:27017"
-	}
+	cfg := config.LoadConfig()
+	mongoURL := cfg.MongoURL
 
 	client, err := ConnectMongoDB(mongoURL)
 	if err != nil {

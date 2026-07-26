@@ -19,6 +19,7 @@ import (
 	pb "github.com/bashocode/gowallet/microservices/payment-service/proto/payment"
 	"github.com/bashocode/gowallet/microservices/shared/config"
 	"github.com/bashocode/gowallet/microservices/shared/database"
+	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
 	"github.com/gin-gonic/gin"
@@ -59,6 +60,7 @@ func main() {
 		cfg.StripeWebhookSecret,
 		pub,
 		cfg.BaseURL,
+		cfg.AppEnv,
 	)
 	payHandler := paymentHandler.NewPaymentHandler(paySvc)
 
@@ -108,7 +110,7 @@ func main() {
 
 		// Protected endpoints (JWT required)
 		protected := v1.Group("")
-		protected.Use(middleware.AuthMiddleware(rdb))
+		protected.Use(middleware.AuthMiddleware(rdb, cfg.JWTSecret))
 		{
 			protected.POST("/payments/stripe/checkout", payHandler.CreateCheckoutSession)
 		}
@@ -125,7 +127,18 @@ func main() {
 		logger.Fatal(context.Background(), "Failed to listen gRPC port "+grpcPort, "error", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	serverOpts, err := sharedGRPC.GetServerOptions(
+		cfg.IsProduction(),
+		cfg.GRPCSSLCertPath,
+		cfg.GRPCSSLKeyPath,
+		cfg.GRPCSSLCAPath,
+	)
+	if err != nil {
+		logger.Fatal(context.Background(), "Failed to load gRPC server credentials", "error", err)
+	}
+	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "scheduler-service", "api-gateway", "notification-service")))
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	pb.RegisterPaymentServiceServer(grpcServer, paymentGRPC.NewPaymentGRPCServer(outboxRepo))
 
 	go func() {

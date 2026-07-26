@@ -8,7 +8,7 @@ require (
 	github.com/bashocode/gowallet/microservices/shared v0.0.0-20260713161533-63ca5e8f9fa2
 	github.com/bashocode/gowallet/microservices/user-service v0.0.0-20260713161533-63ca5e8f9fa2
 	github.com/rabbitmq/amqp091-go v1.12.0
-	google.golang.org/grpc v1.82.0
+	google.golang.org/grpc v1.82.1
 )
 
 require (
