@@ -5,6 +5,11 @@ services:
   mysql:
     image: mysql:8.0
     container_name: gowallet-mysql-ms
+    command: >
+      --slow_query_log=1
+      --long_query_time=0.5
+      --log_queries_not_using_indexes=1
+      --slow_query_log_file=/var/lib/mysql/mysql-slow.log
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME_DEFAULT}
