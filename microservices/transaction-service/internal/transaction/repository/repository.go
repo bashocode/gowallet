@@ -14,7 +14,7 @@ type TransactionRepository interface {
 	Create(ctx context.Context, t *model.Transaction) error
 	CreateTx(ctx context.Context, tx *sql.Tx, t *model.Transaction) error
 	GetByIdempotencyKey(ctx context.Context, key string) (*model.Transaction, error)
-	GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, error)
+	GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, bool, error)
 	UpdateStatus(ctx context.Context, id, status string) error
 	UpdateStatusTx(ctx context.Context, tx *sql.Tx, id, status string) error
 	CountToday(ctx context.Context) (int64, error)
@@ -106,8 +106,14 @@ func (r *mysqlTransactionRepository) CountToday(ctx context.Context) (int64, err
 	return count, nil
 }
 
-func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, error) {
-	// counting total data for pagination meta
+func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, bool, error) {
+	if params.HasCursor() && params.Sort == "created_at" {
+		return r.getHistoryCursor(ctx, walletID, params)
+	}
+	return r.getHistoryOffset(ctx, walletID, params)
+}
+
+func (r *mysqlTransactionRepository) getHistoryOffset(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, bool, error) {
 	countQuery := `SELECT COUNT(*) FROM transactions WHERE (sender_wallet_id = ? OR receiver_wallet_id = ?)`
 	var total int64
 	var err error
@@ -120,7 +126,7 @@ func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID st
 	}
 
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, false, err
 	}
 
 	// get the paginated data, use sort and order
@@ -150,11 +156,85 @@ func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID st
 	}
 
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, false, err
 	}
 
 	defer rows.Close()
 
+	txs, err := scanTransactions(rows)
+	if err != nil {
+		return nil, 0, false, err
+	}
+
+	return txs, total, false, nil
+}
+
+func (r *mysqlTransactionRepository) getHistoryCursor(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, bool, error) {
+	var cursorTime time.Time
+	var cursorID string
+	var err error
+	hasCursorFilter := false
+
+	if params.Cursor != "" && params.Cursor != "start" && params.Cursor != "first" && params.Cursor != "0" && params.Cursor != "true" {
+		cursorTime, cursorID, err = model.DecodeCursor(params.Cursor)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		hasCursorFilter = true
+	}
+
+	sortOrder := "DESC"
+	if params.Order == "asc" {
+		sortOrder = "ASC"
+	}
+
+	op := "<"
+	if sortOrder == "ASC" {
+		op = ">"
+	}
+
+	query := `SELECT id, sender_wallet_id, receiver_wallet_id,
+				amount, description, idempotency_key, status, created_at
+			FROM transactions
+			WHERE (sender_wallet_id = ? OR receiver_wallet_id = ?)`
+
+	args := []any{walletID, walletID}
+
+	if hasCursorFilter {
+		query += ` AND (created_at ` + op + ` ? OR (created_at = ? AND id ` + op + ` ?))`
+		args = append(args, cursorTime, cursorTime, cursorID)
+	}
+
+	if params.Status != "" {
+		query += " AND status = ?"
+		args = append(args, params.Status)
+	}
+
+	query += " ORDER BY created_at " + sortOrder + ", id " + sortOrder + " LIMIT ?"
+	args = append(args, params.Limit+1)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, false, err
+	}
+
+	defer rows.Close()
+
+	txs, err := scanTransactions(rows)
+	if err != nil {
+		return nil, 0, false, err
+	}
+
+	hasMore := false
+	if len(txs) > params.Limit {
+		hasMore = true
+		txs = txs[:params.Limit]
+	}
+
+	return txs, 0, hasMore, nil
+}
+
+func scanTransactions(rows *sql.Rows) ([]model.Transaction, error) {
 	var txs []model.Transaction
 	for rows.Next() {
 		var t model.Transaction
@@ -172,7 +252,7 @@ func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID st
 			&t.CreatedAt,
 		)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		if sender.Valid {
 			t.SenderWalletID = &sender.String
@@ -187,10 +267,10 @@ func (r *mysqlTransactionRepository) GetHistory(ctx context.Context, walletID st
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	return txs, total, nil
+	return txs, nil
 }
 
 func (r *mysqlTransactionRepository) FetchEventsToArchive(
