@@ -618,14 +618,14 @@ func (s *transactionService) executeGrpcTransferChain(
 }
 
 func (s *transactionService) GetHistory(ctx context.Context, userID string, params model.PaginationParams) ([]model.Transaction, *model.PaginationMeta, error) {
-	if params.Page < 1 {
-		params.Page = 1
-	}
 	if params.Limit <= 0 {
 		params.Limit = 10
 	}
 	if params.Limit > 100 {
 		params.Limit = 100
+	}
+	if !params.HasCursor() && params.Page < 1 {
+		params.Page = 1
 	}
 
 	// Get user's wallet via gRPC (with circuit breaker)
@@ -642,22 +642,31 @@ func (s *transactionService) GetHistory(ctx context.Context, userID string, para
 		return nil, nil, customErr.NewAppError(http.StatusNotFound, "WALLET_NOT_FOUND", "Wallet not found")
 	}
 
-	txs, total, err := s.txRepo.GetHistory(ctx, wallet.Id, params)
+	txs, total, hasMore, err := s.txRepo.GetHistory(ctx, wallet.Id, params)
 	if err != nil {
 		logger.Error(ctx, "Failed to get history from repository", "error", err)
 		return nil, nil, customErr.ErrInternalServer
 	}
 
-	totalPages := int(total / int64(params.Limit))
-	if total%int64(params.Limit) != 0 {
-		totalPages++
+	meta := &model.PaginationMeta{
+		Page:    params.Page,
+		Limit:   params.Limit,
+		HasMore: hasMore,
 	}
 
-	meta := &model.PaginationMeta{
-		Page:      params.Page,
-		Limit:     params.Limit,
-		Total:     total,
-		TotalPage: totalPages,
+	if params.HasCursor() {
+		if hasMore && len(txs) > 0 {
+			last := txs[len(txs)-1]
+			cursor := model.EncodeCursor(last.CreatedAt, last.ID)
+			meta.NextCursor = &cursor
+		}
+	} else {
+		meta.Total = total
+		totalPages := int(total / int64(params.Limit))
+		if total%int64(params.Limit) != 0 {
+			totalPages++
+		}
+		meta.TotalPage = totalPages
 	}
 
 	return txs, meta, nil

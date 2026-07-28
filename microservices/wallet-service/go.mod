@@ -6,10 +6,12 @@ replace github.com/bashocode/gowallet/microservices/shared => ../shared
 
 require (
 	github.com/bashocode/gowallet/microservices/shared v0.0.0-00010101000000-000000000000
+	github.com/bashocode/gowallet/microservices/user-service v0.0.0-20260727152754-eaa66607d846
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/shopspring/decimal v1.4.0
+	github.com/sony/gobreaker v1.0.0
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 )

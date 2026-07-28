@@ -14,7 +14,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/bashocode/gowallet/microservices/ledger-service v0.0.0-00010101000000-000000000000
 	github.com/bashocode/gowallet/microservices/shared v0.0.0-00010101000000-000000000000
-	github.com/bashocode/gowallet/microservices/user-service v0.0.0-00010101000000-000000000000
+	github.com/bashocode/gowallet/microservices/user-service v0.0.0-20260727152754-eaa66607d846
 	github.com/bashocode/gowallet/microservices/wallet-service v0.0.0-00010101000000-000000000000
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-playground/validator/v10 v10.30.3
