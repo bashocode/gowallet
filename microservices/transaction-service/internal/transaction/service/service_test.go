@@ -89,8 +89,8 @@ func (m *MockTxRepo) GetByIdempotencyKey(ctx context.Context, key string) (*mode
 	return nil, nil
 }
 
-func (m *MockTxRepo) GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, error) {
-	return nil, 0, nil
+func (m *MockTxRepo) GetHistory(ctx context.Context, walletID string, params model.PaginationParams) ([]model.Transaction, int64, bool, error) {
+	return nil, 0, false, nil
 }
 
 func (m *MockTxRepo) UpdateStatus(ctx context.Context, id, status string) error {
