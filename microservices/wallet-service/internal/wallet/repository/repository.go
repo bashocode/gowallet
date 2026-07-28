@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/bashocode/gowallet/microservices/wallet-service/internal/utils"
 	"github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/model"
 	"github.com/shopspring/decimal"
 )
@@ -33,16 +34,20 @@ func (r *mysqlWalletRepository) Create(ctx context.Context, w *model.Wallet) err
 func (r *mysqlWalletRepository) GetByUserID(ctx context.Context, userID string) (*model.Wallet, error) {
 	query := `SELECT id, user_id, balance, currency, status, version, created_at, updated_at FROM wallets WHERE user_id = ? AND deleted_at IS NULL`
 	w := &model.Wallet{}
-	err := r.db.QueryRowContext(ctx, query, userID).Scan(
-		&w.ID,
-		&w.UserID,
-		&w.Balance,
-		&w.Currency,
-		&w.Status,
-		&w.Version,
-		&w.CreatedAt,
-		&w.UpdatedAt,
-	)
+	
+	err := utils.RetryWithBackoff(ctx, 3, func() error {
+		return r.db.QueryRowContext(ctx, query, userID).Scan(
+			&w.ID,
+			&w.UserID,
+			&w.Balance,
+			&w.Currency,
+			&w.Status,
+			&w.Version,
+			&w.CreatedAt,
+			&w.UpdatedAt,
+		)
+	})
+	
 	if err != nil {
 		return nil, err
 	}
