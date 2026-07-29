@@ -113,6 +113,29 @@ services:
       - gowallet-network
     restart: always
 
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: gowallet-prometheus
+    volumes:
+      - ./deployments/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT}:${PROMETHEUS_PORT}"
+    networks:
+      - gowallet-network
+    restart: always
+
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: gowallet-grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT}:${GRAFANA_PORT}"
+    networks:
+      - gowallet-network
+    restart: always
+
   # === Application Services ===
   api-gateway:
     build:
@@ -373,7 +396,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
-      - DB_NAME=gowallet_payment
+      - DB_NAME=${DB_NAME_PAYMENT}
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - JWT_SECRET=${JWT_SECRET}
@@ -445,7 +468,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
-      - DB_NAME=gowallet_notification
+      - DB_NAME=${DB_NAME_NOTIFICATION}
       - RABBITMQ_HOST=${RABBITMQ_HOST}
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - RABBITMQ_USER=${RABBITMQ_USER}
@@ -500,6 +523,8 @@ volumes:
   mysql_data:
   mongo_data:
   minio_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   gowallet-network:
