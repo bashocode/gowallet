@@ -17,10 +17,12 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	sharedMiddleware "github.com/bashocode/gowallet/microservices/shared/middleware"
 	"github.com/bashocode/gowallet/microservices/shared/security"
+	"github.com/bashocode/gowallet/microservices/shared/tracing"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 // @title           GoWallet API (Microservices)
@@ -112,10 +114,23 @@ func main() {
 	// Initialize sanitizer for XSS protection
 	sanitizer := security.NewSanitizer()
 
+	// Initialize OpenTelemetry Tracer
+	tp, err := tracing.InitTracer("api-gateway", cfg.OTELCollectorAddr)
+	if err != nil {
+		logger.Log.Warn("Failed to initialize tracer, continuing without tracing: " + err.Error())
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = tp.Shutdown(shutdownCtx)
+		}()
+	}
+
 	r := gin.New()
 
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
+	r.Use(otelgin.Middleware("api-gateway"))
 
 	// 3. Register middleware chain (ORDER MATTERS!)
 	//    ErrorHandler must be first so it catches errors from all subsequent middleware

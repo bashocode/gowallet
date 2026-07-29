@@ -15,6 +15,7 @@ import (
 	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
+	"github.com/bashocode/gowallet/microservices/shared/tracing"
 	walletCache "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/cache"
 	walletGRPC "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/grpc"
 	walletHandler "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/handler"
@@ -22,6 +23,8 @@ import (
 	walletService "github.com/bashocode/gowallet/microservices/wallet-service/internal/wallet/service"
 	pb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
@@ -41,6 +44,18 @@ func main() {
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
 		logger.Fatal(context.Background(), "Could not connect to MySQL", "error", err)
+	}
+
+	// Initialize OpenTelemetry Tracer
+	tp, err := tracing.InitTracer("wallet-service", cfg.OTELCollectorAddr)
+	if err != nil {
+		logger.Log.Warn("Failed to initialize tracer, continuing without tracing: " + err.Error())
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = tp.Shutdown(shutdownCtx)
+		}()
 	}
 
 	wRepo := walletRepository.NewMySQLWalletRepository(db)
@@ -70,15 +85,18 @@ func main() {
 	}
 
 	serverOpts = append(serverOpts,
-		grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(
-			!cfg.IsProduction(),
-			"transaction-service",
-			"ledger-service",
-			"user-service",
-			"auth-service",
-			"api-gateway",
-			"scheduler-service",
-		)),
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.ChainUnaryInterceptor(
+			sharedGRPC.RequireServiceIdentity(
+				!cfg.IsProduction(),
+				"transaction-service",
+				"ledger-service",
+				"user-service",
+				"auth-service",
+				"api-gateway",
+				"scheduler-service",
+			),
+		),
 	)
 
 	grpcServer := grpc.NewServer(serverOpts...)
@@ -95,6 +113,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
+	r.Use(otelgin.Middleware("wallet-service"))
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.CorrelationID())
 

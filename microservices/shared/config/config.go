@@ -69,6 +69,7 @@ type Config struct {
 	RabbitMQPassword      string `mapstructure:"RABBITMQ_PASSWORD"`
 	AllowedOrigins        string `mapstructure:"ALLOWED_ORIGINS"`
 	WebSocketChannel      string `mapstructure:"WEBSOCKET_CHANNEL"`
+	OTELCollectorAddr     string `mapstructure:"OTEL_COLLECTOR_ADDR"`
 }
 
 func LoadConfig() *Config {
@@ -181,6 +182,7 @@ func setDefaults() {
 	viper.SetDefault("OUTBOX_ARCHIVE_AGE", "24h")
 	viper.SetDefault("ALLOWED_ORIGINS", "http://localhost:3000")
 	viper.SetDefault("WEBSOCKET_CHANNEL", "websocket:notifications")
+	viper.SetDefault("OTEL_COLLECTOR_ADDR", "localhost:4317")
 }
 
 func validateProductionSecrets(cfg *Config) {
