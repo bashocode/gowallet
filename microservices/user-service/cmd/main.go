@@ -16,6 +16,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
 	"github.com/bashocode/gowallet/microservices/shared/storage"
+	"github.com/bashocode/gowallet/microservices/shared/tracing"
 	userCache "github.com/bashocode/gowallet/microservices/user-service/internal/user/cache"
 	userGRPC "github.com/bashocode/gowallet/microservices/user-service/internal/user/grpc"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/handler"
@@ -26,6 +27,8 @@ import (
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
@@ -34,6 +37,18 @@ func main() {
 	logger.Log.Info("Starting User Microservice...")
 
 	cfg := config.LoadConfig()
+
+	// Initialize OpenTelemetry Tracer
+	tp, err := tracing.InitTracer("user-service", cfg.OTELCollectorAddr)
+	if err != nil {
+		logger.Log.Warn("Failed to initialize tracer, continuing without tracing: " + err.Error())
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = tp.Shutdown(shutdownCtx)
+		}()
+	}
 
 	// Connect to Redis
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
@@ -61,6 +76,7 @@ func main() {
 	conn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
 		grpc.WithTransportCredentials(walletCreds),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("user-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -135,6 +151,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
+	r.Use(otelgin.Middleware("user-service"))
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.CorrelationID())
 
@@ -206,7 +223,7 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Failed to load gRPC server credentials", "error", err)
 	}
-	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "auth-service", "transaction-service", "api-gateway", "scheduler-service", "notification-service")))
+	serverOpts = append(serverOpts, grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.ChainUnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "auth-service", "transaction-service", "api-gateway", "scheduler-service", "notification-service")))
 
 	grpcServer := grpc.NewServer(serverOpts...)
 	pb.RegisterUserServiceServer(grpcServer, userGRPC.NewUserGRPCServer(userRepo, otpRepo, notificationOutboxRepo))

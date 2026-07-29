@@ -15,7 +15,9 @@ import (
 	"github.com/bashocode/gowallet/microservices/shared/database"
 	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
+	"github.com/bashocode/gowallet/microservices/shared/tracing"
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
@@ -24,6 +26,18 @@ func main() {
 	logger.Info(context.Background(), "starting notification-service...")
 
 	cfg := config.LoadConfig()
+
+	// Initialize OpenTelemetry Tracer
+	tp, err := tracing.InitTracer("notification-service", cfg.OTELCollectorAddr)
+	if err != nil {
+		logger.Log.Warn("Failed to initialize tracer, continuing without tracing: " + err.Error())
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = tp.Shutdown(shutdownCtx)
+		}()
+	}
 
 	db, err := database.ConnectWithRetry(cfg.DBDSN)
 	if err != nil {
@@ -51,6 +65,7 @@ func main() {
 	userConn, err := grpc.NewClient(
 		cfg.UserGRPCAddr,
 		grpc.WithTransportCredentials(userCreds),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("notification-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),

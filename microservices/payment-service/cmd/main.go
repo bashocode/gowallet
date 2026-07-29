@@ -22,7 +22,10 @@ import (
 	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
+	"github.com/bashocode/gowallet/microservices/shared/tracing"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
@@ -31,6 +34,18 @@ func main() {
 	logger.Log.Info("Starting Payment Microservice...")
 
 	cfg := config.LoadConfig()
+
+	// Initialize OpenTelemetry Tracer
+	tp, err := tracing.InitTracer("payment-service", cfg.OTELCollectorAddr)
+	if err != nil {
+		logger.Log.Warn("Failed to initialize tracer, continuing without tracing: " + err.Error())
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = tp.Shutdown(shutdownCtx)
+		}()
+	}
 
 	// Connect to Redis (required by AuthMiddleware)
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
@@ -78,6 +93,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
+	r.Use(otelgin.Middleware("payment-service"))
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.CorrelationID())
 
@@ -136,7 +152,7 @@ func main() {
 	if err != nil {
 		logger.Fatal(context.Background(), "Failed to load gRPC server credentials", "error", err)
 	}
-	serverOpts = append(serverOpts, grpc.UnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "scheduler-service", "api-gateway", "notification-service")))
+	serverOpts = append(serverOpts, grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.ChainUnaryInterceptor(sharedGRPC.RequireServiceIdentity(!cfg.IsProduction(), "scheduler-service", "api-gateway", "notification-service")))
 
 	grpcServer := grpc.NewServer(serverOpts...)
 	pb.RegisterPaymentServiceServer(grpcServer, paymentGRPC.NewPaymentGRPCServer(outboxRepo))
