@@ -16,6 +16,7 @@ import (
 	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/middleware"
+	"github.com/bashocode/gowallet/microservices/shared/tracing"
 	"github.com/bashocode/gowallet/microservices/transaction-service/internal/dlq"
 	transactionCache "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/cache"
 	transactionGRPC "github.com/bashocode/gowallet/microservices/transaction-service/internal/transaction/grpc"
@@ -28,6 +29,8 @@ import (
 	pbUser "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
@@ -36,6 +39,18 @@ func main() {
 	logger.Log.Info("Starting Transaction Microservice...")
 
 	cfg := config.LoadConfig()
+
+	// Initialize OpenTelemetry Tracer
+	tp, err := tracing.InitTracer("transaction-service", cfg.OTELCollectorAddr)
+	if err != nil {
+		logger.Log.Warn("Failed to initialize tracer, continuing without tracing: " + err.Error())
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = tp.Shutdown(shutdownCtx)
+		}()
+	}
 
 	// Connect to Redis (required by AuthMiddleware)
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)
@@ -71,6 +86,7 @@ func main() {
 	userConn, err := grpc.NewClient(
 		cfg.UserGRPCAddr,
 		grpc.WithTransportCredentials(userCreds),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("transaction-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -110,6 +126,7 @@ func main() {
 	walletConn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
 		grpc.WithTransportCredentials(walletCreds),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("transaction-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -149,6 +166,7 @@ func main() {
 	ledgerConn, err := grpc.NewClient(
 		cfg.LedgerGRPCAddr,
 		grpc.WithTransportCredentials(ledgerCreds),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("transaction-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -242,7 +260,8 @@ func main() {
 
 	serverOpts = append(
 		serverOpts,
-		grpc.UnaryInterceptor(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.ChainUnaryInterceptor(
 			sharedGRPC.RequireServiceIdentity(
 				!cfg.IsProduction(),
 				"api-gateway",
@@ -268,6 +287,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
+	r.Use(otelgin.Middleware("transaction-service"))
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.CorrelationID())
 

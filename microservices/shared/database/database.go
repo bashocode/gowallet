@@ -9,6 +9,7 @@ import (
 )
 
 func ConnectWithRetry(dsn string) (*sql.DB, error) {
+	initTracedDriver()
 	var db *sql.DB
 	var err error
 	maxRetries := 5
@@ -17,7 +18,7 @@ func ConnectWithRetry(dsn string) (*sql.DB, error) {
 	for i := 1; i <= maxRetries; i++ {
 		logger.Log.Info("Connecting to database", "attempt", i, "max_retries", maxRetries)
 
-		db, err = sql.Open("mysql", dsn)
+		db, err = sql.Open(tracedDriverName, dsn)
 		if err == nil {
 			// do ping for make sure connection is alive
 			err = db.Ping()

@@ -15,9 +15,11 @@ import (
 	sharedGRPC "github.com/bashocode/gowallet/microservices/shared/grpc"
 	"github.com/bashocode/gowallet/microservices/shared/logger"
 	"github.com/bashocode/gowallet/microservices/shared/storage"
+	"github.com/bashocode/gowallet/microservices/shared/tracing"
 	txPb "github.com/bashocode/gowallet/microservices/transaction-service/proto/transaction"
 	userPb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	walletPb "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
@@ -26,6 +28,18 @@ func main() {
 	logger.Log.Info("Starting Centralized Scheduler Service...")
 
 	cfg := config.LoadConfig()
+
+	// Initialize OpenTelemetry Tracer
+	tp, err := tracing.InitTracer("scheduler-service", cfg.OTELCollectorAddr)
+	if err != nil {
+		logger.Log.Warn("Failed to initialize tracer, continuing without tracing: " + err.Error())
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = tp.Shutdown(shutdownCtx)
+		}()
+	}
 
 	authCreds, err := sharedGRPC.GetClientDialCredentials(
 		cfg.IsProduction(),
@@ -41,6 +55,7 @@ func main() {
 	authConn, err := grpc.NewClient(
 		cfg.AuthGRPCAddr,
 		grpc.WithTransportCredentials(authCreds),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("scheduler-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -79,6 +94,7 @@ func main() {
 	walletConn, err := grpc.NewClient(
 		cfg.WalletGRPCAddr,
 		grpc.WithTransportCredentials(walletCreds),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("scheduler-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -116,6 +132,7 @@ func main() {
 	txConn, err := grpc.NewClient(
 		cfg.TransactionGRPCAddr,
 		grpc.WithTransportCredentials(txCreds),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("scheduler-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -153,6 +170,7 @@ func main() {
 	userConn, err := grpc.NewClient(
 		cfg.UserGRPCAddr,
 		grpc.WithTransportCredentials(userCreds),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("scheduler-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),
@@ -190,6 +208,7 @@ func main() {
 	payConn, err := grpc.NewClient(
 		cfg.PaymentGRPCAddr,
 		grpc.WithTransportCredentials(payCreds),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
 			sharedGRPC.UnaryClientIdentity("scheduler-service"),
 			sharedGRPC.UnaryClientTimeout(5*time.Second),

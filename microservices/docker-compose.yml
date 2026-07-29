@@ -101,6 +101,17 @@ services:
     networks:
       - gowallet-network
     restart: unless-stopped
+  
+  jaeger:
+    image: jaegertracing/all-in-one:1.55
+    container_name: gowallet-jaeger
+    ports:
+      - "127.0.0.1:${JAEGER_UI_PORT}:${JAEGER_UI_PORT}"
+      - "127.0.0.1:${JAEGER_GRPC_PORT}:${JAEGER_GRPC_PORT}"
+      - "127.0.0.1:${JAEGER_HTTP_PORT}:${JAEGER_HTTP_PORT}"
+    networks:
+      - gowallet-network
+    restart: always
 
   # === Application Services ===
   api-gateway:
@@ -123,6 +134,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       WEBSOCKET_CHANNEL: ${WEBSOCKET_CHANNEL}
+      OTEL_COLLECTOR_ADDR: ${OTEL_COLLECTOR_ADDR}
       GRPC_SSL_CA_PATH: /certs/ca.crt
       GRPC_SSL_CERT_PATH: /certs/api-gateway.crt
       GRPC_SSL_KEY_PATH: /certs/api-gateway.key
@@ -175,6 +187,7 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
+      - OTEL_COLLECTOR_ADDR=${OTEL_COLLECTOR_ADDR}
       - GRPC_SSL_CA_PATH=/certs/ca.crt
       - GRPC_SSL_CERT_PATH=/certs/auth-service.crt
       - GRPC_SSL_KEY_PATH=/certs/auth-service.key
@@ -253,6 +266,7 @@ services:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - JWT_SECRET=${JWT_SECRET}
+      - OTEL_COLLECTOR_ADDR=${OTEL_COLLECTOR_ADDR}
       - GRPC_SSL_CA_PATH=/certs/ca.crt
       - GRPC_SSL_CERT_PATH=/certs/wallet-service.crt
       - GRPC_SSL_KEY_PATH=/certs/wallet-service.key

@@ -5,39 +5,37 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type ReverseProxy struct {
-	target *url.URL
-	proxy  *httputil.ReverseProxy
+	proxy *httputil.ReverseProxy
 }
 
 func NewReverseProxy(targetURL string) (*ReverseProxy, error) {
-	url, err := url.Parse(targetURL)
+	target, err := url.Parse(targetURL)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create Go's built-in reverse proxy with Rewrite only
-	proxy := &httputil.ReverseProxy{
-		Rewrite: func(r *httputil.ProxyRequest) {
-			r.SetURL(url)
-			r.Out.Header.Set("X-Forwarded-Host", r.In.Header.Get("Host"))
+	rp := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+			pr.Out.RequestURI = ""
+			pr.Out.Header.Set("X-Forwarded-Host", pr.In.Host)
 
-			// Inject & forward Request Correlation ID for distributed logging
-			corID := r.In.Header.Get("X-Correlation-ID")
-			if corID == "" {
-				corID = uuid.New().String()
+			// Forward correlation ID
+			if correlationID := pr.In.Header.Get("X-Correlation-ID"); correlationID != "" {
+				pr.Out.Header.Set("X-Correlation-ID", correlationID)
 			}
-			r.Out.Header.Set("X-Correlation-ID", corID)
+
+			// Propagate OpenTelemetry trace context to downstream service
+			otel.GetTextMapPropagator().Inject(pr.In.Context(), propagation.HeaderCarrier(pr.Out.Header))
 		},
 	}
 
-	return &ReverseProxy{
-		target: url,
-		proxy:  proxy,
-	}, nil
+	return &ReverseProxy{proxy: rp}, nil
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
