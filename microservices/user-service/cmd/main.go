@@ -23,6 +23,7 @@ import (
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/repository"
 	"github.com/bashocode/gowallet/microservices/user-service/internal/user/service"
 	userWorker "github.com/bashocode/gowallet/microservices/user-service/internal/user/worker"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	pb "github.com/bashocode/gowallet/microservices/user-service/proto/user"
 	pbWallet "github.com/bashocode/gowallet/microservices/wallet-service/proto/wallet"
@@ -151,9 +152,13 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
+	r.Use(middleware.PrometheusMetrics())
 	r.Use(otelgin.Middleware("user-service"))
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.CorrelationID())
+
+	// Metrics endpoint for Prometheus
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	r.GET("/live", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "UP"})
