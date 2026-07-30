@@ -22,10 +22,12 @@ import (
 )
 
 func main() {
-	logger.InitLogger()
-	logger.Info(context.Background(), "starting notification-service...")
-
 	cfg := config.LoadConfig()
+	logger.InitLogger(
+		logger.WithServiceName("notification-service"),
+		logger.WithLogstashAddr(cfg.LogstashAddr),
+	)
+	logger.Info(context.Background(), "starting notification-service...")
 
 	// Initialize OpenTelemetry Tracer
 	tp, err := tracing.InitTracer("notification-service", cfg.OTELCollectorAddr)

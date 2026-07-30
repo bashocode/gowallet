@@ -31,11 +31,12 @@ import (
 )
 
 func main() {
-	// Logger initializes automatically on import, but InitLogger remains available
-	logger.InitLogger()
-	logger.Log.Info("Starting Auth Microservice...")
-
 	cfg := config.LoadConfig()
+	logger.InitLogger(
+		logger.WithServiceName("auth-service"),
+		logger.WithLogstashAddr(cfg.LogstashAddr),
+	)
+	logger.Log.Info("Starting Auth Microservice...")
 
 	// Connect to Redis (for token blacklisting)
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)

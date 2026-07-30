@@ -34,10 +34,12 @@ import (
 )
 
 func main() {
-	logger.InitLogger()
-	logger.Log.Info("Starting User Microservice...")
-
 	cfg := config.LoadConfig()
+	logger.InitLogger(
+		logger.WithServiceName("user-service"),
+		logger.WithLogstashAddr(cfg.LogstashAddr),
+	)
+	logger.Log.Info("Starting User Microservice...")
 
 	// Initialize OpenTelemetry Tracer
 	tp, err := tracing.InitTracer("user-service", cfg.OTELCollectorAddr)

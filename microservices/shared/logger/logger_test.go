@@ -22,6 +22,17 @@ func TestLoggerHelpers(t *testing.T) {
 	Warn(ctx, "warn message", "key", "value")
 	Error(ctx, "error message", "key", "value")
 
-	// Test nil context
+// Test nil context
 	Info(nil, "nil context message")
+}
+
+func TestInitLoggerWithOptions(t *testing.T) {
+	InitLogger(
+		WithServiceName("test-service"),
+		WithLogstashAddr("127.0.0.1:59999"), // Unreachable port to test fallback
+	)
+
+	if Log == nil {
+		t.Fatal("expected logger.Log to be initialized, got nil")
+	}
 }

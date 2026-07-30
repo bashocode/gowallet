@@ -24,10 +24,12 @@ import (
 )
 
 func main() {
-	logger.InitLogger()
-	logger.Log.Info("Starting Centralized Scheduler Service...")
-
 	cfg := config.LoadConfig()
+	logger.InitLogger(
+		logger.WithServiceName("scheduler-service"),
+		logger.WithLogstashAddr(cfg.LogstashAddr),
+	)
+	logger.Log.Info("Starting Centralized Scheduler Service...")
 
 	// Initialize OpenTelemetry Tracer
 	tp, err := tracing.InitTracer("scheduler-service", cfg.OTELCollectorAddr)
