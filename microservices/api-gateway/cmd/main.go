@@ -44,6 +44,10 @@ import (
 func main() {
 	// Load configuration
 	cfg := config.LoadConfig()
+	logger.InitLogger(
+		logger.WithServiceName("api-gateway"),
+		logger.WithLogstashAddr(cfg.LogstashAddr),
+	)
 	logger.Log.Info("Starting API Gateway on port " + cfg.GatewayPort + "...")
 
 	// 1. Connect to Redis for RateLimiter (fail-open: skip if unavailable)

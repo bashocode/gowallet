@@ -31,10 +31,13 @@ import (
 )
 
 func main() {
-	logger.InitLogger()
-	logger.Log.Info("Starting Ledger Microservice...")
-
 	cfg := config.LoadConfig()
+
+	logger.InitLogger(
+		logger.WithServiceName("ledger-service"),
+		logger.WithLogstashAddr(cfg.LogstashAddr),
+	)
+	logger.Log.Info("Starting Ledger Microservice...")
 
 	// Initialize OpenTelemetry Tracer
 	tp, err := tracing.InitTracer("ledger-service", cfg.OTELCollectorAddr)
