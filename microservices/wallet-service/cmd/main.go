@@ -30,10 +30,13 @@ import (
 )
 
 func main() {
-	logger.InitLogger()
-	logger.Log.Info("Starting Wallet Microservice...")
-
 	cfg := config.LoadConfig()
+
+	logger.InitLogger(
+		logger.WithServiceName("wallet-service"),
+		logger.WithLogstashAddr(cfg.LogstashAddr),
+	)
+	logger.Log.Info("Starting Wallet Microservice...")
 
 	// Connect to Redis (required by AuthMiddleware)
 	rdb, err := database.ConnectRedis(cfg.RedisAddr)

@@ -16,10 +16,12 @@ import (
 )
 
 func main() {
-	logger.InitLogger()
-	logger.Info(context.Background(), "starting audit-service...")
-
 	cfg := config.LoadConfig()
+	logger.InitLogger(
+		logger.WithServiceName("audit-service"),
+		logger.WithLogstashAddr(cfg.LogstashAddr),
+	)
+	logger.Info(context.Background(), "starting audit-service...")
 
 	// Initialize OpenTelemetry Tracer
 	tp, err := tracing.InitTracer("audit-service", cfg.OTELCollectorAddr)

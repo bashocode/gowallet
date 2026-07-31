@@ -70,6 +70,7 @@ type Config struct {
 	AllowedOrigins        string `mapstructure:"ALLOWED_ORIGINS"`
 	WebSocketChannel      string `mapstructure:"WEBSOCKET_CHANNEL"`
 	OTELCollectorAddr     string `mapstructure:"OTEL_COLLECTOR_ADDR"`
+	LogstashAddr          string `mapstructure:"LOGSTASH_ADDR"`
 }
 
 func LoadConfig() *Config {
@@ -183,6 +184,7 @@ func setDefaults() {
 	viper.SetDefault("ALLOWED_ORIGINS", "http://localhost:3000")
 	viper.SetDefault("WEBSOCKET_CHANNEL", "websocket:notifications")
 	viper.SetDefault("OTEL_COLLECTOR_ADDR", "localhost:4317")
+	viper.SetDefault("LOGSTASH_ADDR", "localhost:5000")
 }
 
 func validateProductionSecrets(cfg *Config) {
