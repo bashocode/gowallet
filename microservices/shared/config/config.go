@@ -222,7 +222,7 @@ func bindEnvVars(cfg interface{}) {
 		field := t.Field(i)
 		tag := field.Tag.Get("mapstructure")
 		if tag != "" {
-			viper.BindEnv(tag)
+			_ = viper.BindEnv(tag)
 		}
 	}
 }

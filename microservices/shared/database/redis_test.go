@@ -17,9 +17,8 @@ func TestConnectRedis(t *testing.T) {
 		t.Skipf("Skipping Redis integration test: redis not reachable: %v", err)
 		return
 	}
-	defer rdb.Close()
-
 	if rdb == nil {
 		t.Fatal("expected redis client to be non-nil")
 	}
+	defer rdb.Close()
 }

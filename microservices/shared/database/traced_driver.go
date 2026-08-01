@@ -52,6 +52,7 @@ func (c *tracedConn) Close() error {
 	return c.conn.Close()
 }
 
+//nolint:staticcheck // SA1019: implementing driver.Conn interface fallback
 func (c *tracedConn) Begin() (driver.Tx, error) {
 	return c.conn.Begin()
 }
@@ -70,6 +71,7 @@ func (c *tracedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver
 		}
 		return &tracedTx{tx: tx}, nil
 	}
+	//nolint:staticcheck // SA1019: fallback for legacy drivers
 	tx, err := c.conn.Begin()
 	if err != nil {
 		span.RecordError(err)
@@ -143,10 +145,12 @@ func (s *tracedStmt) NumInput() int {
 	return s.stmt.NumInput()
 }
 
+//nolint:staticcheck // SA1019: implementing driver.Stmt interface fallback
 func (s *tracedStmt) Exec(args []driver.Value) (driver.Result, error) {
 	return s.stmt.Exec(args)
 }
 
+//nolint:staticcheck // SA1019: implementing driver.Stmt interface fallback
 func (s *tracedStmt) Query(args []driver.Value) (driver.Rows, error) {
 	return s.stmt.Query(args)
 }
@@ -170,6 +174,7 @@ func (s *tracedStmt) ExecContext(ctx context.Context, args []driver.NamedValue) 
 		}
 		return res, err
 	}
+	//nolint:staticcheck // SA1019: fallback for legacy drivers
 	return s.stmt.Exec(namedToValues(args))
 }
 
@@ -192,6 +197,7 @@ func (s *tracedStmt) QueryContext(ctx context.Context, args []driver.NamedValue)
 		}
 		return rows, err
 	}
+	//nolint:staticcheck // SA1019: fallback for legacy drivers
 	return s.stmt.Query(namedToValues(args))
 }
 

@@ -18,6 +18,7 @@ func InitTracer(serviceName string, collectorAddr string) (*sdktrace.TracerProvi
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	//nolint:staticcheck // SA1019: grpc.DialContext deprecated in favor of NewClient
 	conn, err := grpc.DialContext(ctx, collectorAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),

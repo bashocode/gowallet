@@ -423,7 +423,21 @@ Triggered automatically on `push` and `pull_request` affecting `microservices/**
 ```bash
 cd microservices
 cp .env.example .env
-docker compose up --build
+docker compose up --build -d
+```
+
+### Running Observability & Tooling Services (Docker Profiles)
+
+Optional tooling and observability services (Jaeger, Prometheus, Grafana, ELK Stack, SonarQube) are configured using Docker Compose profiles:
+
+```bash
+# Run core microservices + ALL tooling & observability services
+docker compose --profile tools up -d
+
+# Or run specific tool profiles individually:
+docker compose --profile monitor up -d  # Jaeger, Prometheus, Grafana
+docker compose --profile elk up -d      # Elasticsearch, Logstash, Kibana
+docker compose --profile sonar up -d    # SonarQube Quality Gate
 ```
 
 **Service & Infrastructure Endpoints:**

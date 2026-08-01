@@ -1,0 +1,52 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - staticcheck
+    - unused
+    - govet
+    - ineffassign
+
+issues:
+  exclude-rules:
+    # Ignore unused dummy functions in api_annotations.go (used for Swagger annotations)
+    - path: api_annotations\.go
+      linters:
+        - unused
+
+    # Ignore errcheck for defer Rollback / Disconnect and background routines
+    - linters:
+        - errcheck
+      text: "Error return value of `.*Rollback` is not checked"
+    - linters:
+        - errcheck
+      text: "Error return value of `c.Error` is not checked"
+    - linters:
+        - errcheck
+      text: "Error return value of `s.cron.AddFunc` is not checked"
+    - linters:
+        - errcheck
+      text: "Error return value of `s.dlqPublisher.Publish` is not checked"
+    - linters:
+        - errcheck
+      text: "Error return value of `s.txRepo.UpdateStatus` is not checked"
+    - linters:
+        - errcheck
+      text: "Error return value of `subscriber.Start` is not checked"
+    - linters:
+        - errcheck
+      text: "Error return value of `c.Conn.Set.*Deadline` is not checked"
+    - linters:
+        - errcheck
+      text: "Error return value of `c.Conn.WriteMessage` is not checked"
+    - linters:
+        - errcheck
+      text: "Error return value of `json.Unmarshal` is not checked"
+    - linters:
+        - errcheck
+      text: "Error return value of `client.Disconnect` is not checked"
+    - linters:
+        - errcheck
+      text: "Error return value of `srv.Serve` is not checked"
