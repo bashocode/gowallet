@@ -64,10 +64,14 @@ RabbitMQ exchanges and queues featuring:
 - **Stripe Payment Processing**: Checkout session creation, signature validation for webhooks, and a pipeline to process top-ups upon payment settlement.
 - **External Wallet Provider Integration**: User inquiry API, external transfer initiation, HMAC-signed callback verification, and state transitions from pending to settled.
 
-### **Operational Automation**
+### **Observability & Operational Automation**
+- **Distributed Tracing (OpenTelemetry + Jaeger)**: W3C trace context propagation across HTTP API Gateway, gRPC microservices, and RabbitMQ message headers to track latencies in Jaeger UI (`:16686`).
+- **Metrics Monitoring (Prometheus + Grafana)**: Custom metrics scraping across microservices visualized in real-time Grafana dashboards (`:3000`).
+- **Centralized Logging (ELK Stack)**: Structured Go `slog` JSON logs streamed via TCP sockets directly to Logstash (`:5000`), indexed into Elasticsearch, and searchable in Kibana (`:5601`).
+- **Static Code Analysis (SonarQube)**: Automated quality gate scanning (`sonar-project.properties`), vulnerability detection, and code coverage integration (`coverage.out`) in SonarQube (`:9000`).
+- **Continuous Integration (CI/CD)**: GitHub Actions workflow (`.github/workflows/ci.yml`) acting as the **First Gatekeeper** for Pull Requests (`golangci-lint`, containerized tests with MySQL/Redis sidecars, SonarScan) and triggering downstream Jenkins pipelines for internal builds.
 - **Automated Maintenance Jobs**: Scheduler service runs cron-orchestrated jobs for expired OTP cleanup, stale refresh token pruning, daily balance reconciliation, daily transaction reports, and outbox archival.
 - **Object Storage Lifecycle**: Completed outbox events are archived to MinIO with date-partitioned paths (`/outbox/{service}/{date}/{uuid}.json`) before deletion from operational databases.
-- **Observability**: Health check endpoints, structured logging, RabbitMQ management UI, MailHog for local email testing, and Swagger/OpenAPI documentation.
 
 ### **Security Implementation**
 - **JWT Access & Refresh Tokens**: Short-lived access tokens with secure refresh rotation.
@@ -329,6 +333,61 @@ sequenceDiagram
 
 ---
 
+## 📊 Observability & Quality Engineering
+
+The GoWallet microservices platform implements enterprise-grade observability and automated quality control:
+
+### 1. Distributed Tracing (OpenTelemetry & Jaeger)
+- **Trace Propagation**: Uses OpenTelemetry SDK (`go.opentelemetry.io/otel`) with W3C Trace Context headers propagated across HTTP endpoints, gRPC calls (`shared/tracing`), and RabbitMQ message headers.
+- **Jaeger UI (`http://localhost:16686`)**: Visualize end-to-end transaction traces, identify latency bottlenecks, and debug cross-service call trees.
+
+### 2. Metrics & Monitoring (Prometheus & Grafana)
+- **Metrics Exporters**: Prometheus metrics endpoints exposed across API Gateway and microservices.
+- **Grafana Dashboards (`http://localhost:3000`)**: Pre-configured dashboards monitoring request throughput, P95/P99 latency, error rates (5xx), gRPC status codes, and system health.
+
+### 3. Centralized Logging (ELK Stack)
+- **Log Streaming**: Structured JSON logs emitted by Go `log/slog` are streamed over TCP sockets to Logstash (`:5000`).
+- **Kibana UI (`http://localhost:5601`)**: Filter, search, and aggregate logs across all microservices using Elasticsearch index patterns (`gowallet-logs-YYYY.MM.dd`).
+
+### 4. Code Quality & Static Analysis (SonarQube)
+- **SonarQube Quality Gate (`http://localhost:9000`)**: Static code scanning configured via `sonar-project.properties`.
+- **Coverage Integration**: Maps Go unit test coverage (`coverage.out`) directly into SonarQube metrics to track unit test density, code smells, and security vulnerabilities.
+- **Local Automation**: Managed via Makefile commands (`make sonar-start`, `make sonar-coverage`, `make sonar-scan`, `make sonar-stop`).
+
+---
+
+## 🔄 CI/CD Pipeline Architecture (GitHub Actions & Jenkins)
+
+GoWallet utilizes a **Hybrid Enterprise CI/CD Setup** to separate PR verification from internal infrastructure deployment:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ SCENARIO 1: Pure GitHub Actions (Cloud-Native)                             │
+│ Developer Push ──► GitHub Actions (Lint + Test + SonarScan + Docker Build)  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ SCENARIO 2: Hybrid Enterprise Architecture (GitHub Actions + Jenkins)       │
+│ Developer Push ──► GitHub Actions (PR Verification: `make test` + Sonar)    │
+│                        │                                                    │
+│                  (PR Merged)                                                │
+│                        ▼                                                    │
+│                 Webhook Event                                               │
+│                        ▼                                                    │
+│            Jenkins (Self-Hosted in Private VPC)                             │
+│                  └─► Docker Build & Deployment to Internal Infra           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### **GitHub Actions Pipeline (`.github/workflows/ci.yml`)**
+Triggered automatically on `push` and `pull_request` affecting `microservices/**`:
+- **Job 1: `lint` (Code Linting)**: Runs `golangci-lint` to enforce Go code quality standards.
+- **Job 2: `test` (Automated Unit Testing & Coverage)**: Spins up **MySQL 8.0** & **Redis 7-Alpine** container sidecars, executes `go test ./... -coverprofile=coverage.out`, and uploads the coverage artifact (`coverage-report`).
+- **Job 3: `sonarqube` (SonarQube Code Analysis)**: Downloads `coverage-report` and performs automated static code scanning via `sonarsource/sonarqube-scan-action`.
+- **Downstream Automation**: Upon merging into `main`, GitHub Actions triggers a secure webhook payload to a self-hosted **Jenkins** server in a private VPC for container image building and staging/production deployments.
+
+---
+
 ## 🛠️ Technology Stack
 
 | Layer | Technologies |
@@ -342,6 +401,11 @@ sequenceDiagram
 | **Message Broker** | RabbitMQ 3.12 (event bus) |
 | **Object Storage** | MinIO (S3-compatible) |
 | **Payment Gateway** | Stripe API |
+| **Distributed Tracing** | OpenTelemetry SDK, Jaeger Tracing |
+| **Metrics & Monitoring** | Prometheus, Grafana |
+| **Centralized Logging** | ELK Stack (Elasticsearch, Logstash, Kibana) |
+| **Code Quality & Analysis**| SonarQube Community Edition, golangci-lint |
+| **CI/CD Automation** | GitHub Actions, Jenkins |
 | **API Documentation** | Swagger/OpenAPI |
 | **Orchestration** | Docker Compose |
 | **Testing** | Go test, sqlmock, redismock, bufconn |
@@ -362,12 +426,17 @@ cp .env.example .env
 docker compose up --build
 ```
 
-**Service Endpoints:**
-- API Gateway: http://localhost:8080
-- Swagger UI: http://localhost:8080/swagger/index.html
-- RabbitMQ Management: http://localhost:15672 (guest/guest)
-- MailHog UI: http://localhost:8025
-- MinIO Console: http://localhost:9001 (minioadmin/minioadmin)
+**Service & Infrastructure Endpoints:**
+- **API Gateway**: http://localhost:8080
+- **Swagger UI**: http://localhost:8080/swagger/index.html
+- **Jaeger Tracing UI**: http://localhost:16686
+- **Grafana Dashboard**: http://localhost:3000 (admin/admin)
+- **Prometheus Server**: http://localhost:9090
+- **Kibana Log Search**: http://localhost:5601
+- **SonarQube Quality Gate**: http://localhost:9000 (admin/admin)
+- **RabbitMQ Management**: http://localhost:15672 (guest/guest)
+- **MinIO Console**: http://localhost:9001 (minioadmin/minioadmin)
+- **MailHog UI**: http://localhost:8025
 
 ### Run Tests
 

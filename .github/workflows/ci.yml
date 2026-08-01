@@ -2,13 +2,15 @@ name: GoWallet CI Pipeline
 
 on:
   push:
-    branches: [ main, develop, master ]
+    branches: [ main, master ]
     paths:
       - 'microservices/**'
+      - '.github/workflows/**'
   pull_request:
-    branches: [ main, develop, master ]
+    branches: [ main, develop, master, 'feature/**' ]
     paths:
       - 'microservices/**'
+      - '.github/workflows/**'
 
 jobs:
   # Job 1: Linting Check
