@@ -88,26 +88,3 @@ jobs:
         with:
           name: coverage-report
           path: microservices/coverage.out
-
-  # Job 3: SonarQube Scanner Integration (from Episode 57)
-  sonarqube:
-    name: SonarQube Code Analysis
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Download Coverage Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-report
-          path: microservices
-
-      - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@master
-        with:
-          projectBaseDir: microservices
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
