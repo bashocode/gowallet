@@ -100,6 +100,10 @@ services:
       - gowallet-network
     restart: unless-stopped
   
+  # docker compose --profile tools up -d
+  # docker compose --profile monitor up -d
+  # docker compose --profile elk up -d
+  # docker compose --profile sonar up -d
   jaeger:
     image: jaegertracing/all-in-one:1.55
     container_name: gowallet-jaeger
@@ -110,6 +114,9 @@ services:
     networks:
       - gowallet-network
     restart: always
+    profiles:
+      - monitor
+      - tools
 
   prometheus:
     image: prom/prometheus:v2.50.0
@@ -122,6 +129,9 @@ services:
     networks:
       - gowallet-network
     restart: always
+    profiles:
+      - monitor
+      - tools
 
   grafana:
     image: grafana/grafana:10.3.3
@@ -133,6 +143,9 @@ services:
     networks:
       - gowallet-network
     restart: always
+    profiles:
+      - monitor
+      - tools
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
@@ -148,6 +161,9 @@ services:
     networks:
       - gowallet-network
     restart: always
+    profiles:
+      - elk
+      - tools
 
   logstash:
     image: docker.elastic.co/logstash/logstash:8.12.0
@@ -163,6 +179,9 @@ services:
     networks:
       - gowallet-network
     restart: always
+    profiles:
+      - elk
+      - tools
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.12.0
@@ -176,6 +195,27 @@ services:
     networks:
       - gowallet-network
     restart: always
+    profiles:
+      - elk
+      - tools
+
+  sonarqube:
+    image: sonarqube:community
+    container_name: gowallet-sonarqube
+    ports:
+      - "127.0.0.1:${SONARQUBE_PORT}:9000"
+    environment:
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+    profiles:
+      - sonar
+      - tools
 
   # === Application Services ===
   api-gateway:
@@ -576,6 +616,9 @@ volumes:
   prometheus_data:
   grafana_data:
   elasticsearch_data:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
 
 networks:
   gowallet-network:
