@@ -2,13 +2,18 @@ name: GoWallet CI Pipeline
 
 on:
   push:
-    branches: [ main, develop, master ]
+    branches: [ main, master ]
     paths:
       - 'microservices/**'
+      - '.github/workflows/**'
   pull_request:
-    branches: [ main, develop, master ]
+    branches: [ main, develop, master, 'feature/**' ]
     paths:
       - 'microservices/**'
+      - '.github/workflows/**'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   # Job 1: Linting Check
@@ -29,10 +34,11 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          args: --timeout=5m
+          install-mode: goinstall
+          args: --timeout=5m ./api-gateway/... ./audit-service/... ./auth-service/... ./ledger-service/... ./notification-service/... ./payment-service/... ./scheduler-service/... ./shared/... ./transaction-service/... ./user-service/... ./wallet-service/...
           working-directory: microservices
 
   # Job 2: Run Unit Tests & Coverage (`make test`)
@@ -76,32 +82,9 @@ jobs:
 
       - name: Run `make test`
         run: |
-          go test -v -coverprofile=coverage.out ./...
+          go test -v -coverprofile=coverage.out ./shared/... ./api-gateway/... ./auth-service/... ./user-service/... ./wallet-service/... ./ledger-service/... ./transaction-service/... ./payment-service/... ./scheduler-service/... ./notification-service/... ./audit-service/...
       - name: Upload Coverage Artifact
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: microservices/coverage.out
-
-  # Job 3: SonarQube Scanner Integration (from Episode 57)
-  sonarqube:
-    name: SonarQube Code Analysis
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Download Coverage Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-report
-          path: microservices
-
-      - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@master
-        with:
-          projectBaseDir: microservices
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

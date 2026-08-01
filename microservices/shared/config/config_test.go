@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/bashocode/gowallet/microservices/shared/logger"
+	"github.com/spf13/viper"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -48,6 +49,9 @@ func TestLoadConfig(t *testing.T) {
 
 func TestLoadConfigDefaults(t *testing.T) {
 	logger.InitLogger()
+	viper.Reset()
+	t.Chdir(t.TempDir())
+
 	// Clear env vars that have defaults
 	os.Unsetenv("SMTP_HOST")
 	os.Unsetenv("SMTP_PORT")
@@ -56,7 +60,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 	cfg := LoadConfig()
 
-	if cfg.SMTPHost != "127.0.0.1" {
+	if cfg.SMTPHost != "localhost" {
 		t.Errorf("expected default SMTPHost to be 'localhost', got %q", cfg.SMTPHost)
 	}
 	if cfg.SMTPPort != "1025" {

@@ -16,7 +16,9 @@ var (
 	mu  sync.Mutex
 )
 
-const CorrelationIDKey = "correlation_id"
+type ContextKey string
+
+const CorrelationIDKey ContextKey = "correlation_id"
 
 type safeWriter struct {
 	mu          sync.Mutex
