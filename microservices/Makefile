@@ -23,7 +23,7 @@ SERVICES := api-gateway auth-service user-service wallet-service ledger-service 
 DB_SERVICES := auth-service user-service wallet-service ledger-service transaction-service payment-service notification-service
 
 # Mark the targets below as abstract commands (not physical files)
-.PHONY: all build-linux build-native clean help tidy tidy-shared test migrate-up migrate-down migrate-status migrate-reset migrate-create proto
+.PHONY: all build-linux build-native clean help tidy tidy-shared test migrate-up migrate-down migrate-status migrate-reset migrate-create proto sonar-start sonar-stop sonar-coverage sonar-scan
 
 # Default target if you run the `make` command without any arguments
 all: help
@@ -235,6 +235,68 @@ migrate-create:
 	@migrate create -ext sql -dir $(service)/db/migrations -seq $(name)
 	@echo "Created! Edit the .up.sql and .down.sql files."
 
+# ==============================================================================
+# SONARQUBE STATIC CODE ANALYSIS
+# ==============================================================================
+# SonarQube performs static code analysis to detect bugs, vulnerabilities,
+# code smells, and measure test coverage. It provides a web dashboard at
+# http://localhost:9000 for viewing quality metrics and trends.
+
+# SonarQube token (generate from http://localhost:9000 after setup)
+# Override with: make sonar-scan SONAR_TOKEN=your_token_here
+SONAR_TOKEN ?=
+SONARQUBE_PORT ?= 9009
+
+## sonar-start: Start SonarQube server using Docker
+# Default credentials: admin/admin (you'll be prompted to change on first login)
+sonar-start:
+	@echo "Starting SonarQube server..."
+	@docker compose --profile sonar up -d sonarqube
+	@echo "SonarQube is starting up (this takes ~60 seconds)..."
+	@echo "Once ready, open http://localhost:$(SONARQUBE_PORT)"
+	@echo "Default login: admin/admin"
+
+## sonar-stop: Stop SonarQube container
+sonar-stop:
+	@echo "Stopping SonarQube server..."
+	@docker compose --profile sonar stop sonarqube 2>/dev/null || true
+	@echo "SonarQube stopped."
+
+## sonar-coverage: Generate Go test coverage report for SonarQube
+sonar-coverage:
+	@echo "Running tests and generating coverage report..."
+	@go test ./shared/... ./api-gateway/... ./auth-service/... ./user-service/... ./wallet-service/... ./ledger-service/... ./transaction-service/... ./payment-service/... ./scheduler-service/... ./notification-service/... ./audit-service/... -coverprofile=coverage.out
+	@echo "Coverage report generated: coverage.out"
+
+## sonar-scan: Run SonarQube scanner (requires SONAR_TOKEN)
+# Usage: make sonar-scan SONAR_TOKEN=your_token_here
+# Prerequisites:
+#   1. SonarQube server must be running (make sonar-start)
+#   2. Generate token from http://localhost:$(SONARQUBE_PORT) (My Account > Security > Generate Token)
+#   3. Coverage report must exist (make sonar-coverage)
+sonar-scan:
+	@if [ -z "$(SONAR_TOKEN)" ]; then \
+		echo "Error: SONAR_TOKEN is required."; \
+		echo "Usage: make sonar-scan SONAR_TOKEN=your_token_here"; \
+		echo ""; \
+		echo "To generate a token:"; \
+		echo "  1. Open http://localhost:$(SONARQUBE_PORT)"; \
+		echo "  2. Login (default: admin/admin)"; \
+		echo "  3. Go to My Account > Security > Generate Token"; \
+		exit 1; \
+	fi
+	@if [ ! -f "coverage.out" ]; then \
+		echo "Error: coverage.out not found. Run 'make sonar-coverage' first."; \
+		exit 1; \
+	fi
+	@echo "Running SonarQube scanner..."
+	@docker run --rm \
+		-e SONAR_HOST_URL="http://host.docker.internal:$(SONARQUBE_PORT)" \
+		-v "$(shell pwd):/usr/src" \
+		sonarsource/sonar-scanner-cli \
+		-Dsonar.token="$(SONAR_TOKEN)"
+	@echo "Scan complete! View results at http://localhost:$(SONARQUBE_PORT)/dashboard?id=gowallet"
+
 ## help: Display the usage guide for available make commands
 help:
 	@echo "Usage:"
@@ -257,5 +319,11 @@ help:
 	@echo "  make migrate-status  - Show current migration version per service"
 	@echo "  make migrate-reset   - Rollback then re-apply (fresh start)"
 	@echo "  make migrate-create service=<svc> name=<name> - Create new migration"
+	@echo ""
+	@echo "SonarQube (Static Code Analysis):"
+	@echo "  make sonar-start     - Start SonarQube server with Docker"
+	@echo "  make sonar-stop      - Stop and remove SonarQube container"
+	@echo "  make sonar-coverage  - Generate test coverage report"
+	@echo "  make sonar-scan SONAR_TOKEN=<token> - Run SonarQube analysis"
 	@echo ""
 	@echo "  make help          - Show this help message"
