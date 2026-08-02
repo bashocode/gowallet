@@ -1,0 +1,99 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_REGISTRY = 'gowallet-registry.local'
+        IMAGE_TAG       = "${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('Checkout Source') {
+            steps {
+                echo 'Checking out source code from Git repository...'
+                checkout scm
+            }
+        }
+
+        stage('Verify Environment & Binaries') {
+            steps {
+                echo 'Verifying Go environment & Docker daemon availability...'
+                sh 'go version'
+                sh 'docker info'
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                echo 'Running unit tests for all microservices...'
+                dir('microservices') {
+                    sh 'make test'
+                }
+            }
+        }
+
+        stage('Build Linux Binaries') {
+            steps {
+                echo 'Building Go Microservices binaries for Linux target...'
+                dir('microservices') {
+                    sh 'make build-linux'
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+            steps {
+                echo 'Building Docker Images for GoWallet Microservices...'
+                dir('microservices') {
+                    script {
+                        def services = [
+                            'api-gateway',
+                            'auth-service',
+                            'user-service',
+                            'wallet-service',
+                            'ledger-service',
+                            'transaction-service',
+                            'payment-service',
+                            'scheduler-service',
+                            'notification-service',
+                            'audit-service'
+                        ]
+
+                        for (service in services) {
+                            sh """
+                                docker build -t ${DOCKER_REGISTRY}/${service}:${IMAGE_TAG} \
+                                    -t ${DOCKER_REGISTRY}/${service}:latest \
+                                    -f ${service}/Dockerfile .
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Staging Environment') {
+            steps {
+                withCredentials([file(
+                    credentialsId: 'gowallet-staging-env',
+                    variable: 'ENV_FILE'
+                )]) {
+                    dir('microservices') {
+                        sh 'docker compose --env-file "$ENV_FILE" -f docker-compose.yml up -d --build'
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Jenkins Pipeline completed successfully!'
+        }
+        failure {
+            echo '❌ Jenkins Pipeline failed! Please inspect logs.'
+        }
+        cleanup {
+            echo 'Cleaning up workspace...'
+            cleanWs()
+        }
+    }
+}

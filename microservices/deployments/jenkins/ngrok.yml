@@ -1,0 +1,8 @@
+version: "2"
+tunnels:
+  jenkins:
+    proto: http
+    addr: jenkins:8080
+  sonarqube:
+    proto: http
+    addr: sonarqube:9000

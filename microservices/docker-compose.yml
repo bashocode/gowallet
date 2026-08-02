@@ -217,6 +217,49 @@ services:
       - sonar
       - tools
 
+  jenkins:
+    build:
+      context: .
+      dockerfile: deployments/jenkins/Dockerfile
+    container_name: gowallet-jenkins
+    ports:
+      - "127.0.0.1:${JENKINS_PORT}:8080"
+      - "127.0.0.1:${JENKINS_AGENT_PORT}:50000"
+    volumes:
+      - jenkins_data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/workspace
+    group_add:
+      - "${DOCKER_GID:-0}"
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+    profiles:
+      - cicd
+      - tools
+
+  ngrok:
+    image: ngrok/ngrok:alpine
+    container_name: gowallet-ngrok
+    command: start --all --config /etc/ngrok.yml --log=stdout
+    ports:
+      - "127.0.0.1:${NGROK_PORT}:4040"
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    volumes:
+      - ./deployments/jenkins/ngrok.yml:/etc/ngrok.yml
+    depends_on:
+      - jenkins
+      - sonarqube
+    networks:
+      - gowallet-network
+    restart: unless-stopped
+    profiles:
+      - cicd
+      - tools
+
   # === Application Services ===
   api-gateway:
     build:
@@ -619,6 +662,7 @@ volumes:
   sonarqube_data:
   sonarqube_extensions:
   sonarqube_logs:
+  jenkins_data:
 
 networks:
   gowallet-network:
