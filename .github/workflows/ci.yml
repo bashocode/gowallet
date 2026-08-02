@@ -88,3 +88,31 @@ jobs:
         with:
           name: coverage-report
           path: microservices/coverage.out
+
+  # Job 3: SonarQube Code Analysis via Local ngrok Tunnel
+  sonarqube:
+    name: SonarQube Code Analysis
+    runs-on: ubuntu-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: microservices
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Coverage Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+          path: microservices
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          projectBaseDir: microservices

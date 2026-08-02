@@ -243,13 +243,16 @@ services:
   ngrok:
     image: ngrok/ngrok:alpine
     container_name: gowallet-ngrok
-    command: http jenkins:8080 --log=stdout
+    command: start --all --config /etc/ngrok.yml --log=stdout
     ports:
       - "127.0.0.1:${NGROK_PORT}:4040"
     environment:
       - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    volumes:
+      - ./deployments/jenkins/ngrok.yml:/etc/ngrok.yml
     depends_on:
       - jenkins
+      - sonarqube
     networks:
       - gowallet-network
     restart: unless-stopped
