@@ -28,12 +28,10 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 ENV GOPATH="/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
 
-# Create Go workspace
+# Create Go workspace and give jenkins user docker permissions
 RUN mkdir -p /go/bin /go/src /go/pkg && \
-    chmod -R 777 /go
-
-# Give jenkins user docker permissions
-RUN groupadd --system docker && \
+    chmod -R 777 /go && \
+    groupadd --system docker && \
     usermod -aG docker jenkins
 
 USER jenkins
