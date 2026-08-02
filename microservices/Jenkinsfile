@@ -72,9 +72,13 @@ pipeline {
 
         stage('Deploy to Staging Environment') {
             steps {
-                echo 'Deploying Microservices stack via Docker Compose...'
-                dir('microservices') {
-                    sh 'docker compose -f docker-compose.yml up -d --build'
+                withCredentials([file(
+                    credentialsId: 'gowallet-staging-env',
+                    variable: 'ENV_FILE'
+                )]) {
+                    dir('microservices') {
+                        sh 'docker compose --env-file "$ENV_FILE" -f docker-compose.yml up -d --build'
+                    }
                 }
             }
         }
